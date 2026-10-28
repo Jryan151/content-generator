@@ -765,12 +765,11 @@ export function styleCalibration(audiences = [], reads = [], min = 10) {
 // Every check a script can fail has an id here. Three kinds, the same everywhere (Studio, Fix a scene,
 // ✦ Ideas, the coach, automatic videos):
 //   locked   platform compliance: a claim that could mislead a client or break advertising rules. It
-//            always stops a render, can't be turned down (only shown, in Admin → Render rules), and
-//            comes with a one-tap fix so nobody is ever stuck.
+//            always stops a render, can't be turned down, and comes with a one-tap fix so nobody is
+//            ever stuck.
 //   the rest style and craft: each has a level for drafts people write (Studio, Fix a scene) and one for
 //            automatic videos: 'block' (must pass; the writer rewrites), 'warn' (a yellow note that never
-//            stops a render) or 'off'. Admin can change both, for everyone or one workspace (cfg.rules,
-//            filled in by the server: lib/rules.js).
+//            stops a render) or 'off', set here.
 // Some problems are fixed for the agent ('fix'): a highlighted word that differs only in capitals just
 // matches; one that isn't in the caption is picked from it; a missing footage search is filled in.
 export const RULES = {

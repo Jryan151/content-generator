@@ -1,7 +1,7 @@
 // v15 Phase 7 review fixes: the locked number and price rules in every video (automatic, Fix a scene,
 // Studio), approvals that name the version watched, the clip picker's scores kept on the server, spelling
 // that's fast and doesn't flag good copy, a new version not "too close" to the one it replaces, render
-// rules restored to the right workspace, the coach's Use all checked as a whole, a limit on versions,
+// the coach's Use all checked as a whole, a limit on versions,
 // changes requests that close themselves, and the lens's quotes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,6 @@ const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const queue = await import('../lib/queue.js');
 const studio = await import('../lib/studio.js');
-const rules = await import('../lib/rules.js');
 const spell = await import('../lib/spell.js');
 const lens = await import('../lib/lens.js');
 const paths = await import('../lib/paths.js');
@@ -124,7 +123,6 @@ test('spelling: quick on junk, quiet on good copy, and its fix changes only that
 
 test('a new version isn’t “too close” to the one it replaces; it replaces its recent entry too', async () => {
   const c = cfg(); store.saveConfig(ws.id, c);
-  rules.save(ws.id, { levels: { fresh: { draft: 'block' } } });
   const d = (await asst.post('/api/studio', { brief })).data.draft;
   await asst.put('/api/studio/' + d.id, { scenes: good() });
   video('rc1', { source: 'studio', by: sam.id, meta: { painPoint: 'Funeral costs', madeIn: 'studio', draftId: d.id } });
@@ -139,12 +137,6 @@ test('a new version isn’t “too close” to the one it replaces; it replaces 
   // …and while that version is being made, a fix (or another submit) waits.
   assert.equal((await agent.post('/api/videos/rc1/fix', { swaps: [1] })).status, 409);
   queue.cancel(ws.id, job.id);
-  // Another video with the same opening is still too close.
-  store.addRecent(ws.id, { hook: good()[0].text, videoId: 'other' });
-  studio.save(ws.id, d.id, { status: 'draft' });
-  const no = await asst.post(`/api/studio/${d.id}/render`);
-  assert.equal(no.status, 400); assert.ok(no.data.findings.some(f => f.rule === 'fresh' && f.kind === 'stop'));
-  rules.save(ws.id, {});
 });
 
 test('a video has at most MAX_VERSIONS versions', async () => {
@@ -160,14 +152,6 @@ test('a video has at most MAX_VERSIONS versions', async () => {
   studio.save(ws.id, d.id, { status: 'done', videoId: 'mv1' });
   const r = await asst.post(`/api/studio/${d.id}/render`);
   assert.equal(r.status, 409); assert.match(r.data.error, new RegExp(`${MAX_VERSIONS} versions`));
-});
-
-test('render rules: unknown and inherited names are dropped; restoring another workspace’s version shows that workspace', async () => {
-  assert.deepEqual(rules.clean(JSON.parse('{"levels":{"constructor":{"draft":"off"},"__proto__":{"draft":"off"},"cliche":{"draft":"block"}},"settings":{"toString":1},"lists":{"hasOwnProperty":{"add":["y"]}}}')), { levels: { cliche: { draft: 'block' } } });
-  await admin.post('/api/admin/rules', { scope: wsB.id, rules: { levels: { cliche: { draft: 'block' } } } });
-  const h = (await admin.get('/api/admin/rules?ws=' + ws.id)).data.history.find(x => x.scope === wsB.id);
-  const r = await admin.post('/api/admin/rules/restore', { id: h.id, which: 'before' });
-  assert.equal(r.status, 200); assert.equal(r.data.scope, wsB.id, 'the screen switches to the workspace it restored');
 });
 
 test('the coach’s Use all: lines checked together, a line that only works alone is marked so', () => {

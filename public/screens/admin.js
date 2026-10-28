@@ -66,7 +66,6 @@ function drawAdmin() {
       ${al.length ? `<ul class="alerts">${al.slice(0, S.allAlerts ? 30 : 5).map(a => `<li class="al-${esc(a.level)}${a.readAt ? '' : ' unread'}"><div class="row between"><b class="small">${esc(a.title)}</b><span class="small muted">${esc(when(a.at))}</span></div><span class="small">${a.workspaceName ? `<b>${esc(a.workspaceName)}:</b> ` : ''}${esc(a.text)}</span>${a.did ? `<span class="small muted" style="display:block">Already done: ${esc(a.did)}</span>` : ''}${a.did || a.run ? `<span class="small" style="display:block">Left for you: ${a.run ? `<code class="mono" style="overflow-wrap:anywhere">${esc(a.run)}</code>` : 'nothing.'}</span>` : ''}</li>`).join('')}</ul>${al.length > 5 && !S.allAlerts ? `<button class="btn sm ghost" data-act="all-alerts">Show all ${al.length}</button>` : ''}`
         : '<p class="empty">Nothing to report. Failed videos, failed backups, low disk and Instagram problems show up here.</p>'}
       <p class="small muted" style="margin:0">${sys.keys.alerts ? 'Alerts are also sent to your phone.' : 'To get alerts on your phone, set ALERT_WEBHOOK_URL in .env (a free ntfy.sh topic works). See SETUP.md.'}</p></section>
-    <section class="panel"><div class="row between"><div class="head"><h2>Render rules</h2><p>Every check Studio, Fix a scene and automatic videos run: set style checks to block, warn or off, adjust the numbers and word lists, for everyone or one workspace. Compliance rules are locked.</p></div><a class="btn" href="#/rules">Open render rules</a></div></section>
     <section class="panel" id="enginePanel"><h2>Engine bay</h2><p class="small muted"><span class="spin"></span> Loading…</p></section>
     <section class="panel" id="auditPanel"><h2>Activity log</h2><p class="small muted"><span class="spin"></span> Loading the activity log…</p></section>
     <section class="panel"><h2>Invite</h2><form class="stack" data-form="invite">
@@ -112,89 +111,4 @@ function drawAdmin() {
   if (S.audit) drawAudit();
 }
 
-/* ================= Render rules (v15): change the checks without new code ================= */
-// For everyone or one workspace: each style check's level (Block, Warn, Off) in drafts people write and
-// in automatic videos, the adjustable numbers, and words added to or taken off the built-in lists. Locked
-// compliance rules are shown but can't be changed. Try it on a script first; every change is kept, with
-// a one-tap way back.
-async function viewRules() { S.rr = { scope: 'global', state: await api('/api/admin/rules'), tryOut: { script: '', videoId: '' } }; S.rr.draft = JSON.parse(JSON.stringify(S.rr.state.global || {})); drawRules(); }
-async function loadRulesScope(scope) {
-  S.rr.scope = scope;
-  S.rr.state = await api('/api/admin/rules' + (scope === 'global' ? '' : `?ws=${encodeURIComponent(scope)}`));
-  S.rr.draft = JSON.parse(JSON.stringify((scope === 'global' ? S.rr.state.global : S.rr.state.workspace) || {}));
-  S.rr.tryOut.result = null;
-  drawRules();
-}
-const rrDirty = () => JSON.stringify(S.rr.draft || {}) !== JSON.stringify((S.rr.scope === 'global' ? S.rr.state.global : S.rr.state.workspace) || {});
-const LEVEL_WORDS = { block: 'Block', warn: 'Warn', off: 'Off' };
-function drawRules() {
-  const R = S.rr, st = R.state, d = R.draft, ws = R.scope !== 'global';
-  const inherited = (id, ctx) => (st.global.levels?.[id]?.[ctx]) || st.rules.find(r => r.id === id)[ctx];
-  const levelSel = (r, ctx) => `<select class="ctl sm" data-rr-level="${r.id}" data-ctx="${ctx}" aria-label="${esc(r.label)}: ${ctx === 'draft' ? 'drafts' : 'automatic videos'}">${ws ? `<option value="">Same as everyone (${LEVEL_WORDS[inherited(r.id, ctx)]})</option>` : ''}${['block', 'warn', 'off'].map(l => `<option value="${l}"${(d.levels?.[r.id]?.[ctx] || (ws ? '' : r[ctx])) === l ? ' selected' : ''}>${LEVEL_WORDS[l]}${!ws && r[ctx] === l ? ' (built-in)' : ''}</option>`).join('')}</select>`;
-  const locked = st.rules.filter(r => r.locked), style = st.rules.filter(r => !r.locked);
-  const listWords = L => { const add = d.lists?.[L.id]?.add || [], remove = new Set(d.lists?.[L.id]?.remove || []); return [...L.base.map(w => ({ w, base: true, off: remove.has(w) })), ...add.filter(w => !L.base.includes(w)).map(w => ({ w, base: false, off: false }))]; };
-  const res = R.tryOut.result;
-  const findingsList = list => (list.length ? `<ul class="list">${list.map(f => `<li class="${f.kind === 'stop' ? 'bad' : f.kind === 'warn' ? 'note-warn' : 'fixed'}"><i>${f.kind === 'stop' ? '!' : f.kind === 'warn' ? '·' : '✓'}</i><span><b>${f.kind === 'stop' ? 'Blocks' : f.kind === 'warn' ? 'Warns' : 'Fixed'}</b> · ${esc(f.label)}: ${esc(f.text)}</span></li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">Nothing: it passes.</p>');
-  main.innerHTML = `<div class="head"><a class="small" href="#/admin">← Admin</a><h1>Render rules</h1><p class="lede">Every check Studio, Fix a scene and automatic videos run. Style checks can block, warn or be off; compliance rules are locked.</p></div>
-    <section class="panel"><label class="field"><span>Rules for</span><select class="ctl" data-rr-scope><option value="global">Everyone</option>${st.workspaces.map(w => `<option value="${esc(w.id)}"${R.scope === w.id ? ' selected' : ''}>${esc(w.name)} (only this workspace)</option>`).join('')}</select><small>${ws ? 'Settings here override everyone’s for this workspace only. Blank means the same as everyone.' : 'These apply to every workspace, unless a workspace has its own.'}</small></label></section>
-    <section class="panel"><h2>Locked: compliance</h2><p class="small muted">Claims that could mislead a client or break advertising rules. They always stop a render (each comes with a one-tap fix) and can’t be turned down.</p>
-      <ul class="list">${locked.map(r => `<li><i aria-hidden="true">🔒</i><span><b>${esc(r.label)}</b> · ${esc(r.about)} <span class="muted">Catches: ${esc(r.example)}</span></span></li>`).join('')}</ul></section>
-    <section class="panel"><h2>Style and craft</h2><p class="small muted">Block: must be fixed (in automatic videos the writer rewrites). Warn: a yellow note that never stops a render. Off: not checked.</p>
-      <div class="stack" style="gap:10px">${style.map(r => `<div class="box" style="gap:6px"><div class="row between" style="align-items:flex-start"><span class="small" style="flex:1 1 260px"><b>${esc(r.label)}</b><br>${esc(r.about)} <span class="muted">Catches: ${esc(r.example)}</span></span>
-        <span class="fields" style="flex:0 1 auto"><label class="field"><span class="small">Studio and Fix a scene</span>${levelSel(r, 'draft')}</label><label class="field"><span class="small">Automatic videos</span>${levelSel(r, 'auto')}</label></span></div></div>`).join('')}</div></section>
-    <section class="panel"><h2>Settings</h2><div class="fields">${st.settings.map(x => `<label class="field"><span>${esc(x.label)}</span><input class="ctl" type="number" data-rr-setting="${x.id}" min="${x.min}" max="${x.max}" step="${x.step}" value="${d.settings?.[x.id] ?? ''}" placeholder="${ws ? `everyone: ${st.global.settings?.[x.id] ?? x.def ?? 'workspace'}` : x.def ?? 'workspace setting'}"><small>${x.min}–${x.max} ${esc(x.unit)}</small></label>`).join('')}</div></section>
-    <section class="panel"><h2>Word lists</h2>${st.lists.map(L => `<div class="field"><span>${esc(L.label)}</span><div class="chips">${listWords(L).map(x => `<button class="toggle${x.off ? ' off' : ''}" data-act="rr-word" data-list="${L.id}" data-w="${esc(x.w)}" aria-pressed="${!x.off}" title="${x.off ? 'Taken off: tap to put back' : x.base ? 'Built in: tap to take off' : 'Added: tap to remove'}">${esc(x.w)}${x.base ? '' : ' +'}${x.off ? ' (off)' : ''}</button>`).join('')}</div>
-      <div class="row"><input class="ctl sm" data-rr-add="${L.id}" maxlength="60" placeholder="Add a word or phrase" style="flex:1 1 200px"><button class="btn sm" data-act="rr-add" data-list="${L.id}">Add</button></div></div>`).join('')}</section>
-    <section class="panel"><h2>Try it first</h2><p class="small muted">Paste a script (one line per scene), or pick a recent video${ws ? '' : ' (from the first workspace)'}. It’s checked with the rules above as they are now, saved or not.</p>
-      <textarea class="ctl" rows="4" data-rr-script placeholder="Who pays for your funeral someday?&#10;Final expense can give you peace of mind.">${esc(R.tryOut.script)}</textarea>
-      ${res?.videos?.length ? `<label class="field"><span>Or a recent video</span><select class="ctl" data-rr-video><option value="">The pasted script</option>${res.videos.map(v => `<option value="${esc(v.id)}"${R.tryOut.videoId === v.id ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>` : ''}
-      <div class="row"><button class="btn" data-act="rr-try">Try it</button></div>
-      ${res ? `<div class="fields"><div class="stack" style="gap:6px"><b class="small">As a draft (Studio, Fix a scene)</b>${findingsList(res.draft)}</div><div class="stack" style="gap:6px"><b class="small">As an automatic video</b>${findingsList(res.auto)}</div></div>` : ''}</section>
-    <div class="row"><button class="btn primary" data-act="rr-save" ${rrDirty() ? '' : 'disabled'}>Save the rules</button><button class="btn ghost" data-act="rr-discard" ${rrDirty() ? '' : 'disabled'}>Discard</button></div>
-    <section class="panel"><h2>Every change</h2>${st.history.length ? `<div class="stack" style="gap:8px">${st.history.map(h => `<div class="box" style="gap:4px"><span class="small"><b>${esc(h.scopeName)}</b> · ${esc(h.byName || 'Someone')} · <span class="muted">${esc(when(h.at))}</span></span><span class="small">${h.changes.length ? h.changes.map(esc).join('<br>') : 'No change'}</span>
-      <div class="row"><button class="btn sm ghost" data-act="rr-restore" data-id="${esc(h.id)}" data-which="before">Undo this change</button><button class="btn sm ghost" data-act="rr-restore" data-id="${esc(h.id)}" data-which="after">Back to this version</button></div></div>`).join('')}</div>` : '<p class="empty">No changes yet: the built-in rules apply.</p>'}</section>`;
-}
-// (Added to the portal's actions by app.js: a screen can't use app.js's parts while it's first loading.)
-const rulesActions = {
-  'rr-word'(el) {
-    const d = S.rr.draft, k = el.dataset.list, w = el.dataset.w, L = S.rr.state.lists.find(x => x.id === k);
-    d.lists ||= {}; d.lists[k] ||= { add: [], remove: [] };
-    const x = d.lists[k];
-    if (L.base.includes(w)) x.remove = x.remove.includes(w) ? x.remove.filter(y => y !== w) : [...x.remove, w];
-    else x.add = x.add.filter(y => y !== w);
-    drawRules();
-  },
-  'rr-add'(el) {
-    const k = el.dataset.list, input = main.querySelector(`[data-rr-add="${k}"]`), w = String(input?.value || '').trim().toLowerCase();
-    if (!w) return;
-    const d = S.rr.draft; d.lists ||= {}; d.lists[k] ||= { add: [], remove: [] };
-    if (!d.lists[k].add.includes(w)) d.lists[k].add.push(w);
-    d.lists[k].remove = d.lists[k].remove.filter(y => y !== w);
-    drawRules();
-  },
-  async 'rr-try'() {
-    S.rr.tryOut.script = main.querySelector('[data-rr-script]')?.value || '';
-    try { S.rr.tryOut.result = await api('/api/admin/rules/try', { method: 'POST', body: { scope: S.rr.scope, rules: S.rr.draft, script: S.rr.tryOut.script, videoId: S.rr.tryOut.videoId } }); } catch (e) { toastErr(e); }
-    drawRules();
-  },
-  async 'rr-save'() {
-    try { S.rr.state = await api('/api/admin/rules', { method: 'POST', body: { scope: S.rr.scope, rules: S.rr.draft } }); S.rr.draft = JSON.parse(JSON.stringify((S.rr.scope === 'global' ? S.rr.state.global : S.rr.state.workspace) || {})); drawRules(); toastOk('Saved. New checks use these rules.'); } catch (e) { toastErr(e); }
-  },
-  'rr-discard'() { S.rr.draft = JSON.parse(JSON.stringify((S.rr.scope === 'global' ? S.rr.state.global : S.rr.state.workspace) || {})); drawRules(); },
-  async 'rr-restore'(el) {
-    try { S.rr.state = await api('/api/admin/rules/restore', { method: 'POST', body: { id: el.dataset.id, which: el.dataset.which } }); S.rr.scope = S.rr.state.scope || 'global'; /* the restored version's own scope (it may be another workspace's) */ S.rr.draft = JSON.parse(JSON.stringify((S.rr.scope === 'global' ? S.rr.state.global : S.rr.state.workspace) || {})); drawRules(); toastOk('Done. That version is in force.'); } catch (e) { toastErr(e); }
-  },
-};
-const toastOk = m => toast(m), toastErr = e => toast(e.message);
-// Changes in the editor (scope, levels, settings, the script and video picked to try).
-document.addEventListener('change', e => {
-  const t = e.target;
-  if (S.view !== 'rules' || !S.rr) return;
-  if (t.dataset.rrScope !== undefined) return void loadRulesScope(t.value);
-  const d = S.rr.draft;
-  if (t.dataset.rrLevel) { d.levels ||= {}; const x = { ...(d.levels[t.dataset.rrLevel] || {}) }; if (t.value) x[t.dataset.ctx] = t.value; else delete x[t.dataset.ctx]; if (Object.keys(x).length) d.levels[t.dataset.rrLevel] = x; else delete d.levels[t.dataset.rrLevel]; drawRules(); }
-  if (t.dataset.rrSetting) { d.settings ||= {}; if (t.value === '') delete d.settings[t.dataset.rrSetting]; else d.settings[t.dataset.rrSetting] = Number(t.value); drawRules(); }
-  if (t.dataset.rrVideo !== undefined) S.rr.tryOut.videoId = t.value;
-});
-
-export { drawAdmin, drawRules, loadAudit, loadEngine, rulesActions, secs, viewAdmin, viewRules };
+export { drawAdmin, loadAudit, loadEngine, secs, viewAdmin };

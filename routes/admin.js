@@ -23,7 +23,6 @@ import * as monitor from '../lib/monitor.js';
 import * as breaker from '../lib/breaker.js';
 import * as roles from '../lib/roles.js';
 import * as push from '../lib/push.js';
-import * as renderRules from '../lib/rules.js';
 import * as mixer from '../mixer-core.js';
 import { nicheOf } from '../niches/index.js';
 import * as targets from '../lib/targets.js';
@@ -74,56 +73,6 @@ route('GET', '/api/admin/overview', 'admin', async ({ me }) => {
   return { workspaces, admins: accounts.filter(a => a.role === 'admin').map(member), you: me.account.id, openWorkspace: me.wsId, system: systemInfo(), alerts: alerts.listAlerts().slice(0, 30), unread: alerts.unreadCount() };
 });
 route('POST', '/api/admin/alerts/read', 'admin', () => { alerts.markAllRead(); return { unread: 0 }; });
-/* ----- Render rules (v15): change the checks without new code ----- */
-// Everything the editor needs: every rule (locked ones shown, not editable), the settings and their safe
-// ranges, the built-in lists, what's set for everyone and for the chosen workspace, and the history.
-const rulesState = (wsId = '') => ({
-  rules: Object.entries(mixer.RULES).map(([id, r]) => ({ id, ...r })), settings: Object.entries(mixer.RULE_SETTINGS).map(([id, x]) => ({ id, ...x })),
-  lists: Object.entries(mixer.RULE_LISTS).map(([id, x]) => ({ id, label: x.label, base: x.base(nicheOf(null)) })),
-  scope: wsId || 'global', global: renderRules.scopeOf('global'), workspace: wsId ? renderRules.scopeOf(wsId) : null, effective: renderRules.effective(wsId),
-  history: renderRules.read().history.slice(0, 40).map(h => ({ id: h.id, at: h.at, byName: h.byName, scope: h.scope, scopeName: h.scope === 'global' ? 'Everyone' : store.getWorkspace(h.scope)?.name || 'A workspace', changes: renderRules.describe(h.before, h.after) })),
-  workspaces: store.listWorkspaces().map(w => ({ id: w.id, name: w.name })),
-});
-const rulesScope = s => (s === 'global' || !s ? 'global' : store.getWorkspace(clip(s, 40)) ? clip(s, 40) : bad(404, 'Workspace not found.'));
-route('GET', '/api/admin/rules', 'admin', ({ url }) => { const w = clip(url.searchParams.get('ws'), 40); return rulesState(w && store.getWorkspace(w) ? w : ''); });
-route('POST', '/api/admin/rules', 'admin', ({ me, body }) => {
-  const scope = rulesScope(body.scope);
-  const entry = renderRules.save(scope, body.rules || {}, { by: me.account.id, byName: me.account.name || me.account.email });
-  const changes = renderRules.describe(entry.before, entry.after);
-  audit.record({ action: 'settings.saved', who: me.account, detail: `render rules for ${scope === 'global' ? 'everyone' : store.getWorkspace(scope)?.name}: ${changes.join('; ').slice(0, 300) || 'no change'}` });
-  return rulesState(scope === 'global' ? '' : scope);
-});
-route('POST', '/api/admin/rules/restore', 'admin', ({ me, body }) => {
-  const entry = renderRules.restore(clip(body.id, 20), body.which === 'before' ? 'before' : 'after', { by: me.account.id, byName: me.account.name || me.account.email });
-  if (!entry) bad(404, 'That version isn’t in the history.');
-  audit.record({ action: 'settings.saved', who: me.account, detail: `render rules restored to an earlier version (${entry.scope === 'global' ? 'everyone' : store.getWorkspace(entry.scope)?.name})` });
-  return rulesState(entry.scope === 'global' ? '' : entry.scope);
-});
-// Try it first: a pasted script (one line per scene) or a recent video, checked with the rules as they'd
-// be (not yet saved), as a draft and as an automatic video.
-route('POST', '/api/admin/rules/try', 'admin', async ({ body }) => {
-  const scope = rulesScope(body.scope);
-  const wsId = scope !== 'global' ? scope : store.getWorkspace(clip(body.ws, 40))?.id || store.listWorkspaces().find(w => w.onboarded)?.id || '';
-  if (!wsId) bad(409, 'There’s no workspace to try it on yet.');
-  const cfg = { ...store.loadConfig(wsId), rules: renderRules.effectiveWith(wsId, scope, body.rules || {}) };
-  let scenes, picks;
-  if (body.videoId) {
-    const v = store.getVideo(wsId, clip(body.videoId, 40)) || bad(404, 'Video not found.');
-    const { readPicks } = await import('../pipeline.js');
-    scenes = (v.scenes || []).map(s => ({ ...s })); picks = readPicks(wsId, v.id) || {};
-  } else {
-    const lines = String(body.script || '').split('\n').map(l => l.trim()).filter(Boolean).slice(0, 12);
-    if (!lines.length) bad(400, 'Paste a script (one line per scene), or pick a video.');
-    scenes = lines.map(text => ({ text, say: text, accent: mixer.suggestAccent(text, cfg), keyword: 'older couple at home' }));
-    const U = mixer.usableRoutes(cfg), pain = U.pains[0];
-    picks = pain ? mixer.studioPicks(cfg, { painId: pain.id, scenes: lines.length }) : { insights: [] };
-  }
-  const c = { ...cfg, output: { ...cfg.output, scenes: scenes.length } };
-  const draft = mixer.studioChecks(scenes, c, { ...picks, scenes: scenes.length, problems: [] }).findings;
-  const auto = mixer.validateScript({ scenes }, c, { ...picks, recent: store.readRecent(wsId), manualFootage: true }).findings;
-  const view = list => list.map(f => ({ rule: f.rule, label: mixer.RULES[f.rule]?.label || f.rule, kind: f.kind, scene: f.scene, text: f.text }));
-  return { workspace: store.getWorkspace(wsId)?.name || '', scenes: scenes.map(s => s.text), draft: view(draft), auto: view(auto), videos: store.readVideos(wsId).slice(0, 12).map(v => ({ id: v.id, label: `${v.meta?.painPoint || 'Video'} · ${String(v.createdAt || '').slice(0, 10)}` })) };
-});
 // The Engine bay (lib/engine.js): the line, the services, the processes, the disk, the targets.
 route('GET', '/api/admin/engine', 'admin', () => engineBay());
 route('GET', '/api/admin/engine/job/:id', 'admin', ({ params }) => jobTimeline(params.id) || bad(404, 'That job isn’t in the line any more (jobs are kept 7 days).'));

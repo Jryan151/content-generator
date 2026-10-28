@@ -27,7 +27,7 @@ import { drawSignoff, signoffActions, soBackForm, viewSignoff } from './screens/
 import { repliesActions, repliesForm } from './screens/replies.js';
 import { drawGrow, viewGrow } from './screens/grow.js';
 import { canSetup, drawStep, firstStep, stepView, viewStep } from './screens/steps.js';
-import { drawAdmin, loadAudit, loadEngine, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
+import { drawAdmin, loadAudit, loadEngine, viewAdmin } from './screens/admin.js';
 import { applyStudio, applySuggestion, describe, drawCoach, lines, loadCoachNotes, makeVideos, openCoach, redraw, saveCoachMsgs, sendCoach, setCoachMode } from './screens/coach.js';
 
 /* ================= Basics ================= */
@@ -283,7 +283,6 @@ async function render() {
   if (view === 'account') return page('account', viewAccount);
   if (view === 'guide') return page('guide', viewGuide);
   if (admin && view === 'admin') return page('admin', viewAdmin);
-  if (admin && view === 'rules') return page('rules', viewRules);
   if (!ws) return admin ? go('admin') : page('account', viewAccount);
   if (!ws.onboarded && !can('setup')) return page('setup', () => { main.innerHTML = `<div class="head"><h1>${esc(ws.name)}</h1><p class="lede">This workspace is still being set up by the agent. Once they finish, it’ll be ready for you here.</p></div>`; });
   if (!ws.onboarded) return view === 'setup' ? page('setup', viewSetup) : go('setup');
@@ -1811,7 +1810,6 @@ function updateBadge() {
 // Two modes share one panel: 'content' (videos, prompts, settings) and 'comms' (how people take in
 // information: DISC styles, behavior, selling). Each keeps its own conversation.
 S.coach = { open: false, mode: 'content', msgs: [], focus: null, busy: false, ws: null, loaded: '', tab: 'ask', notes: null, reply: { busy: false, out: null, message: '', note: '' } };
-Object.assign(actions, rulesActions);   // Admin → Render rules (public/screens/admin.js)
 Object.assign(actions, signoffActions);
 Object.assign(actions, repliesActions);   // Keyword replies on Instagram (public/screens/replies.js)   // Sign-off, the compliance reviewer's page (public/screens/signoff.js)
 // The initial's menu is a disclosure: a tap elsewhere, Tab out of it, or Escape closes it. Escape puts
