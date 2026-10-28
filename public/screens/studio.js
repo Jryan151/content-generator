@@ -178,20 +178,7 @@ function drawStudio() {
         ${stIdeasHTML(i)}${stFootHTML(i)}</div>`).join('') : `<p class="empty">${p.problems.length ? 'Finish step 1 first.' : 'Tap “Write all the scenes”, or start with an opening above.'}</p>`}</section>
     <section class="panel"><div class="head"><h2>4. Check and submit</h2><p>Submitting renders it (about two minutes) and puts it in Review${can('approve') ? '' : ' for the agent to approve'}. The first submit uses one of this month’s videos; new versions don’t.</p></div>
       <div id="stChecks">${stChecksHTML(c)}</div>
-      <div class="row"><button class="btn primary big" data-act="st-render" ${c.ok && !rendering ? '' : 'disabled'}>${esc(renderLabel(c))}</button>${S.st.d.scenes.length ? '<button class="btn ghost" data-act="prompter-studio">Read it on camera</button>' : ''}</div>
-      ${abtestHTML(c, rendering)}</section>`;
-}
-// Test two openings (v15, lib/abtests.js): this draft (A) and the same video with another opening (B),
-// made together. Offered on a new draft that's ready to submit.
-function abtestHTML(c, rendering) {
-  const d = S.st.d, first = d.scenes[0]?.text || '';
-  if (d.videoId || !c.ok || rendering || !first) return '';
-  const others = d.hooks.filter(h => h.text && h.text.toLowerCase() !== first.toLowerCase()).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
-  return `<details class="box"${S.st.abOpen ? ' open' : ''} data-ab-box><summary class="small"><b>Test two openings</b> <span class="muted">· see which one keeps people watching</span></summary>
-    <p class="small" style="margin:0">Makes this video twice: as it is (A), and with another opening (B). Everything else is the same. Both go to Review and use two of this month’s videos. Post them a day or two apart; after a week, the one with clearly more views wins.</p>
-    <form class="stack" data-form="st-abtest">${others.map((h, k) => `<label class="check small"><input type="radio" name="b" value="${esc(h.text)}" data-say="${esc(h.say || '')}"${k ? '' : ' checked'}> <span>${h.score ? `<b class="mono">${esc(h.score)}/10</b> ` : ''}${esc(h.text)}</span></label>`).join('')}
-      <label class="field"><span class="small">${others.length ? 'Or write version B’s opening' : 'Version B’s opening'}</span><input class="ctl sm" name="own" maxlength="200" placeholder="A different first line"></label>
-      <div class="row"><button class="btn">Make both versions</button><span class="small muted">A: “${esc(first)}”</span></div></form></details>`;
+      <div class="row"><button class="btn primary big" data-act="st-render" ${c.ok && !rendering ? '' : 'disabled'}>${esc(renderLabel(c))}</button>${S.st.d.scenes.length ? '<button class="btn ghost" data-act="prompter-studio">Read it on camera</button>' : ''}</div></section>`;
 }
 // ✦ Ideas for one scene: lines that already passed the checks (and why any were hidden), footage
 // searches and things to film. Each is one tap.

@@ -355,21 +355,16 @@ export async function runJob(job, log) {
     const asked = job.opts.replace ? store.getVideo(job.ws, job.opts.replace)?.needsChanges : null;
     const h = asked?.handoffId ? desk.list(job.ws).find(x => x.id === asked.handoffId) : null;
     if (h) built.changes = { handoffId: h.id, checklist: h.checklist || [] };
-    // An opening test (v15, lib/abtests.js): version A is the draft's own video; version B is its twin
-    // with the other opening, and leaves the draft alone.
-    const ab = job.opts.abtest, twin = ab?.arm === 'B';
     try {
       const v = await makeVideo({ ws: job.ws, studio: built, source: 'studio', log, checkpoint: jobDir(job), limp: true, replace: job.opts.replace || '', by: job.by || '' });
-      if (!twin) studio.save(job.ws, d.id, { status: 'done', videoId: v.id, error: '' });
-      if (ab) (await import('./lib/abtests.js')).attach(job.ws, ab.id, ab.arm, v.id);
+      studio.save(job.ws, d.id, { status: 'done', videoId: v.id, error: '' });
       if (h && h.status === 'open') desk.finish(job.ws, h.id, job.by || '');
       return { videoId: v.id };
     } catch (e) {
       // A failure that will be tried again keeps the draft locked; only the last one frees it. A try the
       // watchdog gave up on leaves the draft alone (the next try, or the job's status, decides it).
       const last = e.permanent || (job.attempts >= queue.MAX_ATTEMPTS && !(queue.isOutage(e) && (job.waits || 0) < queue.MAX_OUTAGE_WAITS));
-      if (last && !currentSignal()?.aborted && !twin) studio.save(job.ws, d.id, { status: 'draft', error: plainError(e.message) });
-      if (last && ab) (await import('./lib/abtests.js')).stop(job.ws, ab.id, `Version ${ab.arm} didn’t finish.`);
+      if (last && !currentSignal()?.aborted) studio.save(job.ws, d.id, { status: 'draft', error: plainError(e.message) });
       throw e;
     }
   }
@@ -576,7 +571,6 @@ const ROUTE_CAPS = {
   'GET /api/mindset': 'mindset', 'PUT /api/mindset': 'mindset', 'POST /api/mindset/check': 'mindset', 'POST /api/mindset/principle': 'mindset', 'POST /api/mindset/practice': 'mindset', 'DELETE /api/mindset/practice/:id': 'mindset', 'POST /api/mindset/audit': 'mindset', 'POST /api/mindset/audit/advice': 'mindset', 'POST /api/mindset/reflection': 'mindset', 'POST /api/mindset/lens': 'mindset',
   'GET /api/clients': 'clients', 'POST /api/clients/:id/care': 'clients', 'POST /api/clients/:id/note': 'clients', 'GET /api/keepsakes': 'clients', 'POST /api/keepsakes': 'clients', 'DELETE /api/keepsakes/:id': 'clients', 'POST /api/clients': 'clients', 'PUT /api/clients/:id': 'clients', 'POST /api/clients/:id/reached': 'clients', 'DELETE /api/clients/:id': 'clients',
   'POST /api/content/autolink': 'settings', 'POST /api/content/relevance': 'settings', 'POST /api/content/link-all': 'settings', 'POST /api/content/generate': 'settings',
-  'POST /api/studio/:id/abtest': 'make', 'POST /api/abtests/:id/stop': 'make',
   'GET /api/studio': 'make', 'GET /api/studio/:id': 'make', 'POST /api/studio': 'make', 'PUT /api/studio/:id': 'make', 'DELETE /api/studio/:id': 'make', 'POST /api/studio/:id/hooks': 'make', 'POST /api/studio/:id/fill': 'make', 'POST /api/studio/:id/rewrite': 'make', 'POST /api/studio/:id/ideas': 'make', 'POST /api/studio/:id/footage': 'make', 'POST /api/studio/:id/voice': 'make', 'POST /api/studio/:id/render': 'make', 'POST /api/spell': 'make',
   'POST /api/jobs': 'make', 'DELETE /api/jobs/:id': 'make', 'POST /api/videos/:id/fix': 'make', 'POST /api/videos/:id/clips': 'make', 'POST /api/videos/:id/cover': 'make',
   'POST /api/videos/:id/approve': 'approve', 'POST /api/videos/:id/changes': 'approve', 'POST /api/videos/:id/reject': 'approve', 'POST /api/videos/:id/reopen': 'approve', 'DELETE /api/videos/:id': 'approve',

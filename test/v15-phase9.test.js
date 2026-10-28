@@ -40,7 +40,6 @@ const clientsLib = await import('../lib/clients.js');
 const crypto = await import('crypto');
 const M = await import('../mixer-core.js');
 const replies = await import('../lib/replies.js');
-const abtests = await import('../lib/abtests.js');
 const queue = await import('../lib/queue.js');
 const { starterStory } = await import('../templates.js');
 const S = await import('../server.js');
@@ -364,133 +363,9 @@ test('keyword replies: a signed comment gets a private reply with the video’s 
 
 /* ---------------- 9d: A/B tests of openings ---------------- */
 
-test('opening tests: two versions made from one draft, the same but for the opening; checked and counted like any', async () => {
-  const w = mkWs('AB make');
-  store.createAccount({ email: 'ab@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abpass123456') });
-  const a = await login('ab@example.com', 'abpass123456');
-  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
-  const r = { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, fact: U.insights.find(i => i.links.includes(p.id)) };
-  const d = (await a.post('/api/studio', { brief: { painId: r.painId, audienceId: r.audienceId, insightIds: [r.fact.id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
-  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
-  const filled = (await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] })).data.draft;
-  assert.ok(filled.check.ok, JSON.stringify(filled.check.problems));
-  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: open.text })).status, 400, 'a different opening');
-  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: 'Plans cost $30 a month, did you know?' })).status, 400, 'checked like any opening');
-  const res = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
-  assert.equal(res.status, 200, JSON.stringify(res.data));
-  const t = res.data.test;
-  assert.deepEqual([t.arms.A.hook, t.arms.B.hook, t.arms.A.style, t.arms.B.style], [open.text, 'Who pays when you’re gone?', 'question', 'question']);
-  const jobs = queue.listJobs(w.id).filter(j => j.opts?.abtest?.id === t.id);
-  assert.deepEqual(jobs.map(j => j.opts.abtest.arm).sort(), ['A', 'B']);
-  const [jA, jB] = ['A', 'B'].map(x => jobs.find(j => j.opts.abtest.arm === x));
-  assert.equal(jA.opts.scenes[0].text, open.text); assert.equal(jB.opts.scenes[0].text, 'Who pays when you’re gone?');
-  assert.deepEqual(jA.opts.scenes.slice(1).map(s => s.text), jB.opts.scenes.slice(1).map(s => s.text), 'the rest is the same');
-  assert.equal(res.data.draft.status, 'rendering');
-  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: 'Another?' })).status, 409, 'once');
-  // Both canceled: the test stops; Review lists it.
-  for (const j of jobs) await a.del(`/api/jobs/${j.id}`);
-  abtests.stop(w.id, t.id, 'Canceled.');
-  const list = (await a.get('/api/abtests')).data;
-  assert.equal(list.tests[0].status, 'stopped');
-});
-
-test('opening tests: decided a week after both are posted, by views; too close is a tie; what won feeds the writer', async () => {
-  const w = mkWs('AB decide');
-  const now = Date.now(), DAY = 86400000;
-  const mk = (id, hook, extra = {}) => vid(w, id, { status: 'posted', posted: { at: new Date(now - 8 * DAY).toISOString() }, scenes: [{ text: hook, keyword: 'family' }, { text: 'Second', keyword: 'x' }], ...extra });
-  // A clear winner.
-  let t = abtests.start(w.id, { draftId: 'sd1', a: 'Funeral costs add up fast.', b: 'Who pays for your funeral?', by: 'x' });
-  mk('ab1', 'Funeral costs add up fast.', { results: { views: 400 } }); mk('ab2', 'Who pays for your funeral?', { results: { views: 900 } });
-  abtests.attach(w.id, t.id, 'A', 'ab1'); abtests.attach(w.id, t.id, 'B', 'ab2');
-  // Posted only 3 days ago: not yet.
-  store.updateVideo(w.id, 'ab2', { posted: { at: new Date(now - 3 * DAY).toISOString() } });
-  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t.id).status, 'live');
-  store.updateVideo(w.id, 'ab2', { posted: { at: new Date(now - 8 * DAY).toISOString() } });
-  t = abtests.refresh(w.id, now).find(x => x.id === t.id);
-  assert.deepEqual([t.status, t.winner, t.ratio], ['decided', 'B', 2.3]); assert.match(t.why, /Version B had 2.3× the views \(900 to 400\)/);
-  assert.equal(store.getVideo(w.id, 'ab2').abtest.result, 'won'); assert.equal(store.getVideo(w.id, 'ab1').abtest.result, 'lost');
-  const winners = M.winnersFrom(store.readVideos(w.id));
-  assert.deepEqual([winners[0].hook, winners[0].tested, winners[0].beat], ['Who pays for your funeral?', true, 'Funeral costs add up fast.']);
-  const { buildHookPrompt } = await import('../lib/prompts.js');
-  const cfg = store.loadConfig(w.id), picks = M.studioPicks(cfg, { painId: M.usableRoutes(cfg).pains[0].id });
-  assert.match(buildHookPrompt(cfg, { ...picks, winners }, 8).user + buildHookPrompt(cfg, { ...picks, winners }, 8).system, /won a side-by-side test against "Funeral costs add up fast\."/);
-  // Too close (under 20% apart), and too few views: no winner.
-  let t2 = abtests.start(w.id, { draftId: 'sd2', a: 'I lost my dad last year.', b: '3 questions to ask about coverage', by: 'x' });
-  mk('ab3', 'I lost my dad last year.', { results: { views: 1000 } }); mk('ab4', '3 questions to ask about coverage', { results: { views: 900 } });
-  abtests.attach(w.id, t2.id, 'A', 'ab3'); abtests.attach(w.id, t2.id, 'B', 'ab4');
-  t2 = abtests.refresh(w.id, now).find(x => x.id === t2.id);
-  assert.deepEqual([t2.status, t2.winner], ['decided', '']); assert.match(t2.why, /Too close to call/);
-  assert.equal(store.getVideo(w.id, 'ab3').abtest.result, 'tie');
-  // One rejected: stopped. No views after three weeks: stopped.
-  const t3 = abtests.start(w.id, { draftId: 'sd3', a: 'x one', b: 'y two', by: 'x' });
-  vid(w, 'ab5', { status: 'rejected' }); mk('ab6', 'y two');
-  abtests.attach(w.id, t3.id, 'A', 'ab5'); abtests.attach(w.id, t3.id, 'B', 'ab6');
-  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t3.id).why, 'One version was rejected.');
-  // What's won, by kind of opening.
-  const L = abtests.lessons(w.id);
-  assert.deepEqual(L.find(x => x.style === 'question'), { style: 'question', label: 'A question', won: 1, lost: 0, tied: 0 });
-  assert.equal(L.find(x => x.style === 'statement').lost, 1);
-  assert.equal(abtests.styleOf('I lost my dad last year.'), 'story'); assert.equal(abtests.styleOf('3 questions to ask about coverage'), 'number');
-  assert.equal(abtests.styleOf('Most people think it costs a fortune.'), 'myth'); assert.equal(abtests.styleOf('If you have kids, listen.'), 'you');
-});
-
 const fullSkip = !process.env.FULL_TEST ? 'renders two videos; run with npm run test:full' : !hasFfmpeg() ? 'FFmpeg not installed' : false;
-test('opening tests, end to end: both versions render; A is the draft’s video, B its twin; both carry the test', { skip: fullSkip, timeout: 900000 }, async () => {
-  const w = mkWs('AB render');
-  store.createAccount({ email: 'abr@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abrpass12345') });
-  const a = await login('abr@example.com', 'abrpass12345');
-  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
-  const d = (await a.post('/api/studio', { brief: { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, insightIds: [U.insights.find(i => i.links.includes(p.id)).id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
-  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
-  await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] });
-  const r = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  queue.startWorker(async (job, log) => S.runJob(job, log));
-  try { await queue.idle(800000); } finally { queue.startWorker(null); }
-  const t = abtests.get(w.id, r.data.test.id);
-  assert.ok(t.arms.A.videoId && t.arms.B.videoId, JSON.stringify(t));
-  const [va, vb] = [store.getVideo(w.id, t.arms.A.videoId), store.getVideo(w.id, t.arms.B.videoId)];
-  assert.deepEqual([va.abtest.arm, vb.abtest.arm, va.scenes[0].text, vb.scenes[0].text], ['A', 'B', open.text, 'Who pays when you’re gone?']);
-  assert.equal(store.getVideo(w.id, t.arms.A.videoId).status, 'pending');
-  assert.equal((await a.get(`/api/studio/${d.id}`)).data.draft.videoId, va.id, 'the draft is version A’s');
-  assert.equal(abtests.refresh(w.id).find(x => x.id === t.id).status, 'review');
-});
 
 /* ---------------- Phase 9 review fixes ---------------- */
-test('review fixes: opening tests: B is spoken as its own opening; no "Needs changes" on B; 20% more means 20% more; empty views aren’t results; a version never made stops it', async () => {
-  const w = mkWs('AB fixes');
-  const c = store.loadConfig(w.id); c.output = { ...c.output, mode: 'voiceover' }; store.saveConfig(w.id, c);
-  store.createAccount({ email: 'abf@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abfpass12345') });
-  const a = await login('abf@example.com', 'abfpass12345');
-  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
-  const d = (await a.post('/api/studio', { brief: { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, insightIds: [U.insights.find(i => i.links.includes(p.id)).id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
-  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
-  await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] });
-  const r = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  const jB = queue.listJobs(w.id).find(j => j.opts?.abtest?.arm === 'B');
-  assert.equal(jB.opts.scenes[0].say, 'Who pays when you’re gone?', 'B says its own opening');
-  // A version that's never made (its job canceled) stops the test, so it doesn't hold a place.
-  await a.del(`/api/jobs/${jB.id}`);
-  assert.equal(abtests.refresh(w.id).find(x => x.id === r.data.test.id).why, 'Version B wasn’t made.');
-  // Needs changes on a version B: refused (Fix a scene instead).
-  vid(w, 'vb1', { meta: { painPoint: 'x', draftId: d.id }, abtest: { id: 't', arm: 'B' } });
-  const ch = await a.post('/api/videos/vb1/changes', { items: [], note: 'More warmth' });
-  assert.equal(ch.status, 409); assert.match(ch.data.error, /version B of an opening test.*Fix a scene/);
-  // Results: an empty views field isn't a 0.
-  vid(w, 'vr1', { status: 'posted', posted: { at: new Date().toISOString() }, results: { views: 300, messages: 0 } });
-  await a.post('/api/videos/vr1/results', { views: '', messages: 2 });
-  assert.deepEqual([store.getVideo(w.id, 'vr1').results.views, store.getVideo(w.id, 'vr1').results.messages], [300, 2]);
-  // 600 to 500 is 20% more: a winner. A missing count isn't a result yet.
-  const now = Date.now(), old = new Date(now - 8 * 864e5).toISOString();
-  const t = abtests.start(w.id, { draftId: 'x', a: 'One opening', b: 'Another opening', by: 'x' });
-  vid(w, 'w1', { status: 'posted', posted: { at: old }, results: { views: 600 } }); vid(w, 'w2', { status: 'posted', posted: { at: old }, results: { messages: 1 } });
-  abtests.attach(w.id, t.id, 'A', 'w1'); abtests.attach(w.id, t.id, 'B', 'w2');
-  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t.id).status, 'live', 'B has no views yet');
-  store.updateVideo(w.id, 'w2', { results: { views: 500, messages: 1 } });
-  const done = abtests.refresh(w.id, now).find(x => x.id === t.id);
-  assert.deepEqual([done.status, done.winner], ['decided', 'A']);
-});
 
 test('review fixes: keyword replies: limits counted apart from the log; the wording re-checked as it’s sent; bare links and quiet edits caught', async () => {
   const w = mkWs('Replies fixes');
@@ -547,18 +422,17 @@ test('review fixes: bookings: reschedules aren’t cancels, a cancel counts once
   assert.equal(bookings.allow('tok-test'), false);
 });
 
-test('review fixes: the export holds keyword replies and opening tests; reviewers aren’t on the Desk’s people; the week counts waiting videos as in review', async () => {
+test('review fixes: the export holds keyword replies; reviewers aren’t on the Desk’s people; the week counts waiting videos as in review', async () => {
   const w = mkWs('Fix misc');
   store.createAccount({ email: 'fm@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('fmpass123456') });
   const rv = store.createAccount({ email: 'fmr@example.com', name: 'Rev', role: 'agent', workspaceId: w.id, hash: 'x' });
   store.setMembership(rv.id, w.id, { role: 'reviewer' });
   const a = await login('fm@example.com', 'fmpass123456');
   replies.saveRule(w.id, { keyword: 'PLAN', where: 'both', text: 'Hi {name}: {link}' }, { by: 'x', byName: 'Dana', approve: true });
-  abtests.start(w.id, { draftId: 'x', a: 'One', b: 'Two', by: 'x' });
   const { exportWorkspace, exportCounts } = await import('../lib/data.js');
   const ex = exportWorkspace(w.id);
-  assert.equal(ex.keywordReplies.rules[0].keyword, 'PLAN'); assert.equal(ex.openingTests.length, 1);
-  assert.deepEqual([exportCounts(ex).keywordReplies, exportCounts(ex).openingTests], [1, 1]);
+  assert.equal(ex.keywordReplies.rules[0].keyword, 'PLAN');
+  assert.equal(exportCounts(ex).keywordReplies, 1);
   assert.ok(!(await a.get('/api/desk')).data.people.some(p => p.id === rv.id), 'not someone to hand work to');
   // With sign-off on, an approved video waiting for it isn't "ready" in the week ahead.
   signoff.setOn(w.id, true, 'x');

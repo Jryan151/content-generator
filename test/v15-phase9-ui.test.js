@@ -1,6 +1,5 @@
 // v15 Phase 9 in a real browser: the reviewer's Sign-off page (send back with a note, sign off), the
-// agent's Review while a video waits, keyword replies on Communicate, Booking confirmations in Brand,
-// Test two openings in Studio and the Opening tests panel. Runs in Chromium when Playwright is around
+// agent's Review while a video waits, and keyword replies. Runs in Chromium when Playwright is around
 // (PLAYWRIGHT_DIR, or /opt/node-tools/node_modules), and is skipped otherwise.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,13 +14,12 @@ try { chromium = createRequire(path.join(process.env.PLAYWRIGHT_DIR || '/opt/nod
 const exe = [process.env.PLAYWRIGHT_CHROMIUM, '/opt/pw-browsers/chromium'].find(p => p && fs.existsSync(p));
 const skip = !chromium ? 'Playwright isn’t installed here' : false;
 
-let server, stubs, browser, base, store, studio, abtests, replies, ws, draftId;
+let server, stubs, browser, base, store, studio, replies, ws, draftId;
 test.before(async () => {
   if (skip) return;
   stubs = await startStubs();
   store = await import('../lib/store.js');
   studio = await import('../lib/studio.js');
-  abtests = await import('../lib/abtests.js');
   replies = await import('../lib/replies.js');
   const signoff = await import('../lib/signoff.js');
   const auth = await import('../lib/auth.js');
@@ -44,8 +42,6 @@ test.before(async () => {
   const now = Date.now();
   for (const id of ['w1', 'w2']) { fs.writeFileSync(store.videoPath(ws.id, `video_${id}.mp4`), 'x'); store.addVideo(ws.id, { id, status: 'approved', version: 1, file: `video_${id}.mp4`, createdAt: new Date().toISOString(), approval: { at: new Date().toISOString(), byName: 'Dana Agent' }, scenes: [{ text: `Opening of ${id}`, keyword: 'family' }, { text: 'Second', keyword: 'x' }], meta: { painPoint: 'Funeral costs' }, post: 'The post text', preflight: [{ ok: true, label: 'No prices' }] }); }
   for (const [id, hook, views] of [['a1', 'Funeral costs add up fast.', 400], ['a2', 'Who pays for your funeral?', 900]]) store.addVideo(ws.id, { id, status: 'posted', version: 1, file: `video_${id}.mp4`, createdAt: new Date(now - 9 * 864e5).toISOString(), posted: { at: new Date(now - 8 * 864e5).toISOString() }, results: { views, messages: 0 }, bookings: { total: 1 }, scenes: [{ text: hook, keyword: 'family' }], meta: { painPoint: 'Funeral costs' }, post: 'p', preflight: [] });
-  const t = abtests.start(ws.id, { draftId: 'x', a: 'Funeral costs add up fast.', b: 'Who pays for your funeral?', by: 'x' });
-  abtests.attach(ws.id, t.id, 'A', 'a1'); abtests.attach(ws.id, t.id, 'B', 'a2');
   const U = M.usableRoutes(store.loadConfig(ws.id)), p = U.pains[0];
   draftId = studio.create(ws.id, store.loadConfig(ws.id), { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, insightIds: [U.insights.find(i => i.links.includes(p.id)).id], scenes: 6, format: 'question', structure: 'classic' }).id;
   browser = await chromium.launch(exe ? { executablePath: exe } : {});
@@ -91,9 +87,6 @@ test('the agent: the note on the sent-back video, a signed-off one ready to post
   assert.match(await text(page, '[data-vid="w1"]'), /Rita Review sent this back .*“Add the carrier name to scene 2\.”/);
   assert.match(await text(page, '[data-vid="w2"]'), /Signed off by Rita Review/);
   assert.ok(await page.$('[data-vid="w2"] [data-act="save-video"]'), 'signed off: it can be posted');
-  await page.evaluate(() => { location.hash = '#/grow'; });   // (v15 Phase 10) opening tests are in Grow
-  await page.waitForSelector('#abtestsPanel');
-  assert.match(await text(page, '#abtestsPanel'), /B won.*Version B had 2\.3× the views/i);
   await page.evaluate(() => { location.hash = '#/team'; });
   await page.waitForSelector('#reviewerPanel');
   assert.match(await text(page, '#reviewerPanel'), /Rita Review.*Approved videos wait for sign-off/);
@@ -120,30 +113,5 @@ test('keyword replies: add one, turn them on, try a comment', { skip, timeout: 1
   assert.match(await text(page, '#repliesPanel'), /PLAN would send: “Hi Maria! Here’s the checklist:/);
   assert.equal(replies.state(ws.id).on, true);
   assert.deepEqual(errors.filter(e => !/^400 .*\/api\/replies\/rules$/.test(e)), [], 'only the refused wording');
-  await page.close();
-});
-
-test('Brand shows Booking confirmations; Studio offers Test two openings on a ready draft', { skip, timeout: 180000 }, async () => {
-  const { page, errors } = await open('nine@example.com', 'ninepass1234', '#/brand');
-  await page.waitForSelector('#bookHookBox');
-  await page.click('#bookHookBox summary');
-  const addr = await page.$eval('#bookHookBox input[readonly]', e => e.value);
-  assert.match(addr, /\/hooks\/booking\/[\w-]{20,40}$/);
-  await page.click('[data-act="book-rotate"]');
-  await page.waitForFunction(a => document.querySelector('#bookHookBox input[readonly]')?.value !== a, addr);
-  await page.evaluate(id => { location.hash = `#/studio/${id}`; }, draftId);
-  await page.waitForSelector('[data-act="st-hooks"]');
-  await page.click('[data-act="st-hooks"]');
-  await page.waitForSelector('[data-act="st-usehook"]');
-  await page.click('[data-act="st-usehook"]');
-  await page.click('.panel [data-act="st-fill"]');
-  await page.waitForSelector('[data-ab-box]', { timeout: 30000 });
-  await page.click('[data-ab-box] summary');
-  await page.click('[data-form="st-abtest"] button');
-  await page.waitForFunction(() => !document.querySelector('[data-ab-box]'));
-  const t = abtests.list(ws.id).find(x => x.draftId === draftId);
-  assert.ok(t && t.status === 'making', JSON.stringify(t));
-  assert.notEqual(t.arms.A.hook, t.arms.B.hook);
-  assert.deepEqual(errors, []);
   await page.close();
 });

@@ -1428,16 +1428,11 @@ export function shotList(cfg, clips = []) {
 /* ---------------- Learning from results ---------------- */
 const opening = v => String(v.scenes?.[0]?.say || v.scenes?.[0]?.text || '').trim();
 // Openings of posted videos that brought messages, best first.
-// (v15) First, the latest openings that won a side-by-side test (lib/abtests.js), with the one they beat.
 export function winnersFrom(videos = [], n = 4) {
-  const tested = videos.filter(v => v.abtest?.result === 'won' && opening(v) && v.abtest.beat)
-    .sort((a, b) => String(b.abtest.decidedAt || '').localeCompare(String(a.abtest.decidedAt || ''))).slice(0, 2)
-    .map(v => ({ hook: opening(v).slice(0, 160), tested: true, beat: String(v.abtest.beat).slice(0, 160), ratio: v.abtest.ratio || null, messages: v.results?.messages || 0, format: v.meta?.format || '' }));
-  const messaged = videos.filter(v => v.status === 'posted' && (v.results?.messages || 0) > 0 && opening(v))
+  return videos.filter(v => v.status === 'posted' && (v.results?.messages || 0) > 0 && opening(v))
     .sort((a, b) => b.results.messages - a.results.messages || (b.results.views || 0) - (a.results.views || 0))
     .map(v => ({ hook: opening(v).slice(0, 160), messages: v.results.messages, format: v.meta?.format || '' }))
-    .filter(w => !tested.some(t => t.hook === w.hook));
-  return [...tested, ...messaged].slice(0, n);
+    .slice(0, n);
 }
 // What rejections have in common: counts by reason, most common first.
 export function rejectionSummary(videos = [], days = 60, now = Date.now()) {

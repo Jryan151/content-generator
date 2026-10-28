@@ -1142,7 +1142,6 @@ const actions = {
     if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; setTimeout(() => { if (document.contains(el)) { el.dataset.confirm = ''; el.textContent = 'Remove'; } }, 3000); return; }
     try { S.people = { ...S.people, ...(await api(`/api/people/${el.dataset.id}`, { method: 'DELETE' })) }; drawTeam(); loadActivity(); toast('Removed. Their seat is free.'); } catch (e) { toast(e.message); }
   },
-  async 'ab-stop'(el) { el.disabled = true; try { S.abtests = { ...S.abtests, ...(await api(`/api/abtests/${el.dataset.id}/stop`, { method: 'POST', body: {} })) }; drawReview(); toast('Test stopped. Both videos stay as they are.'); } catch (e) { el.disabled = false; toast(e.message); } },
   // The initial's menu (v15 Phase 10): Account, Guide, Billing, Log out.
   menu(el) { const pop = document.getElementById('mePop'); if (!pop) return; pop.hidden = !pop.hidden; el.setAttribute('aria-expanded', String(!pop.hidden)); if (!pop.hidden) pop.querySelector('a')?.focus(); },
   'copy-text'(el) { copy(el.dataset.text || '', el.dataset.what || 'Address'); },
@@ -2391,16 +2390,6 @@ document.addEventListener('submit', async e => {
     }
     if (kind.startsWith('mind-')) { await mindForm(kind, f, data); return; }
     if (kind === 'so-back') { await soBackForm(f, data); return; }
-    if (kind === 'st-abtest') {
-      const own = String(data.own || '').trim(), text = own || String(data.b || '');
-      if (!text) { toast('Pick or write the second opening'); return; }
-      const say = own ? '' : f.querySelector('input[name="b"]:checked')?.dataset.say || '';
-      clearTimeout(S.st.saveTimer);
-      await api('/api/studio/' + S.st.d.id, { method: 'PUT', body: { scenes: S.st.d.scenes } });
-      const r = await api(`/api/studio/${S.st.d.id}/abtest`, { method: 'POST', body: { text, say } });
-      S.st.d = r.draft; S.st.abOpen = false; drawStudio(); pollStudio(); watchJobs();
-      toast('Making both versions. They’ll be in Review in a few minutes.'); return;
-    }
     if (kind.startsWith('reply-') && await repliesForm(kind, f, data)) return;
     if (kind === 'book-key') { S.bookHook = await api('/api/bookings/hook', { method: 'POST', body: { key: data.key || '' } }); S.bookHookOpen = true; drawBrand(); toast(data.key ? 'Signing key saved. Every call must now be signed.' : 'Signing key removed'); return; }
     if (kind === 'reviewer-invite') {

@@ -92,22 +92,6 @@ const STEPS_POST = mode => [
   'Share it, then come back and tap Mark posted.',
 ].filter(Boolean);
 
-// Opening tests (v15, lib/abtests.js): two versions of one video with different openings, and what won.
-async function loadAbtests() { try { S.abtests = await api('/api/abtests'); } catch { S.abtests = null; } }
-const ARM_STATUS = { making: 'Being made', review: 'In review: approve and post both', live: 'Posted: results after a week', decided: '', stopped: '' };
-function abtestsPanel() {
-  const A = S.abtests;
-  if (!A?.tests?.length) return '';
-  const hook = (t, arm) => `<b>${arm}</b> “${esc(t.arms[arm].hook)}” <span class="muted">(${esc(A.styles[t.arms[arm].style] || '')})</span>`;
-  return `<section class="panel" id="abtestsPanel"><div class="head"><h2>Opening tests</h2><p>Two versions of a video, the same but for the opening. Post both a day or two apart at the same time; after ${A.days} days, the one with clearly more views wins, and new scripts learn from it.</p></div>
-    ${A.lessons.length ? `<p class="small" style="margin:0"><b>What’s won so far:</b> ${A.lessons.filter(l => l.won || l.lost).map(l => `${esc(l.label)} won ${l.won} of ${l.won + l.lost}`).join(' · ') || 'nothing clear yet'}</p>` : ''}
-    <div class="stack" style="gap:8px">${A.tests.slice(0, 10).map(t => `<div class="box" style="gap:4px">
-      <div class="row between"><span class="small">${t.status === 'decided' ? (t.winner ? `<span class="pill ok">${t.winner} won</span>` : '<span class="pill">Too close to call</span>') : t.status === 'stopped' ? '<span class="pill">Stopped</span>' : `<span class="pill warn">${esc(ARM_STATUS[t.status])}</span>`}</span><span class="small muted">${esc(day(t.createdAt))}</span></div>
-      <span class="small">${hook(t, 'A')}</span><span class="small">${hook(t, 'B')}</span>
-      ${t.why ? `<span class="small muted">${esc(t.why)}</span>` : ''}
-      ${['making', 'review', 'live'].includes(t.status) && can('make') ? `<div class="row"><button class="btn sm ghost" data-act="ab-stop" data-id="${esc(t.id)}">Stop this test</button></div>` : ''}</div>`).join('')}</div></section>`;
-}
-const abPill = v => (v.abtest ? `<span class="pill">Opening test · ${esc(v.abtest.arm)}${v.abtest.result === 'won' ? ' · won' : v.abtest.result === 'lost' ? ' · lost' : v.abtest.result === 'tie' ? ' · too close' : ''}</span>` : '');
 function drawReview() {
   // (v15 Phase 10) The week, the coach's check-in and the nudges moved to Today, and results to Grow:
   // their buttons redraw whichever of those pages is open.
@@ -132,7 +116,7 @@ function drawReview() {
     ${approved.length ? `<section class="stack"><h2>Ready to post</h2><div class="vids">${approved.map(cardApproved).join('')}</div></section>` : ''}
     ${gridPanel()}
     ${posted.length ? `<section class="stack"><h2>Posted</h2><p class="small muted">Add views and messages a few days after posting. They show which topics bring people to you.</p><div class="stack">${[...posted].sort((a, b) => (st.needResults || []).includes(b.id) - (st.needResults || []).includes(a.id)).slice(0, 30).map(cardPosted).join('')}</div></section>` : ''}
-    ${st.topics.length || vids.some(v => v.abtest) || S.abtests?.tests?.length || (st.rejections || []).length ? '<p class="small muted" style="margin:0">What’s working, opening tests and why videos were rejected: <a href="#/grow">Grow</a>.</p>' : ''}
+    ${st.topics.length || (st.rejections || []).length ? '<p class="small muted" style="margin:0">What’s working and why videos were rejected: <a href="#/grow">Grow</a>.</p>' : ''}
     ${rejected.length ? `<details><summary>Rejected (${rejected.length}) · removed after a couple of weeks</summary><div class="vids">${rejected.map(cardRejected).join('')}</div></details>` : ''}
     ${!vids.some(v => v.approval) || !can('data') ? '' : `<section class="panel"><div class="row between"><div class="head"><h3>Approval records</h3><p>Who approved each video, what they checked, the fact used and a fingerprint of the exact file.</p></div>
       <div class="row"><a class="btn sm" href="/api/records.html${wsParam()}">Download (HTML)</a><a class="btn sm" href="/api/records.csv${wsParam()}">Spreadsheet (CSV)</a></div></div></section>`}
@@ -176,7 +160,7 @@ function cardPending(v) {
   const fixing = S.fixing.includes(v.id);
   const studioMade = !!v.meta?.draftId;
   return `<article class="vid" data-vid="${v.id}">${player(v)}<div class="info">
-    <div class="row"><span class="pill warn">${studioMade && can('approve') ? 'Waiting for you' : 'To review'}</span>${abPill(v)}${v.updated ? '<span class="pill">Updated</span>' : ''}${v.needsChanges ? '<span class="pill">Changes asked for</span>' : ''}<span class="small muted">${esc(sub(v))}</span></div>
+    <div class="row"><span class="pill warn">${studioMade && can('approve') ? 'Waiting for you' : 'To review'}</span>${v.updated ? '<span class="pill">Updated</span>' : ''}${v.needsChanges ? '<span class="pill">Changes asked for</span>' : ''}<span class="small muted">${esc(sub(v))}</span></div>
     ${factLine(v)}
     ${v.signoff?.status === 'back' ? `<div class="note warn small"><b>${esc(v.signoff.byName || 'Your reviewer')} sent this back</b> ${esc(when(v.signoff.at))}: “${esc(v.signoff.note)}”. Fix it, then approve it again; it goes back to them.</div>` : ''}
     ${changedHTML(v)}${v.needsChanges ? `<div class="note small">You asked for changes${v.needsChanges.items?.length ? ` (${esc(v.needsChanges.items.map(x => x.label).join(', '))})` : ''}${v.needsChanges.note ? `: “${esc(v.needsChanges.note)}”` : ''}. It’s in Leads; the new version will replace this one.</div>` : ''}
@@ -191,7 +175,7 @@ function cardPending(v) {
     <div class="box approve"><h3>Before you approve</h3>${S.me.checklist.map(([k, label]) => `<label class="check"><input type="checkbox" data-chk="${v.id}" value="${k}"> <span>${esc(label)}</span></label>`).join('')}
       <p class="small muted" style="margin:0">${esc(S.me.approvalNote || 'You stay responsible for final approval of this video and for any review your carriers or state require.')}</p>
       <div class="row"><button class="btn primary" data-act="approve" data-id="${v.id}" disabled>Approve</button><span class="status" data-st="${v.id}"></span></div></div>
-    <div class="row"><button class="btn" data-act="fix-open" data-id="${v.id}">Fix a scene</button>${studioMade && v.abtest?.arm !== 'B' ? `<button class="btn" data-act="changes-open" data-id="${v.id}">Needs changes</button>` : ''}<button class="btn" data-act="reject-open" data-id="${v.id}">Reject</button><button class="btn ghost" data-act="ask-coach" data-id="${v.id}">Ask the coach</button><button class="btn ghost danger" data-act="delete" data-id="${v.id}">Delete</button></div>
+    <div class="row"><button class="btn" data-act="fix-open" data-id="${v.id}">Fix a scene</button>${studioMade ? `<button class="btn" data-act="changes-open" data-id="${v.id}">Needs changes</button>` : ''}<button class="btn" data-act="reject-open" data-id="${v.id}">Reject</button><button class="btn ghost" data-act="ask-coach" data-id="${v.id}">Ask the coach</button><button class="btn ghost danger" data-act="delete" data-id="${v.id}">Delete</button></div>
     ${S.open.reject === v.id ? rejectForm(v) : ''}${S.open.changes === v.id ? changesForm(v) : ''}${S.fix?.id === v.id ? fixForm(v) : ''}`}
   </div></article>`;
 }
@@ -266,7 +250,7 @@ function signoffHTML(v) {
 function cardApproved(v) {
   const file = S.shareFiles[v.id], held = waitingSignoff(v);
   return `<article class="vid" data-vid="${v.id}">${player(v)}<div class="info">
-    <div class="row"><span class="pill ok">Approved</span>${abPill(v)}${held ? '<span class="pill warn">Waiting for sign-off</span>' : ''}<span class="small muted">${v.offlineQueued ? 'on this device · sent when you’re back online' : v.approval ? `by ${esc(v.approval.byName)} · ${esc(when(v.approval.at))}` : 'before approval records were kept'}</span></div>
+    <div class="row"><span class="pill ok">Approved</span>${held ? '<span class="pill warn">Waiting for sign-off</span>' : ''}<span class="small muted">${v.offlineQueued ? 'on this device · sent when you’re back online' : v.approval ? `by ${esc(v.approval.byName)} · ${esc(when(v.approval.at))}` : 'before approval records were kept'}</span></div>
     ${factLine(v)}${signoffHTML(v)}
     ${!can('post') ? '<div class="note small">Ready to post. The agent posts it.</div>' : held ? `${autopostHTML(v)}${fbpostHTML(v)}${trackHTML(v)}` : `<div class="box"><h3>Post it</h3><ol class="script small">${STEPS_POST(v.mode || v.meta?.mode).map(x => `<li>${esc(x)}</li>`).join('')}</ol>
       ${v.post ? `${cutoffHTML(v.post)}<p class="post">${esc(v.post)}</p>` : '<div class="note warn">No post text passed the checks. Write your own.</div>'}
@@ -344,7 +328,7 @@ function linkResults(v) {
 function cardPosted(v) {
   const r = v.results || {}, due = (S.stats?.needResults || []).includes(v.id);
   return `<div class="compact${v.coverUrl ? '' : ' nocover'}${due ? ' due' : ''}">${v.coverUrl ? `<img src="${esc(v.coverUrl)}" alt="" loading="lazy">` : ''}<div class="stack" style="gap:6px">
-    <div class="row between"><b class="small">${due ? '<span class="pill warn">Add results</span> ' : ''}${v.posted?.auto ? '<span class="pill ok">Auto-posted</span> ' : ''}${v.abtest ? `${abPill(v)} ` : ''}${esc(v.meta?.painPoint)}</b><span class="small muted">Posted ${esc(day(v.posted?.at))}${v.posted?.url ? ` · <a href="${esc(v.posted.url)}" target="_blank" rel="noopener">View</a>` : ''}</span></div>
+    <div class="row between"><b class="small">${due ? '<span class="pill warn">Add results</span> ' : ''}${v.posted?.auto ? '<span class="pill ok">Auto-posted</span> ' : ''}${esc(v.meta?.painPoint)}</b><span class="small muted">Posted ${esc(day(v.posted?.at))}${v.posted?.url ? ` · <a href="${esc(v.posted.url)}" target="_blank" rel="noopener">View</a>` : ''}</span></div>
     ${r.auto ? `<span class="small">${[['views', 'views'], ['reach', 'reached'], ['likes', 'likes'], ['comments', 'comments'], ['shares', 'shares'], ['saved', 'saves']].filter(([k]) => r[k] != null).map(([k, l]) => `<b>${Number(r[k]).toLocaleString()}</b> ${l}`).join(' · ')} <span class="muted">· from Instagram, ${esc(when(r.auto.at))}</span></span>` : ''}
     ${linkResults(v)}
     ${v.fbpost?.status !== 'posted' ? fbpostHTML(v, true) : ''}
@@ -378,4 +362,4 @@ function resultsPanel(st) {
       ${can(g) ? `<button class="btn sm" data-act="make-topic" data-id="${esc(g.key)}">Make another</button>` : ''}</div>`).join('')}</div></section>`;
 }
 
-export { abtestsPanel, drawReview, focusKey, haptic2, loadAbtests, loadIg, loadVideos, loadWeekly, player, rejectionsPanel, resultsPanel, sub, viewReview, weeklyPanel };
+export { drawReview, focusKey, haptic2, loadIg, loadVideos, loadWeekly, player, rejectionsPanel, resultsPanel, sub, viewReview, weeklyPanel };

@@ -68,7 +68,6 @@ route('POST', '/api/videos/:id/changes', 'ws', ({ wsId, params, body, me }) => {
   if (v.status !== 'pending') bad(409, 'Only videos waiting for review can be sent back for changes.');
   if (fixing(wsId, v.id)) bad(409, 'A new version of this video is being made. Ask for changes on it when it arrives.');
   const draftId = v.meta?.draftId;
-  if (v.abtest?.arm === 'B') bad(409, 'This is version B of an opening test, and its draft is version A’s. Use Fix a scene to change it.');
   if (!draftId || !studio.get(wsId, draftId)) bad(409, 'This video wasn’t built in Studio (or its draft was deleted). Use Fix a scene instead.');
   const n = (v.scenes || []).length;
   const checklist = desk.cleanChecklist(body.items).filter(x => x.i === null || x.i < n);

@@ -215,53 +215,6 @@ route('POST', '/api/studio/:id/render', 'ws', ({ wsId, ws, params, me }) => {
   return { job: jobView(job), draft: draftView(wsId, studio.get(wsId, d.id), cfg) };
 });
 
-// Test two openings (v15, lib/abtests.js): the draft as it is (A) and the same draft with another opening
-// (B), made together. Each is checked like any render and uses one of the month's videos.
-route('POST', '/api/studio/:id/abtest', 'ws', async ({ wsId, ws, params, body, me }) => {
-  const abtests = await import('../lib/abtests.js');
-  const d = liveStatus(wsId, getDraft(wsId, params.id)), cfg = store.loadConfig(wsId), picks = draftPicks(wsId, cfg, d);
-  if (d.status === 'rendering') bad(409, 'This video is already rendering.');
-  if (d.videoId) bad(409, 'This draft was already submitted. Start a new draft to test two openings.');
-  if (picks.problems.length) bad(409, picks.problems[0]);
-  if (d.scenes.length !== picks.scenes) bad(400, `This draft needs ${picks.scenes} scenes; it has ${d.scenes.length}.`);
-  // In a voiceover video, B's spoken line changes with its opening (the opening's own spoken version, or
-  // the words as written), so the two versions don't sound the same.
-  const voiced = cfg.output?.mode === 'voiceover';
-  const b = { text: clip(body.text, 200), ...(voiced ? { say: clip(typeof body.say === 'string' && body.say.trim() ? body.say : body.text, 300) } : {}) };
-  if (!b.text) bad(400, 'Pick the second opening.');
-  if (b.text.toLowerCase() === String(d.scenes[0]?.text || '').toLowerCase()) bad(400, 'Pick a different opening for version B.');
-  const scenesB = d.scenes.map((s, i) => (i === 0 ? { ...s, text: b.text, ...(b.say ? { say: b.say } : {}), accent: String(s.accent || '').split(/\s+/).some(w => w && b.text.toLowerCase().includes(w.toLowerCase())) ? s.accent : '' } : s));
-  const checkA = studioChecks(d.scenes, draftCfg(cfg, d), picks), checkB = studioChecks(scenesB, draftCfg(cfg, d), picks);
-  if (!checkA.ok) bad(400, 'Fix these first: ' + checkA.problems.join(' '), { problems: checkA.problems, findings: checkA.findings });
-  if (!checkB.ok) bad(400, 'The second opening can’t be used: ' + checkB.problems.join(' '), { problems: checkB.problems });
-  const a = billing.access(ws);
-  if (!a.allowed) bad(402, a.reason);
-  spendGate(ws);
-  if (a.limit - usedThisMonth(wsId) < 2) bad(402, 'A test makes two videos, and there isn’t room for two this month.');
-  if (!switches.isOn('videos', ws)) bad(503, switches.offText('videos', ws));
-  let test;
-  try { test = abtests.start(wsId, { draftId: d.id, topic: d.title || '', a: d.scenes[0].text, b: b.text, by: me.account.id }); } catch (e) { bad(e.status || 400, e.message); }
-  const spelling = spellFindings(cfg, d.scenes).map(f => f.text);
-  let jobA, jobB;
-  try {
-    jobA = queue.enqueue({ ws: wsId, kind: 'studio', opts: { draftId: d.id, brief: d.brief, scenes: applyAutoFixes(d.scenes, checkA.findings), ...(spelling.length ? { notes: spelling } : {}), abtest: { id: test.id, arm: 'A' } }, by: me.account.id, source: 'studio' });
-    jobB = queue.enqueue({ ws: wsId, kind: 'studio', opts: { draftId: d.id, brief: d.brief, scenes: applyAutoFixes(scenesB, checkB.findings), abtest: { id: test.id, arm: 'B' } }, by: me.account.id, source: 'studio' });
-  } catch (e) { if (jobA) queue.cancel(wsId, jobA.id); abtests.stop(wsId, test.id, 'It couldn’t be started.'); bad(429, e.message); }
-  abtests.setJob(wsId, test.id, 'A', jobA.id); abtests.setJob(wsId, test.id, 'B', jobB.id);
-  studio.save(wsId, d.id, { status: 'rendering', jobId: jobA.id, error: '' });
-  return { test: abtests.get(wsId, test.id), jobs: [jobView(jobA), jobView(jobB)], draft: draftView(wsId, studio.get(wsId, d.id), cfg) };
-});
-route('GET', '/api/abtests', 'ws', async ({ wsId }) => {
-  const abtests = await import('../lib/abtests.js');
-  return { tests: abtests.refresh(wsId).slice(0, 30), lessons: abtests.lessons(wsId), styles: abtests.STYLES, days: abtests.RESULT_DAYS };
-});
-route('POST', '/api/abtests/:id/stop', 'ws', async ({ wsId, params }) => {
-  const abtests = await import('../lib/abtests.js');
-  if (!abtests.get(wsId, params.id)) bad(404, 'Test not found.');
-  abtests.stop(wsId, params.id, 'Stopped by hand.');
-  return { tests: abtests.list(wsId).slice(0, 30), lessons: abtests.lessons(wsId) };
-});
-
 route('GET', '/api/overview', 'ws', ({ wsId, caps }) => ({
   workspace: wsSummary(wsId, caps),
   // What to make next (gaps), and whether the posting plan is about to run dry.
