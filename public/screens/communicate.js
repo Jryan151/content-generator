@@ -97,7 +97,7 @@ function workshopHTML(r) {
     ${r.versions.length ? `<h3>Rewritten for different styles</h3>${r.versions.map((v, i) => `<div class="sg">${v.style ? `<div class="row">${styleBadge(v.style)}<b class="small">${esc(STYLES[v.style].name)}</b>${v.why ? `<span class="small muted">· ${esc(v.why)}</span>` : ''}</div>` : ''}
       <p style="margin:0">“${esc(v.text)}”</p>
       <div class="row">${v.apply ? `<button class="btn sm${v.applied ? '' : ' primary'}" data-act="ws-use" data-i="${i}" ${v.applied ? 'disabled' : ''}>${v.applied ? 'Used ✓' : esc(v.apply.type.startsWith('edit') ? 'Use instead' : v.apply.type === 'set_cta' ? 'Use as my call to action' : 'Add to my content')}</button>` : ''}<button class="btn sm ghost" data-act="ws-copy" data-i="${i}">Copy</button></div></div>`).join('')}` : '<p class="empty">None of the rewrites passed the checks this time. Try again, or reword it a little.</p>'}
-    ${r.versions.some(v => v.apply?.type === 'add_fact' || v.apply?.type === 'edit_fact') ? '<p class="small muted" style="margin:0">A new or reworded fact starts unconfirmed: check it against your carrier materials, then confirm it in Setup → Library → Facts.</p>' : ''}
+    ${r.versions.some(v => v.apply?.type === 'add_fact' || v.apply?.type === 'edit_fact') ? '<p class="small muted" style="margin:0">A new or reworded fact starts unconfirmed: check it against your carrier materials, then confirm it in Setup → Topics.</p>' : ''}
   </div>`;
 }
 

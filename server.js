@@ -65,7 +65,7 @@ import mount_people from './routes/people.js';
 import mount_signoff from './routes/signoff.js';
 import mount_replies from './routes/replies.js';
 
-export const VERSION = '15.0.0';
+export const VERSION = '16.0.0';
 const SECURE = PUBLIC_URL.startsWith('https://');
 const TESTS_PER_DAY = Number(process.env.SCRIPT_TESTS_PER_DAY || 30);
 const MAX_PER_REQUEST = 3;

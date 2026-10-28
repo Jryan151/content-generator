@@ -34,7 +34,7 @@ import { applyStudio, applySuggestion, describe, drawCoach, lines, loadCoachNote
 // This portal's version. The server says its own on every answer (X-App-Version); when they differ (a
 // tab left open across an update), the portal refreshes itself at the next calm moment, keeping what
 // was being typed. Kept equal to server.js VERSION (the checks make sure).
-const APP_VERSION = '15.0.0';
+const APP_VERSION = '16.0.0';
 const app = document.getElementById('app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -1197,7 +1197,7 @@ const actions = {
   },
   'st-usescenery'(el) { const i = +el.dataset.i, t = S.st.rw[i]?.scenery?.[+el.dataset.k]; if (t) { stSetScene(i, { note: t }); drawStudio(); } },
   'st-note-del'(el) { const i = +el.dataset.i, x = { ...S.st.d.scenes[i] }; delete x.note; S.st.d.scenes[i] = x; stSave(); drawStudio(); },
-  'goto-facts'(el, e) { e?.preventDefault?.(); S.contentTab = 'insights'; go(canSee('library') ? 'library' : 'content'); },
+  'goto-facts'(el, e) { e?.preventDefault?.(); S.contentTab = 'topics'; go(canSee('library') ? 'library' : 'content'); },
   'st-userw'(el) {
     const i = +el.dataset.i, o = S.st.rw[i]?.options?.[+el.dataset.k];
     if (!o) return;

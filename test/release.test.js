@@ -14,11 +14,11 @@ const server = await start({ port: 0, scheduler: false, worker: false });
 const c = client(server.address().port);
 test.after(() => server.close());
 
-test('release: version 15.0.0 everywhere', async () => {
-  assert.equal(VERSION, '15.0.0');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version, '15.0.0');
-  assert.equal((await c.get('/api/me')).data.version, '15.0.0');
-  assert.match(fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8'), /^# Agent Reels 15/);
+test('release: version 16.0.0 everywhere', async () => {
+  assert.equal(VERSION, '16.0.0');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version, '16.0.0');
+  assert.equal((await c.get('/api/me')).data.version, '16.0.0');
+  assert.match(fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8'), /^# Agent Reels 16/);
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8'), /being built in steps/);
 });
 

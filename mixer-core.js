@@ -812,7 +812,7 @@ export function spellFixed(text, m) {
 }
 // One-tap fixes. A fix is { label, edits: [{ i, field, value }] } (applied as is), { label, rewrite: i }
 // (rewrite that scene, told what to avoid) or { label, action } ('fill': write the empty scenes,
-// 'nofact': teach no specific fact, 'facts': open Content → Facts).
+// 'nofact': teach no specific fact, 'facts': open Setup → Topics).
 const tidyLine = (t, was = '') => {
   let s = String(t).replace(/\s*,\s*,\s*/g, ' ').replace(/\s+([,.!?;:])/g, '$1').replace(/([,;:])[,;:]+/g, '$1').replace(/(?<!\.)\.\.(?!\.)/g, '.').replace(/([!?])\.(?!\.)/g, '$1').replace(/([,;:])(?=[.!?])/g, '').replace(/\s{2,}/g, ' ').replace(/^[\s,;:.–—-]+/, '').trim();
   if (/^[A-Z“‘"']/.test(String(was).trim()) && s) s = s[0].toUpperCase() + s.slice(1);
@@ -1162,7 +1162,7 @@ export function studioChecks(scenes0, cfg, picks) {
     if (need.length && have / need.length < R.setting('factMatch')) add('factMatch', `The teaching scenes (${bodyScenes.length > 1 ? `scenes ${bodyScenes[0]}-${bodyScenes.at(-1)}` : `scene ${bodyScenes[0]}`}) don’t say your confirmed fact closely enough: “${f.text}”. Keep its key words, or make this a video that doesn’t teach a specific fact.`, bodyScenes[0] - 1, rewriteFix(bodyScenes[0] - 1, 'Rewrite it with the fact’s words'));
   });
   // A brief that can't work (a fact no longer confirmed, say) stops it too, with the way out.
-  (picks.problems || []).forEach(p => add('facts', p, null, /fact/i.test(p) ? { label: 'Check the facts in Content', action: 'facts' } : null));
+  (picks.problems || []).forEach(p => add('facts', p, null, /fact/i.test(p) ? { label: 'Check your topics', action: 'facts' } : null));
   const problems = findings.filter(f => f.kind === 'stop').map(f => f.text), soft = findings.filter(f => f.kind === 'warn').map(f => f.text);
   return { ok: !problems.length, problems, soft, findings };
 }

@@ -187,7 +187,7 @@ function stStartHTML(p, U) {
   if (!p.painPoint) {
     return `<section class="panel story"><div class="head"><h2><span class="dot"></span>1. What’s this video about?</h2><p>Pick what it’s about. We’ll set up the rest.</p></div>
       ${pains.length ? `<div class="cards worry-cards">${pains.map(x => `<button class="box worry-card" data-act="st-worry" data-id="${esc(x.id)}"><b>${esc(x.text)}</b>${x.question ? `<span class="small muted">${esc(ask(x))}</span>` : ''}</button>`).join('')}</div>`
-        : `<p class="empty">${noFact ? 'Add a worry in Content → Topics first.' : 'No worry has a confirmed fact yet. <a href="#/content" data-act="goto-facts">Confirm one in Content → Topics</a>, or make a video that doesn’t teach a fact.'}</p>`}
+        : `<p class="empty">${noFact ? 'Add a worry in Content → Topics first.' : 'No topic is checked yet. <a href="#/content" data-act="goto-facts">Check one in Setup → Topics</a>, or make a video that doesn’t teach a fact.'}</p>`}
       <div class="row">${pains.length ? '<button class="btn primary" data-act="st-surprise">Surprise me</button>' : ''}<button class="btn ghost sm" data-act="st-nofact-start" aria-pressed="${noFact}">${noFact ? 'Teach a confirmed fact instead' : 'Make one that doesn’t teach a fact'}</button><button class="btn ghost sm" data-act="st-more">More options</button></div></section>`;
   }
   const fmt = FORMATS[p.format]?.label || p.format, aud = p.audience ? short(p.audience.text).replace(/[.]$/, '') : 'your audience';
