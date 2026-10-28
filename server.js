@@ -14,14 +14,13 @@ import * as auth from './lib/auth.js';
 import * as allowance from './lib/allowance.js';
 import * as usage from './lib/usage.js';
 import * as queue from './lib/queue.js';
-import { startScheduler, maintenanceState, saveMaintenance, KEEP, freeGB, diskGate, nightCapacity } from './lib/scheduler.js';
+import { startScheduler, maintenanceState, saveMaintenance, KEEP, freeGB, diskGate } from './lib/scheduler.js';
 import * as alerts from './lib/alerts.js';
 import * as ig from './lib/instagram.js';
 import * as fb from './lib/facebook.js';
 import * as secrets from './lib/secrets.js';
 import * as mc from './mindset-core.js';
 import * as trackLinks from './lib/links.js';
-import * as mail from './lib/email.js';
 import * as data from './lib/data.js';
 import * as twofa from './lib/twofa.js';
 import * as audit from './lib/audit.js';
@@ -29,11 +28,8 @@ import * as offsite from './lib/offsite.js';
 import * as monitor from './lib/monitor.js';
 import * as ai from './lib/ai.js';
 import { currentSignal } from './lib/proc.js';
-import { inspect } from './lib/inspect.js';
 import { onShapeProblem } from './lib/shapes.js';
-import * as switches from './lib/switches.js';
 import * as breaker from './lib/breaker.js';
-import * as outbox from './lib/outbox.js';
 import * as insights from './lib/insights.js';
 import * as library from './lib/library.js';
 import * as studio from './lib/studio.js';
@@ -43,16 +39,13 @@ import * as push from './lib/push.js';
 import * as signoff from './lib/signoff.js';
 import * as replies from './lib/replies.js';
 import * as gauges from './lib/gauges.js';
-import * as clock from './lib/clock.js';
 import * as targets from './lib/targets.js';
-import * as expiry from './lib/expiry.js';
 import * as changes from './lib/changes.js';
 import * as platforms from './lib/platforms.js';
 import { engineBay, jobTimeline } from './lib/engine.js';
 import { logoColors } from './lib/logocolors.js';
 import { markRunning } from './lib/storage.js';
 // Is the website process running (its pid file names a live process)?
-const websiteRunning = () => { try { const pid = Number(fs.readFileSync(path.join(DIRS.data, 'server.pid'), 'utf8')); return !!pid && pid !== process.pid && (process.kill(pid, 0), true); } catch { return false; } };
 import { answersFrom, draftConfig, personalize, stampFacts, confirmedCount } from './lib/onboarding.js';
 import { buildPrompt } from './lib/prompts.js';
 import { migrate, whyNoVideos, PRODUCT_LINES, FORMATS, boostsFrom, tasteFrom, AI_VOICE_NOTE, DEFAULT_CONFIG, winnersFrom, rejectionSummary, needsResults, roll, applySuggestionTo, usableRoutes, insightStatus, checkInsightText, styleCalibration, gaps, runningLow, bestPostingHour, weekdayIn, studioPicks, studioChecks, suggestAccent, nicheOf, okBookingUrl, shortReason, hiddenNote, beatPlan, lineProblems, linkChecks, linkKey, textKey, localDates, weekdayOfDate } from './mixer-core.js';
@@ -274,7 +267,6 @@ function stats(vids) {
 // Every way of starting videos goes through here: plan, limits and setup are checked once.
 export function enqueueVideos(wsId, n, source = 'manual', by = '', force = {}) {
   const ws = store.getWorkspace(wsId);
-  if (!switches.isOn('videos', ws)) bad(503, switches.offText('videos', ws));
   const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
@@ -366,16 +358,10 @@ function startSession(req, res, acc, how = 'password') {
   const days = acc.role === 'admin' ? auth.ADMIN_SESSION_DAYS() : auth.SESSION_DAYS;
   const token = auth.createSession(acc.id, { days, ua: req.headers['user-agent'], ip: clientIp(req) });
   res.setHeader('Set-Cookie', auth.sessionCookie(token, SECURE, days));
-  // A login from a device and network we haven't seen for this account: tell its owner by email.
-  // (Not their very first login, and not right after an invite or password reset they just used.)
+  // Remembers the device and rough network, so Account can list where this login is used.
   const device = auth.deviceName(req.headers['user-agent']), ip = clientIp(req), seen = deviceKey(device, ip);
   const known = Array.isArray(acc.knownDevices) ? acc.knownDevices : [];
-  const isNew = !known.includes(seen);
   store.updateAccount(acc.id, { lastLoginAt: nowIso(), knownDevices: [seen, ...known.filter(k => k !== seen)].slice(0, 20) });
-  if (isNew && acc.lastLoginAt && !/link/.test(how) && mail.emailOn()) {
-    const tz = acc.workspaceId && store.getWorkspace(acc.workspaceId) ? store.loadConfig(acc.workspaceId).profile?.timezone : '';
-    mail.send({ to: acc.email, ...mail.newLoginEmail({ device, ip, at: new Date(), timezone: validTz(tz || 'America/Denver') }) }).catch(e => console.error('[email] new login:', e.message));
-  }
   return token;
 }
 // Device + rough network (IPv4 /16, IPv6 /48), so a phone moving between cell towers isn't "new".
@@ -383,15 +369,6 @@ function deviceKey(device, ip) {
   const v = String(ip || '').replace(/^::ffff:/, '');
   const net = v.includes(':') ? v.split(':').slice(0, 3).join(':') : v.split('.').slice(0, 2).join('.');
   return crypto.createHash('sha256').update(`${device}|${net}`).digest('hex').slice(0, 16);
-}
-// Email a link when email is set up; the link is always returned too, so it can still be copied.
-async function mailLink(to, msg) {
-  if (!mail.emailOn()) return { emailed: false, emailError: '' };
-  try {
-    const r = await mail.send({ to, ...msg });
-    if (r.queued) return { emailed: false, queued: true, emailError: r.why === 'paused' ? 'Emails are switched off right now (Admin → Switchboard), so it will be emailed when they’re back on.' : 'The email service isn’t answering right now, so it will be emailed by itself once it is.' };
-    return { emailed: true, emailError: '' };
-  } catch (e) { return { emailed: false, emailError: e.message }; }
 }
 // An invite into a workspace that has since been deleted.
 const orphanInvite = t => t.kind === 'invite' && t.role !== 'admin' && !!t.workspaceId && !store.getWorkspace(t.workspaceId);
@@ -419,17 +396,12 @@ export function noticesFor(ws, caps = []) {
   if (!ws) return [];
   const out = [], open = new Set(breaker.status().filter(b => b.open).map(b => b.id));
   const add = (id, text) => out.push({ id, text });
-  if (!switches.isOn('videos', ws)) add('videos', switches.offText('videos', ws));
-  else if (open.has('openai') && !(ai.ladder('writer').some(r => r.provider !== 'openai' && !open.has(r.provider)))) add('ai', 'New videos are slower right now: the writing service isn’t answering. Videos in line wait and finish by themselves.');
+  if (open.has('openai') && !(ai.ladder('writer').some(r => r.provider !== 'openai' && !open.has(r.provider)))) add('ai', 'New videos are slower right now: the writing service isn’t answering. Videos in line wait and finish by themselves.');
   else if (open.has('pixabay') && (open.has('pexels') || !process.env.PEXELS_API_KEY)) add('footage', 'New videos are slower right now: the stock footage sites aren’t answering. Videos in line wait and finish by themselves.');
   if (caps.includes('post')) {
-    if (!switches.isOn('autopost', ws)) add('autopost', switches.offText('autopost', ws));
-    else {
-      if (open.has('instagram') && ig.account(ws.id).connected) add('instagram', 'Instagram isn’t answering right now. Scheduled posts go out by themselves when it’s back.');
-      if (open.has('facebook') && fb.account(ws.id).connected) add('facebook', 'Facebook isn’t answering right now. Scheduled posts go out by themselves when it’s back.');
-    }
+    if (open.has('instagram') && ig.account(ws.id).connected) add('instagram', 'Instagram isn’t answering right now. Scheduled posts go out by themselves when it’s back.');
+    if (open.has('facebook') && fb.account(ws.id).connected) add('facebook', 'Facebook isn’t answering right now. Scheduled posts go out by themselves when it’s back.');
   }
-  if (caps.includes('coach') && !switches.isOn('coach', ws)) add('coach', switches.offText('coach', ws));
   return out;
 }
 
@@ -437,7 +409,6 @@ export function noticesFor(ws, caps = []) {
 // Every coach call (questions, rewrites, replies, check-ins) counts toward one daily limit.
 const coachLimit = auth.limiter({ max: Number(process.env.COACH_PER_DAY || 60), windowMs: 24 * 3600000 });
 function coachGate(wsId, ws) {
-  if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
   const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
@@ -705,8 +676,8 @@ const STATIC = {
   // The service worker that shows "your video is ready" notifications.
   '/sw.js': ['public/sw.js', 'text/javascript; charset=utf-8'],
 };
-// Where people write to about their data: SUPPORT_EMAIL, else EMAIL_REPLY_TO.
-export const supportEmail = () => [process.env.SUPPORT_EMAIL, process.env.EMAIL_REPLY_TO].map(x => String(x || '').trim()).find(x => /^[^\s@<>"'&]+@[^\s@<>"'&]+\.[^\s@<>"'&]+$/.test(x)) || '';
+// Where people write to about their data: SUPPORT_EMAIL.
+export const supportEmail = () => [process.env.SUPPORT_EMAIL].map(x => String(x || '').trim()).find(x => /^[^\s@<>"'&]+@[^\s@<>"'&]+\.[^\s@<>"'&]+$/.test(x)) || '';
 function serveStatic(req, res, url) {
   if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' });
   const hit = STATIC[url.pathname];
@@ -852,11 +823,11 @@ export async function proactiveJobs(now = new Date(), log = console.log) {
   for (const ws of store.listWorkspaces()) { try {
     // Switched off (overnight or making videos): skipped without using up this week's plan, so it
     // still runs if it's back on within the Monday morning.
-    if (!ws.onboarded || ws.suspended || !switches.isOn('overnight', ws) || !switches.isOn('videos', ws)) continue;
+    if (!ws.onboarded || ws.suspended) continue;
     const cfg = store.loadConfig(ws.id), tz = cfg.profile?.timezone || 'America/Denver', { date, hour } = localTime(tz, now);
     // 1. The Monday plan: once per local Monday (`date` names the week).
     // (The coach writes the plan: with it switched off, the plan waits.)
-    if (cfg.schedule?.autoPlan && switches.isOn('coach', ws) && weekdayIn(tz, now.getTime()) === 1 && hour >= AUTO_PLAN_HOURS[0] && hour < AUTO_PLAN_HOURS[1] && ws.autoPlanWeek !== date) {
+    if (cfg.schedule?.autoPlan && weekdayIn(tz, now.getTime()) === 1 && hour >= AUTO_PLAN_HOURS[0] && hour < AUTO_PLAN_HOURS[1] && ws.autoPlanWeek !== date) {
       store.updateWorkspace(ws.id, { autoPlanWeek: date });
       const existing = store.readWeekly(ws.id);
       const left = allowance.access(ws).limit - usedThisMonth(ws.id);
@@ -886,15 +857,7 @@ export async function proactiveJobs(now = new Date(), log = console.log) {
   return out;
 }
 
-// The Monday "videos ready for review" email. Sends once and remembers it.
-export async function emailJobs(now = new Date()) {
-  if (!mail.emailOn()) return { review: [] };
-  return { review: await mail.reviewReminders(now) };
-}
-
 let processHooked = false;
-// Separate worker processes make the videos (worker.js, SQLite only; SETUP.md section AL), or this one does.
-export const workerMode = () => (/^separate$/i.test(String(process.env.WORKER_MODE || '')) ? 'separate' : 'here');
 
 // What both the site and a separate worker need: alerts for damaged files and failing workspaces.
 function hookAlerts() {
@@ -927,11 +890,9 @@ export function startWorkerHere() {
     alerts.notify({ level: 'warning', kind: 'video', title: 'A video got stuck, so it was stopped and put back in line', text: `${e.message} (try ${job.attempts} of ${queue.MAX_ATTEMPTS})`, did: job.attempts < queue.MAX_ATTEMPTS ? 'Stopped it and its programs, and put it back in line: it’s being made again now.' : 'Stopped it and its programs; it was its last try, so it failed.', run: 'Nothing, unless it keeps happening: then pm2 logs generator --lines 100.', ws: job.ws, workspaceName: ws?.name });
   };
   // A finished video also pings the agent's phone or computer (Web Push), if they turned that on.
-  // Nothing starts while the disk is nearly full or making videos is switched off (Admin → Switchboard).
-  const gate = () => (!switches.isOn('videos') ? { ok: false, why: 'Paused for maintenance. It starts again by itself.' } : diskGate());
-  // A workspace with making videos switched off: its videos wait in line.
-  const eligible = job => { try { return switches.isOn('videos', store.getWorkspace(job.ws)); } catch { return true; } };
-  queue.startWorker(async (job, log) => { const r = await runJob(job, log); notifyReady(job, r).catch(e => console.error('[push]', e.message)); return r; }, { failed, stuck, gate, eligible });
+  // Nothing starts while the disk is nearly full.
+  const gate = () => diskGate();
+  queue.startWorker(async (job, log) => { const r = await runJob(job, log); notifyReady(job, r).catch(e => console.error('[push]', e.message)); return r; }, { failed, stuck, gate });
 }
 
 // Work folders are cleared, except those of videos still in line or being made (they resume from
@@ -998,62 +959,18 @@ export async function start({ port = Number(process.env.PORT || 3100), host = pr
   await new Promise(resolve => server.listen(port, host, resolve));
   try { await dataChanges(); } finally { startingUp = false; }
   queue.recover({ failed: jobFailed });
-  outbox.recover();
   clearWork();
   try { trackLinks.backfill(); } catch (e) { console.error('[links]', e.message); }
-  if (worker && workerMode() === 'here') startWorkerHere();
-  else if (worker) console.log('Videos are made by worker.js (WORKER_MODE=separate).');
+  if (worker) startWorkerHere();
   if (queue.loadProblem) alerts.notify({ level: 'error', kind: 'server', title: 'The list of videos being made was damaged', text: 'data/jobs.json couldn’t be read.', did: 'Started the line empty, and kept the damaged copy in data/damaged/.', run: 'Ask agents with videos waiting to start them again (or restore jobs.json from a backup).' });
-  if (scheduler) startScheduler((wsId, n, source) => enqueueVideos(wsId, n, source, 'overnight'), console.log, { minute: async () => { await platforms.tickAll(); await outbox.drain(); }, daily: async () => { try { nightlyInspection(); } catch (e) { console.error('[inspect]', e.message); monitor.noteError(e, 'nightly inspection'); } await ig.refreshDue(); await insights.refreshResults(); await ai.checkModels().catch(e => console.error('[models]', e.message)); await clock.check().catch(e => console.error('[clock]', e.message)); await expiry.checkExpiry().catch(e => console.error('[expiry]', e.message)); try { targets.checkTargets(); } catch (e) { console.error('[targets]', e.message); } }, afterBackup: () => referenceRender(), tick: async () => { monitor.checkBackups(); gauges.noteDisk(freeGB()); await emailJobs(); await proactiveJobs(); } });
-  // The gauges (Engine bay), and a clock check a minute after start (a server that was off for a while
-  // may come back with a drifted clock).
-  if (process.env.NODE_ENV !== 'test') { gauges.start('server'); setTimeout(() => clock.check().catch(e => console.error('[clock]', e.message)), 60000).unref(); }
+  if (scheduler) startScheduler((wsId, n, source) => enqueueVideos(wsId, n, source, 'overnight'), console.log, { minute: async () => { await platforms.tickAll(); }, daily: async () => { await ig.refreshDue(); await insights.refreshResults(); await ai.checkModels().catch(e => console.error('[models]', e.message)); try { targets.checkTargets(); } catch (e) { console.error('[targets]', e.message); } }, tick: async () => { monitor.checkBackups(); gauges.noteDisk(freeGB()); await proactiveJobs(); } });
+  // The gauges (Engine bay).
+  if (process.env.NODE_ENV !== 'test') gauges.start('server');
   if (process.env.NODE_ENV !== 'test') {
-    console.log(`${PRODUCT_NAME} ${VERSION} on http://${host}:${server.address().port}${workerMode() === 'separate' ? ' (videos are made by worker.js)' : ''}`);
+    console.log(`${PRODUCT_NAME} ${VERSION} on http://${host}:${server.address().port}`);
     if (!store.listAccounts().some(a => a.role === 'admin')) console.log('No admin yet. Create one with:  node admin.js create-admin you@example.com');
   }
   return server;
-}
-
-// The nightly inspection (lib/inspect.js) and the night-capacity check, after the cleanup. What was
-// fixed is listed in Admin; what needs you comes as one alert.
-export function nightlyInspection(now = Date.now()) {
-  const r = inspect({ now });
-  saveMaintenance({ inspection: r });
-  if (r.problems.length) alerts.notify({ level: 'warning', kind: 'server', title: `The nightly inspection found ${r.problems.length} thing${r.problems.length === 1 ? '' : 's'} to look at`, text: r.problems.slice(0, 6).join(' ') + (r.problems.length > 6 ? ` …and ${r.problems.length - 6} more.` : ''), did: `Made the safe repairs itself${r.fixed?.length ? ` (${r.fixed.length})` : ''}; these need a person.`, run: 'node admin.js inspect --dry-run' }, now);
-  const cap = nightCapacity({ jobs: queue.listJobs() });
-  saveMaintenance({ nightCapacity: { ...cap, at: new Date(now).toISOString() } });
-  if (cap.tight) alerts.notify({ level: 'warning', kind: 'server', title: 'Overnight videos may not all be ready by morning', text: `${cap.videos} overnight videos at about ${cap.minutesEach} minutes each need about ${cap.hours} hours on ${cap.workers} worker${cap.workers === 1 ? '' : 's'}; the window is 1 to 6am.`, did: 'Nothing: the ones that don’t fit are made in the morning.', run: 'Add a worker (SETUP.md section AL) or a bigger server, or ask agents to lower their overnight top-up.' }, now);
-  return { inspection: r, nightCapacity: cap };
-}
-
-// The nightly reference render (lib/reference.js): the same video rendered with tonight's FFmpeg and
-// fonts, compared with the saved one. REFERENCE_RENDER=off skips it.
-export async function referenceRender(now = Date.now()) {
-  if (/^off$/i.test(String(process.env.REFERENCE_RENDER || ''))) return null;
-  try {
-    const r = await (await import('./lib/reference.js')).check({ now });
-    saveMaintenance({ reference: { at: new Date(now).toISOString(), ...r } });
-    return r;
-  } catch (e) {
-    saveMaintenance({ reference: { at: new Date(now).toISOString(), ok: false, error: String(e.message).slice(0, 200) } });
-    alerts.notify({ level: 'error', kind: 'server', title: 'The nightly reference render failed', text: `FFmpeg couldn’t render the test video: ${String(e.message).slice(0, 200)}. Agents’ videos are likely failing the same way.`, did: 'Kept the line running (each video retries and alerts on its own).', run: 'ffmpeg -version && node admin.js reference' }, now);
-    return { ok: false, error: e.message };
-  }
-}
-
-// A separate worker (worker.js): the line and the alerts, no website and no overnight jobs. It waits for
-// the website to finish the data changes of a new version (up to 10 minutes) before making videos.
-export async function startWorkerProcess({ waitMs = 600000 } = {}) {
-  markRunning('worker');
-  hookAlerts();
-  keyCheck();
-  assetCheck();
-  // (Only while the website is running to do them: on its own, a worker goes ahead; the changes only add.)
-  for (const t0 = Date.now(); changes.pending().length && websiteRunning() && Date.now() - t0 < waitMs;) await new Promise(r => setTimeout(r, 2000));
-  if (process.env.NODE_ENV !== 'test') gauges.start('worker');
-  queue.recover({ failed: jobFailed });
-  startWorkerHere();
 }
 
 // A clean stop (pm2 restart or stop, an update): videos being made go back in line without using up a
@@ -1064,7 +981,7 @@ export function shutdown() {
   try { trackLinks.flush(); } catch { /* best effort */ }
 }
 
-// Starts the website (node server.js, or the starter update.sh leaves with side-by-side releases).
+// Starts the website (node server.js).
 // REHEARSAL=1 (update.sh's try-out on a copy of the data): the website only, nothing runs or goes out.
 export function main() {
   const rehearsal = process.env.REHEARSAL === '1';
@@ -1074,7 +991,7 @@ export function main() {
 /* ---------------- The routes, by area (routes/*.js) ---------------- */
 // Mounted last, in the order they were written (the first route that matches a request answers it),
 // with the helpers they share with the rest of the server.
-const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, mailLink, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
+const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
 for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
 
 // On restart (pm2 sends SIGINT), main() hands running videos back and writes what's waiting, then exits.

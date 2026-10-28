@@ -25,7 +25,6 @@ const proc = await import('../lib/proc.js');
 const alerts = await import('../lib/alerts.js');
 const shapes = await import('../lib/shapes.js');
 const sched = await import('../lib/scheduler.js');
-const { inspect } = await import('../lib/inspect.js');
 const sqlite = paths.storageEngine() === 'sqlite';
 const titles = () => alerts.listAlerts().map(a => a.title);
 // (NO_DOTENV: the server's own .env, if this runs on one, must not change what these children see.)
@@ -115,53 +114,6 @@ if (c === 'storage' && s === 'auto') { if (f === '--check') process.exit(fs.exis
 });
 
 /* ---------------- The nightly inspection ---------------- */
-test('the nightly inspection fixes what’s safe and lists the rest', () => {
-  const ws = store.createWorkspace({ name: 'Inspected', comped: true });
-  const dir = store.videoDir(ws.id);
-  const old = Date.now() / 1000 - 3 * 86400;
-  // An approved video whose file is gone, one waiting for review whose file is gone, one that's fine.
-  store.addVideo(ws.id, { id: '20261001T100000-aaaaaa', status: 'approved', file: 'video_20261001T100000-aaaaaa.mp4', createdAt: '2026-10-01T10:00:00.000Z' });
-  store.addVideo(ws.id, { id: '20261001T110000-bbbbbb', status: 'pending', file: 'video_20261001T110000-bbbbbb.mp4', createdAt: '2026-10-01T11:00:00.000Z' });
-  store.addVideo(ws.id, { id: '20261001T120000-cccccc', status: 'pending', file: 'video_20261001T120000-cccccc.mp4', createdAt: '2026-10-01T12:00:00.000Z' });
-  fs.writeFileSync(path.join(dir, 'video_20261001T120000-cccccc.mp4'), 'ok');
-  // Files nobody has: an old one (removed) and a fresh one (could be a video being saved right now: kept).
-  fs.writeFileSync(path.join(dir, 'video_20260901T100000-dddddd.mp4'), 'orphan'); fs.utimesSync(path.join(dir, 'video_20260901T100000-dddddd.mp4'), old, old);
-  fs.writeFileSync(path.join(dir, 'cover_20260901T100000-eeeeee_t500.jpg'), 'fresh orphan');
-  // A deleted workspace's leftovers: its videos folder, a login's membership, a video in line.
-  const goneId = 'w0000000000aa';
-  fs.mkdirSync(path.join(paths.DIRS.videos, goneId), { recursive: true });
-  const acc = store.createAccount({ email: 'helper@example.com', role: 'agent', workspaceId: ws.id, hash: 'x' });
-  store.updateAccount(acc.id, { memberships: [{ ws: ws.id, role: 'owner' }, { ws: goneId, role: 'reviewer' }] });
-  const lonely = store.createAccount({ email: 'lonely@example.com', role: 'agent', workspaceId: goneId, hash: 'x' });
-  const job = queue.enqueue({ ws: goneId, kind: 'video' });
-
-  const dry = inspect({ fix: false });
-  assert.ok(dry.fixed.length >= 5);
-  assert.ok(fs.existsSync(path.join(dir, 'video_20260901T100000-dddddd.mp4')), 'a dry run changes nothing');
-
-  const r = inspect();
-  assert.ok(r.documents > 3);
-  assert.ok(!fs.existsSync(path.join(dir, 'video_20260901T100000-dddddd.mp4')), 'old orphan removed');
-  assert.ok(fs.existsSync(path.join(dir, 'cover_20260901T100000-eeeeee_t500.jpg')), 'fresh file kept');
-  assert.ok(fs.existsSync(path.join(dir, 'video_20261001T120000-cccccc.mp4')), 'a known file is never touched');
-  assert.ok(!fs.existsSync(path.join(paths.DIRS.videos, goneId)));
-  assert.equal(store.getVideo(ws.id, '20261001T100000-aaaaaa').fileDeleted, true);
-  assert.deepEqual(store.getAccount(acc.id).memberships.map(m => m.ws), [ws.id]);
-  assert.equal(queue.getJob(job.id).status, 'canceled');
-  assert.ok(r.problems.some(p => /waiting for review .*lost its file/.test(p)));
-  assert.ok(r.problems.some(p => p.includes('lonely@example.com')));
-  assert.equal(store.getAccount(lonely.id).email, 'lonely@example.com', 'a login is never removed automatically');
-  // A workspace whose record can't be read is still somebody's: its members keep their access.
-  const hurt = store.createWorkspace({ name: 'Hurt', comped: true });
-  const member = store.createAccount({ email: 'member@example.com', role: 'agent', workspaceId: hurt.id, hash: 'x' });
-  if (sqlite) { const d = paths.openDb(paths.DB_FILE), k = paths.docKey(path.join(store.wsDir(hurt.id), 'workspace.json')); d.prepare('UPDATE docs SET body = ?, prev = ? WHERE key = ?').run('{bad', '', k); d.close(); }
-  else { fs.writeFileSync(path.join(store.wsDir(hurt.id), 'workspace.json'), '{bad'); fs.writeFileSync(path.join(store.wsDir(hurt.id), 'workspace.json.prev'), ''); }
-  paths.onDamage(() => {});
-  const r2 = inspect();
-  paths.onDamage(null);
-  assert.equal(store.getAccount(member.id).workspaceId, hurt.id, 'not unlinked');
-  assert.ok(r2.problems.some(p => p.includes('workspace.json')));
-});
 
 /* ---------------- Shapes ---------------- */
 test('records are checked against their shape on save; unknown fields are kept', async () => {
@@ -305,35 +257,4 @@ test('below the disk reserve no video starts: caches are cleared and you’re to
   queue.startWorker(null);
 });
 
-test('night capacity: warns when overnight videos won’t fit between 1 and 6am', () => {
-  for (let i = 0; i < 12; i++) {
-    const w = store.createWorkspace({ name: `Night ${i}`, comped: true });
-    store.updateWorkspace(w.id, { onboarded: true });
-    const cfg = store.loadConfig(w.id); cfg.schedule.keepReady = 5; store.saveConfig(w.id, cfg);
-  }
-  const jobs = Array.from({ length: 5 }, (_, i) => ({ status: 'done', kind: 'video', startedAt: new Date(Date.now() - 600000).toISOString(), endedAt: new Date(Date.now() - 600000 + 300000).toISOString(), id: `x${i}` }));
-  const r = sched.nightCapacity({ jobs, workers: 1 });
-  assert.equal(r.videos, 60); assert.equal(r.minutesEach, 5);
-  assert.equal(r.hours, 5); assert.equal(r.tight, true);
-  assert.equal(sched.nightCapacity({ jobs, workers: 2 }).tight, false);
-});
-
 /* ---------------- A separate worker ---------------- */
-test('worker.js refuses to run on JSON files', { skip: sqlite ? 'this run is on SQLite' : false }, () => {
-  const r = spawnSync(process.execPath, ['worker.js'], { cwd: ROOT, env: { ...process.env, STORAGE_ENGINE: 'json' }, encoding: 'utf8', timeout: 20000 });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /needs the SQLite storage engine/);
-});
-
-test('a separate worker takes jobs from the shared line', { skip: !sqlite ? 'SQLite only (run with npm run test:sqlite)' : false, timeout: 60000 }, async () => {
-  const job = queue.enqueue({ ws: 'w0000000009ff', kind: 'video' });   // no such workspace: it fails at once, quietly
-  const w = spawn(process.execPath, ['worker.js'], { cwd: ROOT, env: { ...process.env, QUEUE_POLL_MS: '100' } });
-  let out = ''; w.stdout.on('data', d => { out += d; }); w.stderr.on('data', d => { out += d; });
-  try {
-    for (let i = 0; i < 300 && !['failed', 'done'].includes(queue.getJob(job.id)?.status); i++) await new Promise(r => setTimeout(r, 50));
-    const j = queue.getJob(job.id);
-    assert.equal(j.status, 'failed', out);
-    assert.match(j.error, /no longer exists/);
-    assert.equal(j.lease, null);
-  } finally { w.kill('SIGTERM'); await new Promise(r => w.on('close', r)); }
-});

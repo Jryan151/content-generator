@@ -4,8 +4,7 @@
 import { S, actions, ago, api, app, day, esc, main, outage, page, plural, render, status, toast, when } from '../app.js';
 
 /* ================= Admin ================= */
-const SWITCH_LABELS = { videos: 'Making videos', overnight: 'Overnight videos and plans', autopost: 'Posting to Instagram and Facebook', coach: 'The coach and AI helpers', emails: 'Emails', push: 'Phone notifications' };
-async function viewAdmin() { S.admin = await api('/api/admin/overview'); drawAdmin(); loadSwitches(); loadEngine(); loadAudit(); }
+async function viewAdmin() { S.admin = await api('/api/admin/overview'); drawAdmin(); loadEngine(); loadAudit(); }
 // The Engine bay: the line, outside services, processes, disk and backups, the targets, recent runs.
 async function loadEngine() { try { S.engine = await api('/api/admin/engine'); } catch { S.engine = null; } drawEngine(); }
 const LIGHT = { green: 'ok', yellow: 'warn', red: 'err', grey: '' };
@@ -19,7 +18,6 @@ function drawEngine() {
   box.innerHTML = `<div class="row between"><h2>Engine bay${red ? ` <span class="badge">${red}</span>` : ''}</h2><button class="btn sm ghost" data-act="engine-retry">Refresh</button></div>
     <h3>Targets</h3>
     <div class="stack" style="gap:6px">${E.targets.map(t => `<div class="row between small"><span><span class="pill ${LIGHT[t.light] || ''}" title="${esc(t.light)}">${t.light === 'grey' ? '–' : esc(t.value)}${t.light === 'grey' ? '' : esc(t.unit)}</span> <b>${esc(t.label)}</b> <span class="muted">${esc(t.detail || '')}</span></span><span class="muted">target ${esc(t.goal)}</span></div>`).join('')}</div>
-    ${E.calendar?.length ? `<h3>Expiry calendar</h3><div class="stack" style="gap:4px">${E.calendar.slice(0, 12).map(c => `<div class="row between small"><span>${c.level ? `<span class="pill ${c.level === 'error' ? 'err' : c.level === 'warning' ? 'warn' : ''}">${c.days == null ? '?' : c.days < 0 ? 'expired' : `${c.days} d`}</span> ` : ''}<b>${esc(c.what)}</b> <span class="muted">${esc(c.action)}</span></span><span class="muted mono">${esc(c.date || 'check')}</span></div>`).join('')}</div>` : ''}
     <h3>The line</h3>
     <p class="small" style="margin:0">${L.running.length} making now · ${L.waiting} waiting${L.waitingOutage ? ` · ${L.waitingOutage} waiting out an outage` : ''}${L.held ? ` · ${L.held} held (${esc('paused')})` : ''}${L.failed24h ? ` · <b class="err">${L.failed24h} failed today</b>` : ''}</p>
     ${L.running.map(j => `<p class="small muted" style="margin:0">${esc(j.kind)}${j.source ? ` (${esc(j.source)})` : ''} since ${esc(when(j.startedAt))}: ${esc(j.last)}</p>`).join('')}
@@ -31,32 +29,11 @@ function drawEngine() {
     <table class="t"><thead><tr><th></th><th>Memory</th><th>Lag (99%)</th><th>Worst hour today</th></tr></thead><tbody>${procRow('This process (now)', E.processes.here)}${Object.entries(E.processes).filter(([k]) => k !== 'here').map(([k, p]) => procRow(k === 'server' ? 'Website' : k === 'worker' ? 'Video worker' : k, p.now, p)).join('')}</tbody></table>
     <h3>Disk and backups</h3>
     <p class="small" style="margin:0">${D.freeGB ?? '?'} GB free (videos pause below ${D.reserveGB} GB)${D.perDay != null ? ` · ${D.perDay < 0 ? `${Math.abs(D.perDay)} GB used a day` : 'not filling up'}` : ' · trend after a few days'}${D.daysLeft != null ? ` · <b>full in about ${D.daysLeft} days</b>` : ''}</p>
-    <p class="small" style="margin:0">Backup: ${B.at ? esc(when(B.at)) : 'not yet'}${B.offsiteAt ? ` · off-site ${esc(when(B.offsiteAt))}` : ''}${B.offsiteError ? ` · <b class="err">off-site failed</b>` : ''}${B.restoreTestAt ? ` · restore test ${esc(when(B.restoreTestAt))}` : ''}${B.inspection ? ` · inspection ${esc(when(B.inspection.at))}: ${B.inspection.fixed} fixed, ${B.inspection.problems} to look at` : ''}</p>
-    <p class="small" style="margin:0">Reference render: ${B.reference ? (B.reference.error ? `<b class="err">failed</b> (${esc(B.reference.error)})` : B.reference.saved ? `saved ${esc(when(B.reference.at))}` : B.reference.ok ? `same as saved (${esc(when(B.reference.at))})` : `<b class="err">different</b>: ${esc((B.reference.problems || []).join('; '))}`) : 'tonight'}</p>
-    <h3>Build and clock</h3>
-    <p class="small" style="margin:0">Node ${esc(E.build.node)} · FFmpeg ${esc(E.build.ffmpeg || '?')} · ${E.build.storage === 'sqlite' ? 'SQLite' : 'JSON files'} · videos made ${E.build.workerMode === 'separate' ? 'by worker.js' : 'here'}</p>
-    <p class="small" style="margin:0">Clock: ${E.clock ? (E.clock.error ? `couldn’t check (${esc(E.clock.error)})` : `${Math.abs(E.clock.skewMs)} ms ${E.clock.skewMs > 0 ? 'fast' : 'slow'} against ${esc(E.clock.source)}, ${esc(when(E.clock.at))}`) : 'not checked yet'} <button class="btn sm ghost" data-act="clock-check">Check now</button></p>
+    <p class="small" style="margin:0">Backup: ${B.at ? esc(when(B.at)) : 'not yet'}${B.offsiteAt ? ` · off-site ${esc(when(B.offsiteAt))}` : ''}${B.offsiteError ? ` · <b class="err">off-site failed</b>` : ''}${B.restoreTestAt ? ` · restore test ${esc(when(B.restoreTestAt))}` : ''}</p>
+    <h3>Build</h3>
+    <p class="small" style="margin:0">Node ${esc(E.build.node)} · FFmpeg ${esc(E.build.ffmpeg || '?')} · ${E.build.storage === 'sqlite' ? 'SQLite' : 'JSON files'}</p>
     ${E.recent.length ? `<details><summary class="small">Recent runs</summary><div class="stack" style="gap:6px;margin-top:6px">${E.recent.map((r, i) => `<div class="small" style="border-top:1px solid var(--line);padding-top:6px"><div class="row between"><span><span class="pill ${r.status === 'done' ? 'ok' : r.status === 'failed' ? 'err' : 'warn'}">${esc(r.status)}</span> ${esc(r.kind)}${r.source ? ` (${esc(r.source)})` : ''} · ${secs(Math.round(r.ms / 1000))}</span><span class="muted">${esc(when(r.endedAt))}</span></div>
       <span class="muted">${Object.entries(r.steps || {}).map(([k, v]) => `${esc(k)} ${secs(Math.round(v / 1000))}`).join(' · ')}${r.error ? ` · ${esc(r.error)}` : ''}</span> <button class="btn sm ghost" data-act="engine-job" data-id="${esc(r.id)}" data-attempt="${esc(r.attempt)}" data-i="${i}">Timeline</button><div data-tl="${i}"></div></div>`).join('')}</div></details>` : ''}`;
-}
-// The switchboard (turn a part off for everyone), each outside service's breaker, and the outbox.
-async function loadSwitches() { try { S.switches = await api('/api/admin/switches'); } catch { S.switches = null; } drawSwitches(); }
-function drawSwitches() {
-  const box = document.getElementById('switchPanel'), W = S.switches;
-  if (!box) return;
-  if (!W) { box.innerHTML = '<h2>Switchboard</h2><p class="small muted">Couldn’t load the switchboard. <button class="btn sm ghost" data-act="switches-retry">Try again</button></p>'; return; }
-  const open = W.breakers.filter(b => b.open);
-  const o = W.outbox;
-  box.innerHTML = `<h2>Switchboard</h2>
-    <p class="small muted" style="margin:0">Turn a part of the app off for everyone without an update (one workspace: in its card below). Everything else keeps running.</p>
-    <div class="stack" style="gap:6px">${W.switches.map(s => `<div class="row between small"><span><b>${esc(s.label)}</b>${s.off ? ` <span class="pill err">Off</span> <span class="muted">${esc(s.by || '')} · ${esc(when(s.at))}${s.why ? ` · ${esc(s.why)}` : ''}</span>` : ' <span class="pill ok">On</span>'}</span>
-      <button class="btn sm${s.off ? ' primary' : ' ghost'}" data-act="switch" data-name="${esc(s.id)}" data-off="${s.off ? '0' : '1'}">${s.off ? 'Turn back on' : 'Turn off'}</button></div>`).join('')}</div>
-    ${W.workspaces.length ? `<p class="small" style="margin:0"><b>Off in single workspaces:</b> ${W.workspaces.map(w => `${esc(w.name)} (${w.off.map(x => esc(x.label)).join(', ')})`).join('; ')}</p>` : ''}
-    <h3>Outside services</h3>
-    ${open.length ? `<div class="stack" style="gap:6px">${open.map(b => `<div class="note warn small"><b>${esc(b.label)}</b> isn’t answering (since ${esc(when(b.since))}). ${esc(b.affects)} runs on what’s left; it’s tried again by itself.${b.last ? ` <span class="muted">Last: ${esc(b.last)}</span>` : ''}</div>`).join('')}</div>` : '<p class="small muted" style="margin:0">Every outside service is answering.</p>'}
-    <h3>Outbox</h3>
-    <p class="small" style="margin:0">${o.waiting ? `<b>${o.waiting}</b> waiting to send · ` : ''}${o.sent} sent this week${o.failed ? ` · <b>${o.failed}</b> refused` : ''}${o.expired ? ` · ${o.expired} gave up (too old)` : ''}${o.waiting ? ' <button class="btn sm ghost" data-act="outbox-drain">Send now</button>' : ''}</p>
-    ${o.recent.length ? `<details><summary class="small">Recent messages</summary><div class="stack" style="gap:4px;margin-top:6px">${o.recent.map(m => `<span class="small"><span class="pill${m.status === 'sent' ? ' ok' : m.status === 'failed' || m.status === 'expired' ? ' err' : ''}">${esc(m.status)}</span> ${esc(m.kind)} · ${esc(m.subject || '')}${m.to ? ` → ${esc(m.to)}` : ''} · <span class="muted">${esc(when(m.at))}${m.error ? ` · ${esc(m.error)}` : ''}</span></span>`).join('')}</div></details>` : ''}`;
 }
 async function loadAudit() {
   const box = document.getElementById('auditPanel');
@@ -89,7 +66,6 @@ function drawAdmin() {
       ${al.length ? `<ul class="alerts">${al.slice(0, S.allAlerts ? 30 : 5).map(a => `<li class="al-${esc(a.level)}${a.readAt ? '' : ' unread'}"><div class="row between"><b class="small">${esc(a.title)}</b><span class="small muted">${esc(when(a.at))}</span></div><span class="small">${a.workspaceName ? `<b>${esc(a.workspaceName)}:</b> ` : ''}${esc(a.text)}</span>${a.did ? `<span class="small muted" style="display:block">Already done: ${esc(a.did)}</span>` : ''}${a.did || a.run ? `<span class="small" style="display:block">Left for you: ${a.run ? `<code class="mono" style="overflow-wrap:anywhere">${esc(a.run)}</code>` : 'nothing.'}</span>` : ''}</li>`).join('')}</ul>${al.length > 5 && !S.allAlerts ? `<button class="btn sm ghost" data-act="all-alerts">Show all ${al.length}</button>` : ''}`
         : '<p class="empty">Nothing to report. Failed videos, failed backups, low disk and Instagram problems show up here.</p>'}
       <p class="small muted" style="margin:0">${sys.keys.alerts ? 'Alerts are also sent to your phone.' : 'To get alerts on your phone, set ALERT_WEBHOOK_URL in .env (a free ntfy.sh topic works). See SETUP.md.'}</p></section>
-    <section class="panel" id="switchPanel"><h2>Switchboard</h2><p class="small muted"><span class="spin"></span> Loading…</p></section>
     <section class="panel"><div class="row between"><div class="head"><h2>Render rules</h2><p>Every check Studio, Fix a scene and automatic videos run: set style checks to block, warn or off, adjust the numbers and word lists, for everyone or one workspace. Compliance rules are locked.</p></div><a class="btn" href="#/rules">Open render rules</a></div></section>
     <section class="panel" id="enginePanel"><h2>Engine bay</h2><p class="small muted"><span class="spin"></span> Loading…</p></section>
     <section class="panel" id="auditPanel"><h2>Activity log</h2><p class="small muted"><span class="spin"></span> Loading the activity log…</p></section>
@@ -106,8 +82,7 @@ function drawAdmin() {
         ${w.facebook ? `<div class="small muted">Facebook: ${esc(w.facebook)}</div>` : ''}
         ${w.clicks ? `<div class="small muted">${plural(w.clicks, 'link visit')} this month</div>` : ''}
         ${w.invited.map(e => `<div class="small muted">Invited: ${esc(e)} (link not used yet)</div>`).join('')}${!w.members.length && !w.invited.length ? '<div class="small muted">No members yet.</div>' : ''}</div>
-      <details><summary class="small">Switches for this workspace${Object.keys(w.switches || {}).length ? ` <span class="pill err">${Object.keys(w.switches).length} off</span>` : ''}</summary><div class="stack" style="gap:6px;margin-top:6px">${Object.entries(SWITCH_LABELS).map(([k, label]) => { const x = (w.switches || {})[k]; return `<div class="row between small"><span>${esc(label)} ${x ? `<span class="pill err">Off</span> <span class="muted">${esc(when(x.at))}${x.why ? ` · ${esc(x.why)}` : ''}</span>` : '<span class="pill ok">On</span>'}</span><button class="btn sm ghost" data-act="switch" data-ws="${esc(w.id)}" data-name="${k}" data-off="${x ? '0' : '1'}">${x ? 'Turn back on' : 'Turn off'}</button></div>`; }).join('')}</div></details>
-      ${w.deletionRequest ? `<div class="note warn"><b>Deletion requested</b> by ${esc(w.deletionRequest.byName)} (${esc(w.deletionRequest.email)}) on ${esc(day(w.deletionRequest.at))}.${w.deletionRequest.note ? ` “${esc(w.deletionRequest.note)}”` : ''}${w.liveSubscription ? ' <b>Their Stripe subscription is still active: cancel it in Stripe first.</b>' : ''}
+      ${w.deletionRequest ? `<div class="note warn"><b>Deletion requested</b> by ${esc(w.deletionRequest.byName)} (${esc(w.deletionRequest.email)}) on ${esc(day(w.deletionRequest.at))}.${w.deletionRequest.note ? ` “${esc(w.deletionRequest.note)}”` : ''}
         <div class="row" style="margin-top:8px"><button class="btn sm danger" data-act="ws-delete" data-id="${w.id}" data-name="${esc(w.name)}">Delete everything</button><button class="btn sm ghost" data-act="ws-keep" data-id="${w.id}">Decline</button></div></div>` : ''}
       <div class="row"><button class="btn sm${A.openWorkspace === w.id ? ' primary' : ''}" data-act="open-ws" data-id="${w.id}">${A.openWorkspace === w.id ? 'Open now' : 'Open'}</button>
         <button class="btn sm" data-act="ws-set" data-id="${w.id}" data-k="suspended" data-v="${w.suspended ? '0' : '1'}">${w.suspended ? 'Resume' : 'Pause'}</button>
@@ -222,4 +197,4 @@ document.addEventListener('change', e => {
   if (t.dataset.rrVideo !== undefined) S.rr.tryOut.videoId = t.value;
 });
 
-export { drawAdmin, drawRules, loadAudit, loadEngine, loadSwitches, rulesActions, secs, viewAdmin, viewRules };
+export { drawAdmin, drawRules, loadAudit, loadEngine, rulesActions, secs, viewAdmin, viewRules };

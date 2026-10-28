@@ -324,20 +324,6 @@ test('audit: approvals, 2FA changes and deletion are recorded; old months are pr
 });
 
 
-// A stand-in for Postmark: records what was sent.
-async function fakeMail() {
-  const got = [];
-  const srv = http.createServer((req, res) => {
-    let b = ''; req.on('data', d => { b += d; }); req.on('end', () => {
-      got.push({ path: req.url, body: JSON.parse(b || '{}') });
-      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ MessageID: 'm' + got.length }));
-    });
-  });
-  await new Promise(r => srv.listen(0, '127.0.0.1', r));
-  const keys = { EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'pm', EMAIL_FROM: 'hello@example.com', EMAIL_API_BASE: `http://127.0.0.1:${srv.address().port}` };
-  Object.assign(process.env, keys);
-  return { got, close: () => { Object.keys(keys).forEach(k => delete process.env[k]); srv.close(); } };
-}
 
 /* ---------------- Step D: public landing page and "request access" ---------------- */
 
@@ -530,30 +516,6 @@ test('monitoring: a burst of unexpected errors alerts you once', async () => {
   monitor._resetErrors();
 });
 
-test('monitoring: a login from a new device emails the account owner', async () => {
-  const fm = await fakeMail();
-  try {
-    await agent('watched@example.com');   // first login: no email
-    assert.equal(fm.got.length, 0);
-    const again = client(port);
-    await again.post('/api/login', { email: 'watched@example.com', password: 'agentpass123' });
-    assert.equal(fm.got.length, 0, 'same device and network: no email');
-    const res = await fetch(`http://127.0.0.1:${port}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0' }, body: JSON.stringify({ email: 'watched@example.com', password: 'agentpass123' }) });
-    assert.equal(res.status, 200);
-    for (let i = 0; i < 50 && !fm.got.length; i++) await new Promise(r => setTimeout(r, 10));
-    assert.equal(fm.got.length, 1);
-    assert.equal(fm.got[0].body.To, 'watched@example.com');
-    assert.match(fm.got[0].body.Subject, /New login/);
-    assert.match(fm.got[0].body.TextBody, /Firefox on Windows/);
-    assert.match(fm.got[0].body.TextBody, /change your password/);
-    // The same new device again: no second email.
-    await fetch(`http://127.0.0.1:${port}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0' }, body: JSON.stringify({ email: 'watched@example.com', password: 'agentpass123' }) });
-    await new Promise(r => setTimeout(r, 100));
-    assert.equal(fm.got.length, 1);
-    assert.equal('knownDevices' in (await again.get('/api/me')).data.account, false, 'device fingerprints aren’t sent to the browser');
-  } finally { fm.close(); }
-});
-
 /* ---------------- Step G: tuning (retries, clearer errors, fewer reads, parallel stages) ---------------- */
 // A scripted stand-in: answers each request with the next response in the list.
 async function scripted(responses) {
@@ -604,25 +566,6 @@ test('tuning: OpenAI calls retry outages, not unfixable errors, and say what to 
       assert.ok(Date.now() - t < 2000, 'no wait after the last try');
     });
   } finally { process.env.OPENAI_BASE_URL = saved.base; process.env.OPENAI_API_KEY = saved.key; delete process.env.RETRY_BASE_MS; if (!saved.key) delete process.env.OPENAI_API_KEY; }
-});
-
-test('tuning: email gets one more try after an outage, never after a refusal', async () => {
-  const mail = await import('../lib/email.js');
-  process.env.RETRY_BASE_MS = '5';
-  const keys = { EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'pm', EMAIL_FROM: 'hello@example.com' };
-  Object.assign(process.env, keys);
-  try {
-    let s = await scripted([[503, { Message: 'down' }], [200, { MessageID: 'x' }]]);
-    process.env.EMAIL_API_BASE = s.base;
-    assert.equal((await mail.send({ to: 'a@example.com', subject: 's', text: 't', html: 'h' })).id, 'x');
-    assert.equal(s.calls.length, 2);
-    s.close();
-    s = await scripted([[422, { ErrorCode: 300, Message: 'Invalid email request' }]]);
-    process.env.EMAIL_API_BASE = s.base;
-    await assert.rejects(mail.send({ to: 'a@example.com', subject: 's', text: 't', html: 'h' }), /Invalid email request/);
-    assert.equal(s.calls.length, 1);
-    s.close();
-  } finally { [...Object.keys(keys), 'EMAIL_API_BASE', 'RETRY_BASE_MS'].forEach(k => delete process.env[k]); }
 });
 
 test('tuning: video counts are cached until videos.json changes', async () => {

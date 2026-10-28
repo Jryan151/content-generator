@@ -1,6 +1,5 @@
-// v15 Phase 5: built for 300,000 miles. The yearly archive, versioned keys, fonts and music checked
-// against their checksums, the expiry calendar, numbered data changes, the portal/server handshake and
-// the portal's screens each in their own file.
+// v15 Phase 5: built to last. Versioned keys, fonts and music checked against their checksums,
+// numbered data changes, the portal/server handshake and the portal's screens each in their own file.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -29,34 +28,9 @@ store.createAccount({ email: 'oldhand@example.com', role: 'agent', workspaceId: 
 const login = async () => { const c = client(port); assert.equal((await c.post('/api/login', { email: 'oldhand@example.com', password: 'oldhandpass12' })).status, 200); return c; };
 
 /* ---------------- The yearly archive ---------------- */
-test('finished videos over a year old move to their year’s archive; every record is still there', async () => {
-  const now = Date.now(), iso = t => new Date(t).toISOString();
-  const mk = (id, ageDays, extra = {}) => ({ id, status: 'posted', createdAt: iso(now - ageDays * DAY), updatedAt: iso(now - ageDays * DAY + 3600000), file: `video_${id}.mp4`, fileDeleted: true, approval: { at: iso(now - ageDays * DAY), byName: 'Old Hand', checklist: ['ok'], sha256: 'x' }, posted: { at: iso(now - ageDays * DAY), url: `https://example.com/${id}` }, ...extra });
-  const vids = [mk('new1', 10, { fileDeleted: false }), mk('mid1', 200), mk('old1', 400), mk('old2', 800), mk('busy', 500, { autopost: { status: 'unsure' } }), mk('kept', 450, { fileDeleted: false })];
-  paths.writeJSON(path.join(store.wsDir(ws.id), 'videos.json'), vids);
-  const before = store.videoCounts(ws.id);
-  assert.equal(store.archiveOld(ws.id, now), 2);
-  assert.deepEqual(store.readVideos(ws.id).map(v => v.id).sort(), ['busy', 'kept', 'mid1', 'new1']);
-  assert.deepEqual(store.readAllVideos(ws.id).map(v => v.id).sort(), ['busy', 'kept', 'mid1', 'new1', 'old1', 'old2']);
-  assert.equal(store.getVideo(ws.id, 'old2').id, 'old2', 'found in the archive');
-  assert.deepEqual(store.videoCounts(ws.id), before, 'all-time counts unchanged');
-  assert.equal(store.archiveOld(ws.id, now), 0, 'nothing twice');
-  // The approval records, the receipt and the data export still have every year.
-  const c = await login();
-  const csv = (await c.get('/api/records.csv')).data.toString();
-  for (const id of ['old1', 'old2', 'mid1']) assert.ok(csv.includes(id), id);
-  assert.equal((await c.get('/api/videos/old2/receipt.html')).status, 200);
-  const exp = (await c.get('/api/data/export')).data;
-  assert.ok(exp.videos.some(v => v.id === 'old1'));
-  // A cut-off between the two writes leaves a copy in both places: it counts once.
-  const arc = path.join(store.wsDir(ws.id), `videos-${new Date(now - 400 * DAY).getUTCFullYear()}.json`);
-  paths.updateJSON(path.join(store.wsDir(ws.id), 'videos.json'), [], list => [...list, paths.readJSON(arc, []).find(v => v.id === 'old1')]);
-  assert.equal(store.readAllVideos(ws.id).filter(v => v.id === 'old1').length, 1);
-  assert.equal(store.archiveOld(ws.id, now), 1, 'the next run tidies it');
-  assert.equal(paths.readJSON(arc, []).filter(v => v.id === 'old1').length, 1);
-});
 
 test('the shared video list can’t be changed by accident (frozen in the checks), and reads are cached', () => {
+  store.addVideo(ws.id, { id: 'frz1', file: 'video_frz1.mp4', status: 'pending', createdAt: new Date().toISOString(), meta: {}, scenes: [{ text: 'Hi' }], post: 'P', clips: [] });
   const a = store.readVideos(ws.id), b = store.readVideos(ws.id);
   assert.equal(a, b, 'the same list until the file changes');
   assert.throws(() => { a[0].status = 'rejected'; }, TypeError);
@@ -164,28 +138,6 @@ test('music: each track’s checksum is noted, and a track that changes on disk 
 });
 
 /* ---------------- The expiry calendar ---------------- */
-test('the expiry calendar: Node, Meta’s API, cards, connections and the certificate, warned at 90, 30 and 7 days', async () => {
-  const expiry = await import('../lib/expiry.js');
-  const major = Number(process.versions.node.split('.')[0]);
-  let items = expiry.calendar();
-  if (expiry.NODE_EOL[major]) assert.ok(items.some(i => i.id === 'node' && i.date === expiry.NODE_EOL[major]));
-  assert.ok(items.some(i => i.id === 'meta-instagram' && i.date === '2028-07-29'));
-  // A paying agent's card ending next month, and an Instagram connection that isn't renewing.
-  const now = Date.now(), next = new Date(now + 20 * DAY);
-  store.updateWorkspace(ws.id, w => ({ billing: { ...(w.billing || {}), status: 'active', card: { brand: 'visa', last4: '4242', exp: `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}` } } }));
-  paths.writeJSON(path.join(store.wsDir(ws.id), 'instagram.json'), { userId: '1', token: 'x', expiresAt: new Date(now + 5 * DAY).toISOString() });
-  items = await expiry.checkExpiry(now, { cert: async () => ({ date: new Date(now + 25 * DAY).toISOString().slice(0, 10), issuer: 'Let’s Encrypt' }) });
-  const card = items.find(i => i.id === `card-${ws.id}`), conn = items.find(i => i.id === `ig-${ws.id}`), cert = items.find(i => i.id === 'cert');
-  assert.ok(card && conn && cert, JSON.stringify(items.map(i => i.id)));
-  assert.equal(conn.level, 'error');
-  const titles = () => alerts.listAlerts().map(a => a.title);
-  assert.ok(titles().some(t => /HTTPS certificate .* runs out in 25 days/.test(t)));
-  const n = titles().length;
-  await expiry.checkExpiry(now + 3600000, { cert: async () => ({ date: cert.date, issuer: 'x' }) });
-  assert.equal(titles().length, n, 'not again the same day or threshold');
-  await expiry.checkExpiry(now + 19 * DAY, { cert: async () => ({ date: cert.date, issuer: 'x' }) });
-  assert.ok(alerts.listAlerts().some(a => /HTTPS certificate .* runs out in 6 days/.test(a.title) && a.level === 'error'), 'the 7-day one');
-});
 
 /* ---------------- Numbered data changes ---------------- */
 test('numbered data changes run once, in order, recorded per workspace; a failing one stops the rest and shows in health', async () => {

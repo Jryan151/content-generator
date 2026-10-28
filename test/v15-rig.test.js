@@ -1,5 +1,5 @@
 // v15 Phase 4: the test rig's own checks (fault injection, the coverage floor) and the gauges
-// (Engine bay, flight recorder, targets, service-manual alerts, the clock check, the reference render).
+// (Engine bay, flight recorder, targets, service-manual alerts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -18,7 +18,6 @@ const alerts = await import('../lib/alerts.js');
 const queue = await import('../lib/queue.js');
 const flight = await import('../lib/flight.js');
 const gauges = await import('../lib/gauges.js');
-const clock = await import('../lib/clock.js');
 const targets = await import('../lib/targets.js');
 const faults = await import('../lib/faults.js');
 const { runProc } = await import('../lib/proc.js');
@@ -50,7 +49,7 @@ function objectAt(src, i) {
   return src.slice(i);
 }
 test('every warning and error alert says what the app already did (and what’s left)', () => {
-  const files = ['server.js', 'pipeline.js', 'admin.js', 'worker.js', ...fs.readdirSync(path.join(here, '..', 'lib')).map(f => `lib/${f}`), ...fs.readdirSync(path.join(here, '..', 'stages')).map(f => `stages/${f}`)].filter(f => f.endsWith('.js') && f !== 'lib/alerts.js');
+  const files = ['server.js', 'pipeline.js', 'admin.js', ...fs.readdirSync(path.join(here, '..', 'lib')).map(f => `lib/${f}`), ...fs.readdirSync(path.join(here, '..', 'stages')).map(f => `stages/${f}`)].filter(f => f.endsWith('.js') && f !== 'lib/alerts.js');
   const missing = [];
   let seen = 0;
   for (const f of files) {
@@ -239,32 +238,6 @@ test('gauges: service answers by hour, process samples, and the disk trend', () 
   assert.equal(tr.daysLeft, Math.round((30 - 1.5) / 2));
 });
 
-/* ---------------- The clock check ---------------- */
-test('the clock check: a drifted clock is caught, with the fix in the alert', async () => {
-  let ahead = 0, header = false;
-  const src = await listen((req, res) => {
-    const t = Date.now() - ahead;
-    if (header) { res.writeHead(200, { Date: new Date(t).toUTCString() }); return res.end('hello'); }
-    res.end(`fl=1\nh=x\nts=${(t / 1000).toFixed(3)}\nvisit_scheme=https\n`);
-  });
-  const url = `http://127.0.0.1:${src.address().port}/cdn-cgi/trace`;
-  try {
-    let r = await clock.check({ url });
-    assert.ok(Math.abs(r.skewMs) < 1000, `in step: ${r.skewMs}`); assert.equal(r.level, '');
-    ahead = 45000;   // this server is 45 seconds fast
-    r = await clock.check({ url });
-    assert.equal(r.level, 'error');
-    assert.ok(r.skewMs > 40000);
-    const a = alerts.listAlerts().find(x => /clock is \d+ seconds fast/.test(x.title));
-    assert.ok(a && /timedatectl/.test(a.run));
-    ahead = 8000; header = true;   // only a Date header: to the second
-    r = await clock.check({ url });
-    assert.equal(r.level, 'warning');
-    assert.ok(r.plusMinusMs >= 500);
-  } finally { src.close(); }
-  const bad = await clock.check({ url: 'http://127.0.0.1:9/nothing' });
-  assert.ok(bad.error);
-});
 
 /* ---------------- Targets ---------------- */
 test('targets: overnight videos by 7am, double posts, and the daily red-light alert', () => {
@@ -310,7 +283,7 @@ test('the Engine bay: one page for admins (not agents), with a job’s timeline 
   for (const k of ['line', 'services', 'processes', 'disk', 'backups', 'targets', 'build', 'recent']) assert.ok(k in E, k);
   assert.ok(E.services.some(s => s.id === 'openai'));
   assert.equal(E.build.node, process.version);
-  assert.ok(E.targets.length >= 8);
+  assert.ok(E.targets.length >= 7);
   const job = queue.listJobs().find(j => j.steps);
   const tl = await chief.get(`/api/admin/engine/job/${job.id}`);
   assert.equal(tl.status, 200); assert.ok(tl.data.timeline.steps.length); assert.equal(tl.data.runs.length, 1);
@@ -338,22 +311,3 @@ test('the coverage floor is set and only goes up', { skip: process.env.COVERAGE_
 /* ---------------- The reference render ---------------- */
 const font = testFont();
 const skipRender = !process.env.FULL_TEST ? 'renders a video; run with npm run test:full' : !hasFfmpeg() ? 'FFmpeg not installed' : !font ? 'No Poppins font' : false;
-test('the reference render: saved the first night, the same the next, and a change is caught', { skip: skipRender, timeout: 300000 }, async () => {
-  const ref = await import('../lib/reference.js');
-  const first = await ref.check({ font });
-  assert.equal(first.saved, true);
-  const second = await ref.check({ font });
-  assert.equal(second.ok, true, JSON.stringify(second.problems));
-  assert.ok(second.diff <= 1, `diff ${second.diff}`);
-  // Pretend FFmpeg changed: the saved frames are inverted.
-  const f = path.join(paths.DIRS.data, 'reference', 'reference.json');
-  const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
-  saved.frames = saved.frames.map(b => Buffer.from(Buffer.from(b, 'base64').map(x => 255 - x)).toString('base64'));
-  saved.duration += 1;
-  fs.writeFileSync(f, JSON.stringify(saved));
-  const third = await ref.check({ font });
-  assert.equal(third.ok, false);
-  assert.ok(third.problems.some(p => /picture changed/.test(p)) && third.problems.some(p => /length/.test(p)));
-  assert.ok(alerts.listAlerts().some(a => a.title === 'Tonight’s reference render came out different' && /reference --accept/.test(a.run)));
-  assert.equal((await ref.check({ accept: true, font })).saved, true);
-});

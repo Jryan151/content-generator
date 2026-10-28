@@ -1,4 +1,4 @@
-// v15 Phase 3: breakers, limp modes, the switchboard, the outbox and one-time keys.
+// v15 Phase 3: breakers, limp modes and one-time keys.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -15,8 +15,6 @@ const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const alerts = await import('../lib/alerts.js');
 const breaker = await import('../lib/breaker.js');
-const switches = await import('../lib/switches.js');
-const outbox = await import('../lib/outbox.js');
 const ai = await import('../lib/ai.js');
 const { starterStory } = await import('../templates.js');
 const S = await import('../server.js');
@@ -121,83 +119,7 @@ test('limp mode: the agent’s own clips can cover every scene', async () => {
 });
 
 /* ---------------- The switchboard ---------------- */
-test('the switchboard turns a part off for everyone or one workspace, with a plain line for agents', async () => {
-  const agent = await login('safe@example.com', 'safepass1234');
-  const boss = await login('boss@example.com', 'bosspass1234');
-  // Everyone: making videos off.
-  assert.equal((await boss.post('/api/admin/switches', { name: 'videos', off: true, why: 'Upgrading FFmpeg' })).status, 200);
-  const r = await agent.post('/api/jobs', { count: 1 });
-  assert.equal(r.status, 503);
-  assert.match(r.data.error, /paused for maintenance/);
-  assert.ok((await agent.get('/api/me')).data.notices.some(n => n.id === 'videos'));
-  const board = (await boss.get('/api/admin/switches')).data;
-  const v = board.switches.find(s => s.id === 'videos');
-  assert.equal(v.off, true); assert.equal(v.why, 'Upgrading FFmpeg'); assert.equal(v.by, 'boss@example.com');
-  assert.equal((await boss.post('/api/admin/switches', { name: 'videos', off: false })).status, 200);
-  assert.notEqual((await agent.post('/api/jobs', { count: 1 })).status, 503);
-  // One workspace: the coach off.
-  assert.equal((await boss.post(`/api/admin/workspaces/${ws.id}/switch`, { name: 'coach', off: true })).status, 200);
-  assert.equal(switches.isOn('coach'), true); assert.equal(switches.isOn('coach', store.getWorkspace(ws.id)), false);
-  const coach = await agent.post('/api/coach', { message: 'Hello?' });
-  assert.equal(coach.status, 503);
-  assert.ok((await agent.get('/api/me')).data.notices.some(n => n.id === 'coach'));
-  assert.equal((await boss.get('/api/admin/switches')).data.workspaces[0].off[0].id, 'coach');
-  assert.equal((await boss.post(`/api/admin/workspaces/${ws.id}/switch`, { name: 'coach', off: false })).status, 200);
-  assert.equal((await boss.post('/api/admin/switches', { name: 'nope', off: true })).status, 400);
-  assert.equal((await agent.post('/api/admin/switches', { name: 'videos', off: true })).status, 403);
-});
 
-/* ---------------- The outbox ---------------- */
-test('the outbox sends at once, keeps what can’t go, sends it later, and never twice', async () => {
-  breaker._reset();
-  let up = false, sent = [];
-  outbox.register('test', async p => { if (!up) throw Object.assign(new Error('provider down'), { status: 503 }); sent.push(p.n); return { id: `x${p.n}` }; });
-  const r1 = await outbox.deliver('test', { n: 1 }, { key: 'k1' });
-  assert.equal(r1.queued, true);
-  assert.equal((await outbox.deliver('test', { n: 1 }, { key: 'k1' })).duplicate, true, 'same key: not a second message');
-  up = true;
-  assert.deepEqual((await outbox.drain()).sent, 0, 'not due yet');
-  assert.equal((await outbox.drain(Date.now() + 61000)).sent, 1);
-  assert.deepEqual(sent, [1]);
-  assert.equal((await outbox.deliver('test', { n: 1 }, { key: 'k1' })).duplicate, true, 'sent ones count too');
-  const r2 = await outbox.deliver('test', { n: 2 }, { key: 'k2' });
-  assert.equal(r2.sent, true); assert.equal(r2.result.id, 'x2');
-  // Refused for good: not kept, the caller hears about it.
-  outbox.register('test2', async () => { throw Object.assign(new Error('bad address'), { status: 422, permanent: true }); });
-  await assert.rejects(outbox.deliver('test2', { n: 3 }), /bad address/);
-  // Too old to be useful: given up on, and you're told.
-  up = false;
-  await outbox.deliver('test', { n: 4 }, { key: 'k4', ttlMs: 1000 });
-  const d = await outbox.drain(Date.now() + 5000);
-  assert.equal(d.expired, 1);
-  assert.ok(titles().some(t => /couldn’t be sent in time/.test(t)));
-  assert.ok(outbox.summary().expired >= 1);
-});
-
-test('emails go through the outbox: kept while the provider is down or emails are switched off', async () => {
-  breaker._reset();
-  const mail = await import('../lib/email.js');
-  let ok = false, got = 0;
-  const pm = await listen(async (req, res) => { for await (const _ of req); if (!ok) return json(res, 503, { Message: 'down' }); got++; json(res, 200, { MessageID: `m${got}` }); });
-  Object.assign(process.env, { EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'pm', EMAIL_FROM: 'hello@example.com', EMAIL_API_BASE: `http://127.0.0.1:${pm.address().port}` });
-  try {
-    const r = await mail.send({ to: 'a@example.com', subject: 'Your videos are ready', text: 't', html: 'h' }, { key: 'review:x:2026-10-19' });
-    assert.equal(r.queued, true);
-    ok = true;
-    await outbox.drain(Date.now() + 61000);
-    assert.equal(got, 1);
-    assert.equal((await mail.send({ to: 'a@example.com', subject: 'Your videos are ready', text: 't', html: 'h' }, { key: 'review:x:2026-10-19' })).duplicate, true);
-    // Switched off: held, then sent once it's back on.
-    switches.setGlobal('emails', true);
-    assert.equal((await mail.send({ to: 'b@example.com', subject: 'Held', text: 't', html: 'h' })).queued, true);
-    assert.equal(got, 1);
-    await outbox.drain();
-    assert.equal(got, 1, 'still held');
-    switches.setGlobal('emails', false);
-    await outbox.drain();
-    assert.equal(got, 2);
-  } finally { ['EMAIL_PROVIDER', 'EMAIL_API_KEY', 'EMAIL_FROM', 'EMAIL_API_BASE'].forEach(k => delete process.env[k]); pm.close(); switches.setGlobal('emails', false); }
-});
 
 /* ---------------- One-time keys ---------------- */
 test('one-time keys: a double tap or a resend does the change once', async () => {
@@ -279,64 +201,12 @@ test('posting ticks: one trial after the cool-down, given back when nothing is d
   }
 });
 
-test('a workspace’s own switches: its emails are held, its coach helpers refuse, its videos wait', async () => {
-  breaker._reset();
-  const agent = await login('safe@example.com', 'safepass1234');
-  const boss = await login('boss@example.com', 'bosspass1234');
-  let sent = 0;
-  outbox.register('test3', async () => { sent++; return {}; });
-  await boss.post(`/api/admin/workspaces/${ws.id}/switch`, { name: 'coach', off: true });
-  try {
-    for (const [p, body] of [['/api/script', { brief: 'x' }], ['/api/coach/try', { text: 'x' }]]) {
-      const r = await agent.post(p, body);
-      assert.equal(r.status, 503, p);
-      assert.match(r.data.error, /coach is paused/);
-    }
-  } finally { await boss.post(`/api/admin/workspaces/${ws.id}/switch`, { name: 'coach', off: false }); }
-  // Push and email: the 'emails' switch for this workspace only.
-  store.updateWorkspace(ws.id, switches.workspacePatch(store.getWorkspace(ws.id), 'emails', true));
-  outbox.register('email-like', async () => { sent++; return {}; });
-  try {
-    // (The outbox's own switch rule: emails → 'emails'; another kind → its own name.)
-    const mail = await import('../lib/email.js');
-    void mail;
-    const held = await outbox.deliver('email', { to: 'x@example.com', subject: 's', text: 't' }, { ws: ws.id }).catch(e => e);
-    assert.equal(held.queued, true); assert.equal(held.why, 'paused');
-    assert.equal((await outbox.deliver('test3', { n: 1 }, { ws: ws.id })).sent, true, 'other kinds aren’t held by the email switch');
-  } finally { store.updateWorkspace(ws.id, switches.workspacePatch(store.getWorkspace(ws.id), 'emails', false)); }
-  // Videos: the line skips this workspace's jobs while its switch is off.
-  const queue = await import('../lib/queue.js');
-  store.updateWorkspace(ws.id, switches.workspacePatch(store.getWorkspace(ws.id), 'videos', true));
-  try {
-    const r = await agent.post('/api/jobs', { count: 1 });
-    assert.equal(r.status, 503, 'can’t ask for new ones either');
-    assert.equal(switches.isOn('videos', store.getWorkspace(ws.id)), false);
-    assert.equal(switches.isOn('videos'), true, 'everyone else carries on');
-    void queue;
-  } finally { store.updateWorkspace(ws.id, switches.workspacePatch(store.getWorkspace(ws.id), 'videos', false)); }
-});
-
 test('a video made with captions only (voice down) drops the post’s AI voice note', async () => {
   const { dropAiVoiceNote } = await import('../pipeline.js');
   const { AI_VOICE_NOTE } = await import('../mixer-core.js');
   assert.equal(dropAiVoiceNote(`Plan ahead.\n${AI_VOICE_NOTE}\nLicensed in TX.`), 'Plan ahead.\nLicensed in TX.');
   assert.equal(dropAiVoiceNote('No note here.'), 'No note here.');
   assert.equal(dropAiVoiceNote(null), null);
-});
-
-test('a message caught mid-send by a restart is sent later, not stuck as a false duplicate', async () => {
-  breaker._reset();
-  let n = 0;
-  outbox.register('test4', async () => { n++; return {}; });
-  const file = path.join(paths.DIRS.data, 'outbox.json');
-  const t = Date.now();
-  paths.updateJSON(file, [], all => [...all, { id: 'ob_stuck', kind: 'test4', key: 'stuck-1', payload: {}, status: 'sending', sendingAt: new Date(t - 5000).toISOString(), attempts: 0, createdAt: new Date(t - 5000).toISOString(), expiresAt: new Date(t + 86400000).toISOString(), nextAt: new Date(t).toISOString() }]);
-  outbox.recover(t);   // just restarted: too fresh to touch (another process may be sending it)
-  assert.equal(outbox.list().find(m => m.id === 'ob_stuck').status, 'sending');
-  assert.ok(outbox.summary().waiting >= 1, 'shown as waiting in Admin');
-  await outbox.drain(t + 3 * 60000);
-  assert.equal(n, 1);
-  assert.equal(outbox.list().find(m => m.id === 'ob_stuck').status, 'sent');
 });
 
 test('footage: an unreadable answer isn’t counted as the site being down', async () => {

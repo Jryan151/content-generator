@@ -3,14 +3,13 @@
 // capability each route needs is listed in one place (server.js ROUTE_CAPS).
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
-import * as mail from '../lib/email.js';
 import * as audit from '../lib/audit.js';
 import * as roles from '../lib/roles.js';
 import * as push from '../lib/push.js';
 import * as signoff from '../lib/signoff.js';
 
 export default function mount(ctx) {
-const { bad, baseUrl, linkError, mailLink, nowIso, orphanInvite, pendingInvites, reviewerRoom, route } = ctx;
+const { bad, baseUrl, linkError, nowIso, orphanInvite, pendingInvites, reviewerRoom, route } = ctx;
 function peopleView(wsId) {
   const ws = store.getWorkspace(wsId);
   const people = store.listAccounts().filter(a => roles.isMember(a, wsId) && !a.disabled).map(a => {
@@ -37,8 +36,7 @@ route('POST', '/api/people/invite', 'ws', async ({ req, wsId, ws, body, me }) =>
   auth.revokeInvites(t => t.wsRole === 'reviewer' && t.workspaceId === wsId && t.email === email);
   const token = auth.createLink('invite', { email, role: 'agent', wsRole: 'reviewer', workspaceId: wsId }, me.account.id);
   const link = `${baseUrl(req)}/#/invite/${token}`;
-  const sent = await mailLink(email, mail.reviewerInviteEmail({ link, workspace: ws.name, by: me.account.name || me.account.email, days: 7 }));
-  return { ...peopleView(wsId), link, ...sent };
+  return { ...peopleView(wsId), link };
 });
 // Someone who already has a login accepts while logged in as that email.
 route('POST', '/api/link/join', 'user', ({ me, body }) => {

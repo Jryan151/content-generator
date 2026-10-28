@@ -103,16 +103,13 @@ test('admin screens stay within their budgets across every agent', { timeout: 30
 });
 
 test('every nightly job stays within its budget', { timeout: 900000 }, async () => {
-  const { inspect } = await import('../lib/inspect.js');
-  const { cleanup, keepReady, nightCapacity, backup } = await import('../lib/scheduler.js');
+  const { cleanup, keepReady, backup } = await import('../lib/scheduler.js');
   const targets = await import('../lib/targets.js');
   const ig = await import('../lib/instagram.js');
   const budget = 3000 + NIGHTLY_PER_AGENT * AGENTS;
   const jobs = {
-    'nightly inspection': () => inspect({ fix: false }),
     'cleanup': () => cleanup(),
     'overnight top-up': () => keepReady(() => [], new Date()),
-    'night capacity': () => nightCapacity({ jobs: [] }),
     'targets': () => targets.measure(),
     'posting tick': () => ig.tick(),
     'proactive jobs': () => S.proactiveJobs(new Date(), () => {}),

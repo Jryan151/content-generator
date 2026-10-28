@@ -172,101 +172,6 @@ test('voiceover posts say the voice is AI (Brand toggle), and the note passes th
 });
 
 /* ---------------- Step 4: transactional email ---------------- */
-async function fakeMail() {
-  const got = [];
-  let fail = false;
-  const srv = http.createServer(async (req, res) => {
-    let raw = ''; for await (const x of req) raw += x;
-    got.push({ path: req.url, headers: req.headers, body: JSON.parse(raw || '{}') });
-    res.writeHead(fail ? 422 : 200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(fail ? { ErrorCode: 300, Message: 'Invalid From address' } : { MessageID: 'm' + got.length, id: 'r' + got.length }));
-  });
-  await new Promise(r => srv.listen(0, '127.0.0.1', r));
-  return { got, base: `http://127.0.0.1:${srv.address().port}`, fail: v => { fail = v; }, close: () => srv.close() };
-}
-const MAIL_KEYS = ['EMAIL_PROVIDER', 'EMAIL_API_KEY', 'EMAIL_FROM', 'EMAIL_API_BASE', 'EMAIL_REPLY_TO'];
-
-test('email: off without a key; invites and resets are emailed with Postmark, and the link is still returned', async () => {
-  const mail = await import('../lib/email.js');
-  assert.equal(mail.emailOn(), false);
-  const admin = client(port);
-  store.createAccount({ email: 'boss4@example.com', role: 'admin', hash: await auth.hashPassword('bosspass1234') });
-  await admin.post('/api/login', { email: 'boss4@example.com', password: 'bosspass1234' });
-  const off = await admin.post('/api/admin/invite', { email: 'nomail@example.com', workspaceName: 'No mail', comped: true });
-  assert.equal(off.data.emailed, false, 'no key: copy-the-link flow');
-  assert.match(off.data.link, /#\/invite\//);
-  assert.equal((await client(port).post('/api/password/forgot', { email: 'boss4@example.com' })).status, 400, 'no self-serve reset without email');
-
-  const fm = await fakeMail();
-  Object.assign(process.env, { EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'pm-token', EMAIL_FROM: 'Agent Reels <hello@example.com>', EMAIL_API_BASE: fm.base, EMAIL_REPLY_TO: 'help@example.com' });
-  try {
-    assert.equal((await admin.get('/api/me')).data.email, true);
-    const inv = await admin.post('/api/admin/invite', { email: 'mailed@example.com', workspaceName: 'Mailed Agency', comped: true });
-    assert.equal(inv.status, 200);
-    assert.equal(inv.data.emailed, true);
-    assert.match(inv.data.link, /#\/invite\//, 'the link is still there to copy');
-    const m = fm.got.at(-1);
-    assert.equal(m.path, '/email');
-    assert.equal(m.headers['x-postmark-server-token'], 'pm-token');
-    assert.equal(m.body.To, 'mailed@example.com');
-    assert.equal(m.body.From, 'Agent Reels <hello@example.com>');
-    assert.equal(m.body.ReplyTo, 'help@example.com');
-    assert.match(m.body.Subject, /invited/);
-    assert.ok(m.body.TextBody.includes(inv.data.link) && m.body.HtmlBody.includes('Mailed Agency'));
-
-    const acc = store.findAccountByEmail('step1@example.com');
-    const rs = await admin.post('/api/admin/reset', { accountId: acc.id });
-    assert.equal(rs.data.emailed, true);
-    assert.equal(fm.got.at(-1).body.To, 'step1@example.com');
-    assert.ok(fm.got.at(-1).body.TextBody.includes(rs.data.link));
-
-    // Forgot password: same answer either way, email only for real accounts.
-    const before = fm.got.length;
-    const anon = client(port);
-    assert.equal((await anon.post('/api/password/forgot', { email: 'nobody-here@example.com' })).status, 200);
-    assert.equal(fm.got.length, before, 'unknown address: nothing sent');
-    assert.equal((await anon.post('/api/password/forgot', { email: 'STEP1@example.com' })).status, 200);
-    assert.equal(fm.got.length, before + 1);
-    const token = fm.got.at(-1).body.TextBody.match(/#\/reset\/([\w-]+)/)[1];
-    assert.equal((await anon.post('/api/link/accept', { token, kind: 'reset', password: 'freshpass12345' })).status, 200, 'the emailed link works');
-
-    // A provider error doesn't lose the link.
-    fm.fail(true);
-    const bad = await admin.post('/api/admin/invite', { email: 'bounce@example.com', workspaceName: 'Bounce', comped: true });
-    assert.equal(bad.status, 200);
-    assert.equal(bad.data.emailed, false);
-    assert.match(bad.data.emailError, /Invalid From address/);
-    assert.match(bad.data.link, /#\/invite\//);
-    fm.fail(false);
-  } finally { MAIL_KEYS.forEach(k => delete process.env[k]); fm.close(); }
-});
-
-test('email: Resend format and the Monday review reminder', async () => {
-  const mail = await import('../lib/email.js');
-  const { emailJobs } = await import('../server.js');
-  const fm = await fakeMail();
-  Object.assign(process.env, { EMAIL_PROVIDER: 'resend', EMAIL_API_KEY: 're_key', EMAIL_FROM: 'hello@example.com', EMAIL_API_BASE: fm.base, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_mail', STRIPE_API_BASE: fm.base + '/stripe' });
-  try {
-    await mail.send({ to: 'x@example.com', subject: 'Hi', text: 't', html: '<p>t</p>' });
-    const r = fm.got.at(-1);
-    assert.equal(r.path, '/emails');
-    assert.equal(r.headers.authorization, 'Bearer re_key');
-    assert.deepEqual(r.body.to, ['x@example.com']);
-
-    // Monday 9am in Denver with a video waiting: one reminder per Monday; agents can turn it off.
-    const { c, ws } = await agent('payer@example.com');
-    fakeVideo(ws, 'pending');
-    const monday = new Date('2026-10-19T15:00:00Z');
-    assert.deepEqual((await mail.reviewReminders(new Date('2026-10-20T15:00:00Z'))).filter(x => x.ws === ws), [], 'Tuesday: nothing');
-    const rem = (await mail.reviewReminders(monday)).filter(x => x.ws === ws);
-    assert.deepEqual(rem, [{ ws, count: 1, sent: 1 }]);
-    assert.match(fm.got.at(-1).body.subject, /1 video is ready for your review/);
-    assert.deepEqual((await mail.reviewReminders(monday)).filter(x => x.ws === ws), [], 'once per Monday');
-    assert.equal((await c.post('/api/account', { weeklyEmail: false })).data.account.weeklyEmail, false);
-    store.updateWorkspace(ws, { reviewEmailDay: '' });
-    assert.deepEqual((await mail.reviewReminders(monday)).filter(x => x.ws === ws), [], 'turned off under Account');
-  } finally { [...MAIL_KEYS, 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_API_BASE'].forEach(k => delete process.env[k]); fm.close(); }
-});
 
 /* ---------------- Step 5: data export, deletion requests, the public deletion page ---------------- */
 test('data: an agent downloads everything as JSON (no secrets), and can export even before accepting new terms', async () => {
@@ -311,66 +216,52 @@ test('data: an agent downloads everything as JSON (no secrets), and can export e
 });
 
 test('data: deletion is requested by the agent, confirmed by an admin, and removes everything', async () => {
-  const fm = await fakeMail();
-  Object.assign(process.env, { EMAIL_PROVIDER: 'postmark', EMAIL_API_KEY: 'pm-token', EMAIL_FROM: 'hello@example.com', EMAIL_API_BASE: fm.base });
-  try {
-    const admin = client(port);
-    store.createAccount({ email: 'boss5@example.com', role: 'admin', hash: await auth.hashPassword('bosspass1234') });
-    await admin.post('/api/login', { email: 'boss5@example.com', password: 'bosspass1234' });
-    const { c, ws } = await agent('leaving@example.com');
-    const v = fakeVideo(ws, 'pending');
-    fs.mkdirSync(path.join(process.env.DATA_DIR, 'assets', ws, v.id), { recursive: true });
-    // A second login in the same workspace, and an unused invite into it.
-    store.createAccount({ email: 'assistant@example.com', role: 'agent', workspaceId: ws, hash: await auth.hashPassword('assistpass123') });
-    const helper = client(port);
-    await helper.post('/api/login', { email: 'assistant@example.com', password: 'assistpass123' });
-    const invite = await admin.post('/api/admin/invite', { email: 'late@example.com', workspaceId: ws });
-    const inviteToken = invite.data.link.split('/').pop();
+  const admin = client(port);
+  store.createAccount({ email: 'boss5@example.com', role: 'admin', hash: await auth.hashPassword('bosspass1234') });
+  await admin.post('/api/login', { email: 'boss5@example.com', password: 'bosspass1234' });
+  const { c, ws } = await agent('leaving@example.com');
+  const v = fakeVideo(ws, 'pending');
+  fs.mkdirSync(path.join(process.env.DATA_DIR, 'assets', ws, v.id), { recursive: true });
+  // A second login in the same workspace, and an unused invite into it.
+  store.createAccount({ email: 'assistant@example.com', role: 'agent', workspaceId: ws, hash: await auth.hashPassword('assistpass123') });
+  const helper = client(port);
+  await helper.post('/api/login', { email: 'assistant@example.com', password: 'assistpass123' });
+  const invite = await admin.post('/api/admin/invite', { email: 'late@example.com', workspaceId: ws });
+  const inviteToken = invite.data.link.split('/').pop();
 
-    // The admin can't delete a workspace that hasn't asked.
-    assert.equal((await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'leaving@example.com' })).status, 409);
-    // Asking needs the box ticked; then it's stored, the admin is alerted and the agent emailed.
-    assert.equal((await c.post('/api/data/delete-request', {})).status, 400);
-    const sentBefore = fm.got.length;
-    const asked = await c.post('/api/data/delete-request', { confirm: true, note: 'Retiring' });
-    assert.equal(asked.status, 200);
-    assert.equal(asked.data.emailed, true);
-    assert.equal(fm.got.length, sentBefore + 1);
-    assert.equal(fm.got.at(-1).body.To, 'leaving@example.com');
-    assert.match(fm.got.at(-1).body.Subject, /request to delete/);
-    assert.ok(asked.data.workspace.deletionRequest.at);
-    assert.equal((await c.get('/api/me')).data.workspace.deletionRequest.byName, 'leaving@example.com');
-    const { listAlerts } = await import('../lib/alerts.js');
-    assert.ok(listAlerts().some(a => a.ws === ws && a.title === 'Data deletion requested' && /Retiring/.test(a.text)));
-    const card = (await admin.get('/api/admin/overview')).data.workspaces.find(w => w.id === ws);
-    assert.equal(card.deletionRequest.email, 'leaving@example.com');
-    assert.equal(card.deletionRequest.note, 'Retiring');
-    // Asking twice doesn't send a second email.
-    assert.equal((await c.post('/api/data/delete-request', { confirm: true })).data.emailed, false);
+  // The admin can't delete a workspace that hasn't asked.
+  assert.equal((await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'leaving@example.com' })).status, 409);
+  // Asking needs the box ticked; then it's stored, and the admin is alerted.
+  assert.equal((await c.post('/api/data/delete-request', {})).status, 400);
+  const asked = await c.post('/api/data/delete-request', { confirm: true, note: 'Retiring' });
+  assert.equal(asked.status, 200);
+  assert.ok(asked.data.workspace.deletionRequest.at);
+  assert.equal((await c.get('/api/me')).data.workspace.deletionRequest.byName, 'leaving@example.com');
+  const { listAlerts } = await import('../lib/alerts.js');
+  assert.ok(listAlerts().some(a => a.ws === ws && a.title === 'Data deletion requested' && /Retiring/.test(a.text)));
+  const card = (await admin.get('/api/admin/overview')).data.workspaces.find(w => w.id === ws);
+  assert.equal(card.deletionRequest.email, 'leaving@example.com');
+  assert.equal(card.deletionRequest.note, 'Retiring');
 
-    // Confirming: the typed name must match.
-    assert.equal((await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'wrong name' })).status, 400);
-    assert.ok(store.getWorkspace(ws), 'nothing deleted yet');
-    const done = await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'LEAVING@example.com' });
-    assert.equal(done.status, 200);
-    assert.deepEqual({ logins: done.data.deleted.logins, videos: done.data.deleted.videos }, { logins: 2, videos: 1 });
-    assert.equal(done.data.emailed, true);
-    assert.match(fm.got.at(-1).body.Subject, /data was deleted/);
-    assert.equal(fm.got.at(-1).body.To, 'leaving@example.com');
+  // Confirming: the typed name must match.
+  assert.equal((await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'wrong name' })).status, 400);
+  assert.ok(store.getWorkspace(ws), 'nothing deleted yet');
+  const done = await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'LEAVING@example.com' });
+  assert.equal(done.status, 200);
+  assert.deepEqual({ logins: done.data.deleted.logins, videos: done.data.deleted.videos }, { logins: 2, videos: 1 });
 
-    // Everything is gone: workspace, files, logins, sessions, and the unused invite.
-    assert.equal(store.getWorkspace(ws), null);
-    assert.ok(!fs.existsSync(path.join(process.env.DATA_DIR, 'workspaces', ws)));
-    assert.ok(!fs.existsSync(path.join(process.env.VIDEOS_DIR, ws)));
-    assert.ok(!fs.existsSync(path.join(process.env.DATA_DIR, 'assets', ws)));
-    assert.equal(store.findAccountByEmail('leaving@example.com'), null);
-    assert.equal(store.findAccountByEmail('assistant@example.com'), null);
-    assert.equal((await c.get('/api/me')).data.account, null, 'logged out everywhere');
-    assert.equal((await helper.get('/api/videos')).status, 401);
-    assert.equal((await client(port).post('/api/link/check', { token: inviteToken, kind: 'invite' })).status, 410, 'old invites stop working');
-    assert.ok(!(await admin.get('/api/admin/overview')).data.workspaces.some(w => w.id === ws));
-    assert.ok(listAlerts().some(a => a.ws === ws && a.title === 'Workspace deleted'));
-  } finally { MAIL_KEYS.forEach(k => delete process.env[k]); fm.close(); }
+  // Everything is gone: workspace, files, logins, sessions, and the unused invite.
+  assert.equal(store.getWorkspace(ws), null);
+  assert.ok(!fs.existsSync(path.join(process.env.DATA_DIR, 'workspaces', ws)));
+  assert.ok(!fs.existsSync(path.join(process.env.VIDEOS_DIR, ws)));
+  assert.ok(!fs.existsSync(path.join(process.env.DATA_DIR, 'assets', ws)));
+  assert.equal(store.findAccountByEmail('leaving@example.com'), null);
+  assert.equal(store.findAccountByEmail('assistant@example.com'), null);
+  assert.equal((await c.get('/api/me')).data.account, null, 'logged out everywhere');
+  assert.equal((await helper.get('/api/videos')).status, 401);
+  assert.equal((await client(port).post('/api/link/check', { token: inviteToken, kind: 'invite' })).status, 410, 'old invites stop working');
+  assert.ok(!(await admin.get('/api/admin/overview')).data.workspaces.some(w => w.id === ws));
+  assert.ok(listAlerts().some(a => a.ws === ws && a.title === 'Workspace deleted'));
 });
 
 test('data: the agent or the admin can cancel a deletion request; admins can’t file one', async () => {

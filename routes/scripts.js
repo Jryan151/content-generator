@@ -8,7 +8,6 @@ import { PRODUCT_NAME } from '../lib/paths.js';
 import * as store from '../lib/store.js';
 import * as allowance from '../lib/allowance.js';
 import * as usage from '../lib/usage.js';
-import * as switches from '../lib/switches.js';
 import * as studio from '../lib/studio.js';
 import * as memory from '../lib/memory.js';
 import { stampFacts } from '../lib/onboarding.js';
@@ -18,7 +17,6 @@ export default function mount(ctx) {
 const { TESTS_PER_DAY, api, bad, clip, coach, coachGate, content, draftCfg, draftPicks, getV, route, spendGate, workingConfig } = ctx;
 /* ----- Scripts and jobs ----- */
 route('POST', '/api/script', 'ws', async ({ wsId, ws, body, me }) => {
-  if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
   const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
@@ -99,7 +97,6 @@ route('POST', '/api/comms/workshop', 'ws', async ({ wsId, ws, body, me }) => {
 // Try it: the same video idea written with and without a suggestion, side by side. Counts as 2 tests.
 const seeded = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 route('POST', '/api/coach/try', 'ws', async ({ wsId, ws, body, me }) => {
-  if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
   const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);

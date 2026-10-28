@@ -16,10 +16,7 @@ function viewLogin() {
       <button class="btn primary big">Log in</button>
       <div class="status" data-st></div>
     </form>
-    ${S.me?.email ? `<details><summary>Forgot your password?</summary><form class="stack" data-form="forgot">
-      <label class="field"><span>Your email</span><input class="ctl" name="email" type="email" autocomplete="username" required></label>
-      <div class="row"><button class="btn">Email me a reset link</button></div><div class="status" data-st></div></form></details>` : '<p class="small muted">Forgot your password? Ask your admin for a reset link.</p>'}<p class="small muted">${S.me?.terms?.on ? `${termsLinks()} · ` : ''}<a href="/data-deletion" target="_blank" rel="noopener">Delete your data</a></p>
-    <p class="small muted">New here? <a href="/welcome#request">Request access</a></p>`);
+    <p class="small muted">Forgot your password? Ask your admin for a reset link.</p><p class="small muted">${S.me?.terms?.on ? `${termsLinks()} · ` : ''}<a href="/data-deletion" target="_blank" rel="noopener">Delete your data</a></p>`);
 }
 async function viewLink(kind, token) {
   authPage('<p class="empty"><span class="spin"></span> Checking your link…</p>');
@@ -112,7 +109,6 @@ async function viewAccount() {
       <label class="field"><span>Current password</span><input class="ctl" type="password" name="current" autocomplete="current-password" required></label>
       <label class="field"><span>New password</span><input class="ctl" type="password" name="next" autocomplete="new-password" minlength="10" required><small>At least 10 characters. Changing it logs you out on your other devices.</small></label>
       <div class="row"><button class="btn primary">Change password</button><span class="status" data-st></span></div></form></section>
-    ${S.me.email && S.me.workspace ? `<section class="panel"><h2>Email</h2><label class="check"><input type="checkbox" data-act="weekly-email" ${a.weeklyEmail !== false ? 'checked' : ''}> <span>Monday email when videos are waiting for my review</span></label><p class="small muted" style="margin:0">Invites, password resets and billing emails always go out.</p></section>` : ''}
     ${S.me.terms?.on && a.role !== 'admin' ? `<section class="panel"><h2>Terms and privacy</h2><p class="small" style="margin:0">${a.termsVersion ? `You accepted version ${esc(a.termsVersion)} on ${esc(day(a.acceptedAt))}.` : 'Not accepted yet.'} ${termsLinks()}.</p></section>` : ''}
     ${S.me.workspace ? `<section class="panel" id="pushPanel">${pushInner()}</section>` : ''}
     <section class="panel" id="twofaPanel">${twofaInner()}</section>

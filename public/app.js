@@ -27,7 +27,7 @@ import { drawSignoff, signoffActions, soBackForm, viewSignoff } from './screens/
 import { repliesActions, repliesForm } from './screens/replies.js';
 import { drawGrow, viewGrow } from './screens/grow.js';
 import { canSetup, drawStep, firstStep, stepView, viewStep } from './screens/steps.js';
-import { drawAdmin, loadAudit, loadEngine, loadSwitches, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
+import { drawAdmin, loadAudit, loadEngine, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
 import { applyStudio, applySuggestion, describe, drawCoach, lines, loadCoachNotes, makeVideos, openCoach, redraw, saveCoachMsgs, sendCoach, setCoachMode } from './screens/coach.js';
 
 /* ================= Basics ================= */
@@ -947,7 +947,7 @@ const actions = {
       const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'my-data.json';
       const url = URL.createObjectURL(await res.blob()), a = Object.assign(document.createElement('a'), { href: url, download: name });
       document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 10000);
-      toast(S.me.email ? 'Downloaded. A receipt is emailed to you too.' : 'Downloaded.');
+      toast('Downloaded.');
       await refreshMe(); if (S.view === 'account') return viewAccount();
     } catch (err) { toast(fetchError(err).message); }
     el.classList.remove('busy'); el.textContent = label;
@@ -972,10 +972,8 @@ const actions = {
   },
   async 'invite-del'(el) { try { S.people = { ...S.people, ...(await api('/api/people/invites/revoke', { method: 'POST', body: { email: el.dataset.email } })) }; drawTeam(); toast('Invite taken back'); } catch (e) { toast(e.message); } },
   'page-reload'() { location.reload(); },
-  'switches-retry'() { loadSwitches(); },
   'engine-retry'() { loadEngine(); },
   'update-now'() { keepDraft(); location.reload(); },
-  async 'clock-check'(el) { el.disabled = true; try { const r = await api('/api/admin/clock', { method: 'POST', body: {} }); toast(r.clock.error ? `Couldn’t check: ${r.clock.error}` : `${Math.abs(r.clock.skewMs)} ms ${r.clock.skewMs > 0 ? 'fast' : 'slow'}`); await loadEngine(); } catch (e) { toast(e.message); el.disabled = false; } },
   async 'engine-job'(el) {
     const out = document.querySelector(`[data-tl="${CSS.escape(el.dataset.i)}"]`);
     if (!out) return;
@@ -986,18 +984,6 @@ const actions = {
       out.innerHTML = T ? `<ol class="small mono" style="margin:6px 0;padding-left:18px">${T.events.map(ev => `<li>${(ev.t / 1000).toFixed(1)} s · ${ev.step ? `<b>${esc(ev.step)}</b>` : `${esc(ev.service)}${ev.detail ? ` (${esc(ev.detail)})` : ''} ${(ev.ms / 1000).toFixed(1)} s${ev.ok ? '' : ' <b class="err">failed</b>'}`}</li>`).join('')}</ol>${T.dropped ? `<span class="small muted">…and ${T.dropped} more</span>` : ''}` : '<span class="small muted">No timeline for this one.</span>';
     } catch (e) { out.innerHTML = `<span class="small muted">${esc(e.message)}</span>`; }
   },
-  async switch(el) {
-    const off = el.dataset.off === '1', ws = el.dataset.ws || '';
-    const why = off ? prompt('Why is it off? (optional, shown here)') : '';
-    if (why === null) return;
-    el.disabled = true;
-    try {
-      if (ws) { await api(`/api/admin/workspaces/${encodeURIComponent(ws)}/switch`, { method: 'POST', body: { name: el.dataset.name, off, why } }); await viewAdmin(); }
-      else { await api('/api/admin/switches', { method: 'POST', body: { name: el.dataset.name, off, why } }); await loadSwitches(); }
-      toast(off ? 'Turned off' : 'Back on');
-    } catch (e) { toast(e.message); el.disabled = false; }
-  },
-  async 'outbox-drain'(el) { el.disabled = true; try { const r = await api('/api/admin/outbox/drain', { method: 'POST', body: {} }); toast(r.sent ? `Sent ${plural(r.sent, 'message')}` : 'Nothing could be sent yet'); await loadSwitches(); } catch (e) { toast(e.message); el.disabled = false; } },
   'audit-retry'() { loadAudit(); },
   'coach-retry'() { const m = S.coach.msgs.pop(); const q = m?.retry; if (q && S.coach.msgs[S.coach.msgs.length - 1]?.role === 'user') S.coach.msgs.pop(); if (q) sendCoach(q); else drawCoach(); },
   'coach-notes-retry'() { S.coach.notes = null; S.coach.notesFailed = false; drawCoach(); loadCoachNotes(); },
@@ -1624,7 +1610,7 @@ const actions = {
     try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { aiCostUsd: v.trim() } }); await viewAdmin(); } catch (e) { toast(e.message); }
   },
   async 'reset-link'(el) {
-    try { const r = await api('/api/admin/reset', { method: 'POST', body: { accountId: el.dataset.id } }); showLink(el.closest('.panel').querySelector('[data-out]') || el.closest('.panel'), r.link, r.emailed ? `Reset link emailed to ${r.email} (valid 7 days, single use). It’s here too:` : `${r.queued ? `${r.emailError} ` : r.emailError ? `Couldn’t email it (${r.emailError}). ` : ''}Reset link (valid 7 days, single use). Send it to them directly:`); }
+    try { const r = await api('/api/admin/reset', { method: 'POST', body: { accountId: el.dataset.id } }); showLink(el.closest('.panel').querySelector('[data-out]') || el.closest('.panel'), r.link, `Reset link (valid 7 days, single use). Send it to them directly:`); }
     catch (e) { toast(e.message); }
   },
   async 'reset-2fa'(el) {
@@ -1641,16 +1627,9 @@ const actions = {
     const name = el.dataset.name;
     const typed = prompt(`This deletes “${name}” for good: its logins, settings, videos and approval records. Backups keep a copy until they rotate out.\n\nType the workspace name to confirm:`, '');
     if (typed === null) return;
-    const send = stripeHandled => api(`/api/admin/workspaces/${el.dataset.id}/delete`, { method: 'POST', body: { confirm: typed, stripeHandled } });
     try {
-      let r;
-      try { r = await send(false); }
-      catch (e) {
-        if (!e.data?.stripe) throw e;
-        if (!confirm(`${e.message}\n\nHave you canceled it in Stripe? OK deletes the workspace now.`)) return;
-        r = await send(true);
-      }
-      toast(`Deleted ${r.deleted.name}${r.emailed ? '. They’ve been emailed.' : ''}`);
+      const r = await api(`/api/admin/workspaces/${el.dataset.id}/delete`, { method: 'POST', body: { confirm: typed } });
+      toast(`Deleted ${r.deleted.name}`);
       await refreshMe(); await viewAdmin();
     } catch (e) { toast(e.message); }
   },
@@ -1879,7 +1858,6 @@ document.addEventListener('change', e => {
   }
   if (t.dataset.stnofact !== undefined && S.st) { stBrief({ noFact: t.checked, insightIds: [] }); return; }
   if (t.dataset.stfact && S.st) { stBrief({ insightIds: [...document.querySelectorAll('[data-stfact]')].filter(x => x.checked).map(x => x.dataset.stfact) }); return; }
-  if (t.dataset.act === 'weekly-email') { api('/api/account', { method: 'POST', body: { weeklyEmail: t.checked } }).then(r => { S.me.account = r.account; toast(t.checked ? 'You’ll get the Monday email' : 'Monday email turned off'); }).catch(err => { t.checked = !t.checked; toast(`Not saved: ${err.message}`); }); return; }
   if (t.dataset.chk) {
     const all = [...main.querySelectorAll(`[data-chk="${t.dataset.chk}"]`)];
     main.querySelector(`[data-act="approve"][data-id="${t.dataset.chk}"]`).disabled = !all.every(x => x.checked);
@@ -1996,17 +1974,13 @@ document.addEventListener('submit', async e => {
       await api('/api/2fa/disable', { method: 'POST', body: { password: data.password, code: data.code } });
       S.me.account.twofa = false; drawTwofa(); toast('Two-factor login is off'); return;
     }
-    if (kind === 'forgot') {
-      await api('/api/password/forgot', { method: 'POST', body: { email: data.email } });
-      status(st, 'If that email has an account, a reset link is on its way. Check your inbox (and spam).', 'ok'); return;
-    }
     if (kind === 'terms') {
       await api('/api/terms/accept', { method: 'POST', body: { accept: !!data.accept } });
       await refreshMe(); toast('Thanks. You’re all set.'); go(''); return;
     }
     if (kind === 'delete-request') {
       const r = await api('/api/data/delete-request', { method: 'POST', body: { confirm: !!data.confirm, note: data.note } });
-      S.me.workspace = r.workspace; await viewAccount(); toast(r.emailed ? 'Request sent. Check your email.' : 'Request sent'); return;
+      S.me.workspace = r.workspace; await viewAccount(); toast('Request sent'); return;
     }
     if (kind === 'name') { const r = await api('/api/account', { method: 'POST', body: { name: data.name } }); S.me.account = r.account; toast('Saved'); }
     if (kind === 'password') { await api('/api/account/password', { method: 'POST', body: data }); f.reset(); status(st, 'Password changed.', 'ok'); }
@@ -2044,7 +2018,7 @@ document.addEventListener('submit', async e => {
     if (kind === 'reviewer-invite') {
       const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, role: 'reviewer' } });
       S.people = { ...S.people, ...r }; drawTeam();
-      showLink(document.getElementById('reviewerOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too:` : `Send this invite link to ${data.email} (valid 7 days, single use):`);
+      showLink(document.getElementById('reviewerOut'), r.link, `Send this invite link to ${data.email} (valid 7 days, single use):`);
       return;
     }
     if (kind === 'add') {
@@ -2071,7 +2045,7 @@ document.addEventListener('submit', async e => {
       if (data.workspaceId === '__admin') body.role = 'admin'; else if (data.workspaceId) body.workspaceId = data.workspaceId;
       const r = await api('/api/admin/invite', { method: 'POST', body });
       S.admin = await api('/api/admin/overview'); drawAdmin(); loadAudit();
-      showLink(document.getElementById('inviteOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too, in case it lands in spam:` : `${r.queued ? `${r.emailError} ` : r.emailError ? `Couldn’t email it (${r.emailError}). ` : ''}Invite for ${data.email} (valid 7 days, single use). Send it to them directly:`);
+      showLink(document.getElementById('inviteOut'), r.link, `Invite for ${data.email} (valid 7 days, single use). Send it to them directly:`);
     }
   } catch (err) {
     if (st) status(st, err.message, 'err'); else toast(err.message);

@@ -5,12 +5,11 @@
 // templates are unchanged).
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
-import * as mail from '../lib/email.js';
 import * as data from '../lib/data.js';
 import * as twofa from '../lib/twofa.js';
 
 export default function mount(ctx) {
-const { BASE_HEADERS, TERMS_FREE, TERMS_TEXT, api, bad, clip, mailLink, nowIso, route, slug, terms, termsStamp, twofaLimit, who, wsSummary } = ctx;
+const { BASE_HEADERS, TERMS_FREE, TERMS_TEXT, api, bad, clip, nowIso, route, slug, terms, termsStamp, twofaLimit, who, wsSummary } = ctx;
 /* ----- Account ----- */
 // Accepting the current terms (first time, or after TERMS_VERSION changed).
 route('POST', '/api/terms/accept', 'user', ({ body, me }) => {
@@ -22,7 +21,6 @@ route('POST', '/api/terms/accept', 'user', ({ body, me }) => {
 route('POST', '/api/account', 'user', ({ body, me }) => {
   const patch = {};
   if ('name' in body) patch.name = clip(body.name, 80);
-  if ('weeklyEmail' in body) patch.weeklyEmail = !!body.weeklyEmail;   // the weekly "videos ready for review" email
   return { account: store.publicAccount(store.updateAccount(me.account.id, patch)) };
 });
 route('POST', '/api/account/password', 'user', async ({ body, me }) => {
@@ -85,20 +83,17 @@ route('GET', '/api/data/export', 'ws', ({ req, res, wsId, ws, me }) => {
   const x = data.exportWorkspace(wsId), counts = data.exportCounts(x), at = nowIso(), device = auth.deviceName(req.headers['user-agent']);
   x.receipt = { exportedAt: at, by: me.account.email, device, counts };
   const out = JSON.stringify(x, null, 2);
-  // A receipt: kept on the workspace (Account shows the last one) and emailed, so a download nobody
-  // expected doesn't go unnoticed.
+  // A receipt: kept on the workspace (Account shows the last one) so a download nobody expected
+  // doesn't go unnoticed.
   store.updateWorkspace(wsId, { lastExport: { at, by: me.account.role === 'admin' ? 'admin' : me.account.name || me.account.email, device, counts } });
-  if (me.account.role !== 'admin') mailLink(me.account.email, mail.exportEmail({ at, device, counts, timezone: store.loadConfig(wsId).profile?.timezone })).catch(() => {});
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${slug(ws.name)}-data-${nowIso().slice(0, 10)}.json"`, 'Cache-Control': 'no-store', ...BASE_HEADERS });
   res.end(out);
 });
 route('POST', '/api/data/delete-request', 'ws', async ({ wsId, ws, body, me }) => {
   if (me.account.role === 'admin') bad(400, 'This is for the agent. To delete a workspace, use node admin.js delete-workspace.');
   if (body.confirm !== true) bad(400, 'Tick the box to confirm you want everything deleted.');
-  const already = !!ws.deletionRequest;
   const req = data.requestDeletion(wsId, me.account, body.note);
-  const sent = already ? { emailed: false, emailError: '' } : await mailLink(me.account.email, mail.deletionRequestedEmail({ workspace: ws.name }));
-  return { deletionRequest: req, workspace: wsSummary(wsId), ...sent };
+  return { deletionRequest: req, workspace: wsSummary(wsId) };
 });
 route('DELETE', '/api/data/delete-request', 'ws', ({ wsId }) => { data.cancelDeletion(wsId); return { deletionRequest: null, workspace: wsSummary(wsId) }; });
 }

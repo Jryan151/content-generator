@@ -9,15 +9,11 @@
 //   node admin.js restore-test [file]                   check a backup restores: the newest off-site one, or a local file
 //   node admin.js pre-update-backup <file.tar.gz>       a checked backup (update.sh runs this before updating)
 //   node admin.js models [--no-check]                   each AI job's models, retired ones and shutdown dates
-//   node admin.js inspect [--dry-run]                   the nightly inspection, now: fixes what's safe, lists the rest
 //   node admin.js decrypt-backup <file.enc> <out.tar.gz>  decrypt an off-site backup with BACKUP_KEY
 //   node admin.js storage status | migrate [--dry-run] | rollback   JSON files ↔ SQLite (stop the server first)
 //   node admin.js golden <workspaceId> [--label name] [--count 12]   write the golden set (fixed video ideas) with today's prompts and models
 //   node admin.js golden-compare <a.json> <b.json>       side-by-side page of two golden runs
-//   node admin.js reference [--accept]                  render the reference video now and compare (--accept: it's the new reference)
-//   node admin.js clock                                 compare the server's clock with an outside source
 //   node admin.js engine                                the Engine bay in the terminal: line, services, targets
-//   node admin.js calendar                              the expiry calendar: Node, Meta's API, AI models, cards, certificate
 //   node admin.js changes                               the numbered data changes: which ran, when, and what they did
 //   node admin.js rotate-key [--reseal]                 a new encryption key; everything sealed again (--reseal: only that)
 import fs from 'fs';
@@ -124,15 +120,6 @@ switch (cmd) {
     } catch (e) { fs.rmSync(out, { force: true }); die('The backup before the update failed: ' + e.message); }
     break;
   }
-  case 'inspect': {
-    // The nightly inspection, now. --dry-run lists what it would fix without fixing it.
-    const { inspect } = await import('./lib/inspect.js');
-    const r = inspect({ fix: !flag('--dry-run') });
-    console.log(`Read ${r.documents} saved documents.`);
-    console.log(r.fixed.length ? `\nFixed:\n  ${r.fixed.join('\n  ')}` : '\nNothing needed fixing.');
-    console.log(r.problems.length ? `\nNeeds you:\n  ${r.problems.join('\n  ')}` : '\nNothing needs you.');
-    break;
-  }
   case 'models': {
     // Each AI job's ladder (first choice, then backups) and what's known about every model on it.
     const ai = await import('./lib/ai.js');
@@ -213,33 +200,6 @@ Start the server: pm2 start generator`);
         console.log(`Moved ${r.documents} documents into the database and checked each one. The JSON files are kept in ${r.savedTo}. To go back: pm2 stop generator && node admin.js storage rollback`);
       } else die('Usage: node admin.js storage status | migrate [--dry-run] | rollback');
     } catch (e) { die(e.message); }
-    break;
-  }
-  case 'reference': {
-    // The nightly reference render, now (lib/reference.js).
-    const ref = await import('./lib/reference.js');
-    const { saveMaintenance } = await import('./lib/scheduler.js');
-    console.log('Rendering the reference video…');
-    try {
-      const r = await ref.check({ accept: !!flag('--accept') });
-      saveMaintenance({ reference: { at: new Date().toISOString(), ...r } });
-      if (r.saved) console.log(`Saved as the reference (FFmpeg ${r.ffmpeg || '?'}): data/reference/reference.mp4`);
-      else if (r.ok) console.log(`Same as the reference (difference ${r.diff}, limit ${ref.LIMIT()}). FFmpeg ${r.ffmpeg || '?'}.`);
-      else { console.log(`Different from the reference: ${r.problems.join('; ')}.\nWatch data/reference/latest.mp4 and reference.mp4; if the new one looks right: node admin.js reference --accept`); process.exitCode = 2; }
-    } catch (e) { die('Couldn’t render the reference: ' + e.message); }
-    break;
-  }
-  case 'clock': {
-    const clock = await import('./lib/clock.js');
-    const r = await clock.check();
-    if (r.error) die('Couldn’t check the clock: ' + r.error);
-    console.log(`This server is ${Math.abs(r.skewMs)} ms ${r.skewMs > 0 ? 'fast' : 'slow'} (± ${r.plusMinusMs} ms) against ${r.source}.${r.level ? ' Fix it: timedatectl set-ntp true && timedatectl status' : ' That’s fine.'}`);
-    break;
-  }
-  case 'calendar': {
-    const ex = await import('./lib/expiry.js');
-    const items = await ex.checkExpiry();
-    for (const it of items) console.log(`${it.date || '????-??-??'}  ${it.days == null ? '' : `${String(it.days).padStart(4)} days  `}${it.what}${it.level ? `  [${it.level.toUpperCase()}]` : ''}\n            ${it.action}`);
     break;
   }
   case 'changes': {

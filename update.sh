@@ -7,13 +7,6 @@
 #   bash update.sh                        git install: pull the newest version
 #   bash update.sh v12.1.0                git install: switch to that tag or commit
 #   bash update.sh --no-pull              you already unzipped or changed the files yourself
-#   bash update.sh --use-releases         once: move to side-by-side releases (SETUP.md section AO)
-#   bash update.sh --rollback             side-by-side releases: back to the version before (instant)
-#
-# With side-by-side releases each version lives in releases/<version>/ and `current` points at the live
-# one. A new version is unpacked next to it, its files checked against its build sheet, its checks run,
-# and it's started on a spare port against a copy of your data (its data changes run there first). Only
-# then does `current` switch, in one step; going back is the same switch the other way.
 #
 # Settings for testing (leave alone on a real server): PM2, APP_NAME, HEALTH_URL, HEALTH_TRIES, TEST_CMD,
 # REHEARSE (0: skip the try-out on a copy), REHEARSAL_PORT, ALLOW_NO_BUILD_SHEET.
@@ -39,17 +32,14 @@ REHEARSAL_PORT="${REHEARSAL_PORT:-3199}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ARG="${1:-}"
 # What never belongs to the code: the update never changes or restores these.
-KEEP=(./data ./videos ./backups ./fonts ./music ./prompts ./node_modules ./.env ./.app-key ./.app-key.old ./.git ./releases ./current ./Poppins-Bold.ttf)
+KEEP=(./data ./videos ./backups ./fonts ./music ./prompts ./node_modules ./.env ./.app-key ./.app-key.old ./.git ./Poppins-Bold.ttf)
 excludes() { for k in "${KEEP[@]}"; do printf -- '--exclude=%s\n' "$k"; done; }
 
 say() { echo "$*"; }
 fail() { echo; echo "UPDATE STOPPED: $*"; exit 1; }
-WORKER_APP="$APP_NAME-worker"
-has_worker() { "$PM2" jlist 2>/dev/null | grep -q "\"name\":\"$WORKER_APP\""; }
-restart_all() { "$PM2" restart "$APP_NAME" --update-env >/dev/null; if has_worker; then "$PM2" restart "$WORKER_APP" --update-env >/dev/null; fi; }
+restart_all() { "$PM2" restart "$APP_NAME" --update-env >/dev/null; }
 up() { local code; code="$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" || true)"; [ "$code" = 200 ] || [ "$code" = 503 ]; }
 answers() { for _ in $(seq 1 "$HEALTH_TRIES"); do if up; then return 0; fi; sleep 1; done; return 1; }
-RELEASES=0; [ -d releases ] && [ -L current ] && RELEASES=1
 
 # A zip's paths are checked before it's unpacked anywhere.
 check_zip() {
@@ -141,125 +131,6 @@ storage_move() {
   fi
 }
 
-# The thin starters left in the app folder by --use-releases: they run whatever `current` points at, so
-# pm2, `node admin.js …` and your habits stay the same.
-write_starters() {
-  cat > server.js <<'JS'
-// Starts the live release (releases/<version>, through the `current` link: SETUP.md section AO).
-const { main } = await import('./current/server.js');
-main();
-JS
-  cat > worker.js <<'JS'
-// Starts the live release's video worker (SETUP.md sections AL and AO).
-await import('./current/worker.js');
-JS
-  cat > admin.js <<'JS'
-// Runs the live release's admin commands (SETUP.md section AO).
-await import('./current/admin.js');
-JS
-  printf '{ "name": "agent-reels", "private": true, "type": "module", "description": "Side-by-side releases: the code is in releases/, the live one is current/ (SETUP.md section AO)." }\n' > package.json
-}
-# A release folder name: digits, letters, dots, dashes and underscores only (never a path).
-valid_version() { if ! printf '%s' "$1" | grep -Eq '^[0-9A-Za-z._-]{1,40}$' || [ "$1" = . ] || [ "$1" = .. ]; then echo "UPDATE STOPPED: the release's version (\"$1\") isn't a plain version number."; return 1; fi; }
-switch_to() {   # switch_to <release dir name>: one rename, so `current` is never missing
-  ln -sfn "releases/$1" current.new && mv -Tf current.new current
-}
-
-# ---------------- Moving to side-by-side releases (once) ----------------
-if [ "$ARG" = "--use-releases" ]; then
-  [ "$RELEASES" = 1 ] && { say "Already using side-by-side releases (current → $(readlink current))."; exit 0; }
-  [ -f server.js ] && [ -f package.json ] || fail "this doesn't look like the app folder."
-  # Only the app's own files move: the ones its build sheet lists (a version 15 zip install has one).
-  # Anything else you keep in this folder stays where it is.
-  [ -f BUILD.json ] && [ -f tools/build-sheet.mjs ] || fail "this needs a version 15 install from a zip (it has a build sheet, BUILD.json). Update with a zip first."
-  node tools/build-sheet.mjs verify . >/dev/null || fail "the app's files don't match its build sheet (changed by hand?), so they weren't moved: node tools/build-sheet.mjs verify ."
-  V="$(node -p "require('./package.json').version")"
-  valid_version "$V"
-  say "Moving version $V into releases/$V (your data stays where it is)…"
-  backup_first .
-  FILES="$(mktemp)"
-  node -e "const s=require('./BUILD.json'); for (const f of Object.keys(s.files)) console.log(f); console.log('BUILD.json')" > "$FILES"
-  SNAP="backups/code-before-releases-$STAMP.tar.gz"
-  tar -czf "$SNAP" -T "$FILES" || fail "couldn't save a copy of the current code."
-  mkdir -p "releases/$V"
-  tar -xzf "$SNAP" -C "releases/$V"
-  cp update.sh "releases/$V/update.sh"
-  switch_to "$V"
-  # The old code files go (they're in releases/$V and in $SNAP); the starters take their place.
-  while IFS= read -r f; do [ -n "$f" ] && [ "$f" != update.sh ] && rm -f -- "$f"; done < "$FILES"
-  find . -mindepth 1 -type d -empty -not -path './releases*' -not -path './data*' -not -path './videos*' -not -path './backups*' -not -path './fonts*' -not -path './music*' -not -path './prompts*' -delete 2>/dev/null || true
-  rm -f "$FILES"
-  write_starters
-  restart_all
-  if ! answers; then
-    say "The site didn't come back; putting the old layout back…"
-    rm -f server.js worker.js admin.js package.json current
-    tar -xzf "$SNAP"; rm -rf releases
-    restart_all
-    fail "the move to side-by-side releases didn't work; nothing else changed (check: pm2 logs $APP_NAME --lines 50)."
-  fi
-  "$PM2" save >/dev/null 2>&1 || true
-  say "Done. Version $V now runs from releases/$V; next updates go next to it, and bash update.sh --rollback goes back."
-  exit 0
-fi
-
-# ---------------- Going back (side-by-side releases) ----------------
-if [ "$ARG" = "--rollback" ]; then
-  [ "$RELEASES" = 1 ] || fail "--rollback needs side-by-side releases (bash update.sh --use-releases). For a zip install, update to the earlier zip."
-  PREV="$(cat releases/.previous 2>/dev/null || true)"
-  [ -n "$PREV" ] && [ -d "releases/$PREV" ] || fail "there's no earlier release to go back to."
-  NOW="$(basename "$(readlink current)")"
-  say "Going back: $NOW → $PREV…"
-  switch_to "$PREV"; echo "$NOW" > releases/.previous
-  restart_all
-  answers || fail "the earlier version didn't answer either (check: pm2 logs $APP_NAME --lines 50). bash update.sh --rollback switches again."
-  "$PM2" save >/dev/null 2>&1 || true
-  say "Done. Now running $PREV. (The data changes of $NOW stay: they only ever add, so $PREV reads the data fine.)"
-  exit 0
-fi
-
-# ---------------- Updating with side-by-side releases ----------------
-if [ "$RELEASES" = 1 ]; then
-  [ -n "$ARG" ] && [ -f "$ARG" ] || fail "with side-by-side releases, update from a zip: bash update.sh /root/update.zip"
-  check_zip "$ARG"
-  NOW="$(basename "$(readlink current)")"
-  backup_first current
-  say "2/5 Unpacking next to the live version…"
-  INC="releases/.incoming-$STAMP"
-  mkdir -p "$INC"
-  unzip -q "$ARG" -d "$INC" || { rm -rf "$INC"; fail "the zip didn't unpack cleanly. Nothing changed."; }
-  V="$(cd "$INC" && node -p "require('./package.json').version" 2>/dev/null || true)"
-  [ -n "$V" ] || { rm -rf "$INC"; fail "the zip has no package.json version."; }
-  valid_version "$V" || { rm -rf "$INC"; exit 1; }
-  NEW="$V"; [ -e "releases/$NEW" ] && NEW="$V-$STAMP"
-  mv "$INC" "releases/$NEW"
-  check_sheet "releases/$NEW" || { rm -rf "releases/$NEW"; fail "the release wasn't used (above). The live version was never touched."; }
-  say "3/5 Running checks…"
-  if ! (cd "releases/$NEW" && bash -c "$TEST_CMD"); then rm -rf "releases/$NEW"; fail "the checks failed (above). The live version was never touched."; fi
-  if ! rehearse "releases/$NEW"; then rm -rf "releases/$NEW"; fail "the new version didn't run cleanly on a copy of your data (above). The live version was never touched."; fi
-  storage_move "releases/$NEW"
-  say "4/5 Switching $NOW → $NEW…"
-  switch_to "$NEW"
-  restart_all
-  say "5/5 Checking the site answers…"
-  if ! answers; then
-    switch_to "$NOW"; restart_all
-    fail "the new version didn't start; switched back to $NOW (check: pm2 logs $APP_NAME --lines 50)."
-  fi
-  # Only now: the way back, and the new update.sh.
-  echo "$NOW" > releases/.previous
-  cp "releases/$NEW/update.sh" update.sh.new && mv -f update.sh.new update.sh
-  "$PM2" save >/dev/null 2>&1 || true
-  # Kept: the live one, the one before (for --rollback) and one more.
-  for old in $(ls -1t releases | grep -v '^\.' | tail -n +4); do
-    if [ "$old" != "$NEW" ] && [ "$old" != "$NOW" ]; then rm -rf "releases/$old"; fi
-  done
-  [ -n "${ZIPLIST:-}" ] && rm -f "$ZIPLIST"
-  say "Done. Now running version $V (releases/$NEW). To go back: bash update.sh --rollback"
-  exit 0
-fi
-
-# ---------------- Updating in place (one folder) ----------------
 mode=none
 if [ -n "$ARG" ] && [ "$ARG" != "--no-pull" ] && [ -f "$ARG" ]; then mode=zip
 elif [ "$ARG" != "--no-pull" ] && [ -d .git ]; then mode=git
@@ -343,4 +214,3 @@ fi
 "$PM2" save >/dev/null 2>&1 || true
 [ -n "$ZIPLIST" ] && rm -f "$ZIPLIST" "$ZIPLIST.old"
 say "Done. Now running version $(node -p "require('./package.json').version")."
-[ -d releases ] || say "Tip: bash update.sh --use-releases (once) keeps each version side by side, so going back is instant (SETUP.md section AO)."

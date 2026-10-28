@@ -16,14 +16,12 @@ import * as ig from '../lib/instagram.js';
 import * as fb from '../lib/facebook.js';
 import * as mc from '../mindset-core.js';
 import * as trackLinks from '../lib/links.js';
-import * as switches from '../lib/switches.js';
 import * as memory from '../lib/memory.js';
 import * as roles from '../lib/roles.js';
 import * as push from '../lib/push.js';
 import * as studio from '../lib/studio.js';
 import * as usage from '../lib/usage.js';
 import * as signoff from '../lib/signoff.js';
-import * as mail from '../lib/email.js';
 import { migrate, AI_VOICE_NOTE, RULES } from '../mixer-core.js';
 
 export default function mount(ctx) {
@@ -225,7 +223,6 @@ route('POST', '/api/videos/:id/fix', 'ws', async ({ wsId, ws, params, body, me }
   const problem = checkFix(wsId, v.id, edits);
   // (v15) What stops it comes with its one-tap fixes, the same as in Studio.
   if (problem) { const f = checkFix(wsId, v.id, edits, { findings: true }); bad(400, problem, { findings: Array.isArray(f) ? f.filter(x => x.kind === 'stop') : [] }); }
-  if (!switches.isOn('videos', store.getWorkspace(wsId))) bad(503, switches.offText('videos', store.getWorkspace(wsId)));
   const job = queue.enqueue({ ws: wsId, kind: 'fix', opts: { videoId: v.id, edits, swaps, ...(Object.keys(picks).length ? { picks } : {}) }, by: me.account.id });
   for (let i = 0; i < n; i++) pickerUse.delete(`${wsId}:${v.id}:${i}`);   // a new fix starts its refreshes afresh
   return { job: jobView(job) };
@@ -297,7 +294,7 @@ route('POST', '/api/videos/:id/cover', 'ws', async ({ wsId, params, body }) => {
 /* ----- Approval records ----- */
 // Cells that start like a formula get a leading apostrophe, so spreadsheets show them as text.
 const csvCell = x => { let t = String(x ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-const recordRows = wsId => store.readAllVideos(wsId).filter(v => v.approval);   // every year, the archive too
+const recordRows = wsId => store.readVideos(wsId).filter(v => v.approval);
 route('GET', '/api/records.csv', 'ws', ({ res, wsId, ws }) => {
   const head = ['Video', 'Made', 'Approved', 'Approved by', 'Signed off by', 'Signed off', 'Checklist', 'Posted', 'Instagram link', 'Topic', 'Fact', 'Fact source', 'Fact confirmed', 'Script', 'Post text', 'File SHA-256'];
   const rows = recordRows(wsId).map(v => [v.id, v.createdAt, v.approval.at, v.approval.byName, v.signoff?.status === 'ok' ? v.signoff.byName : '', v.signoff?.status === 'ok' ? v.signoff.at : '', (v.approval.checklist || []).join(' | '), v.posted?.at || '', v.posted?.url || '', v.meta?.painPoint, v.meta?.insight, v.meta?.insightSource, v.meta?.insightConfirmedAt, (v.scenes || []).map(s => s.say || s.text).join(' / '), v.post, v.approval.sha256]);

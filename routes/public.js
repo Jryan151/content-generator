@@ -10,17 +10,15 @@ import * as auth from '../lib/auth.js';
 import * as alerts from '../lib/alerts.js';
 import * as ig from '../lib/instagram.js';
 import * as fb from '../lib/facebook.js';
-import * as mail from '../lib/email.js';
 import * as twofa from '../lib/twofa.js';
 import * as audit from '../lib/audit.js';
 import * as monitor from '../lib/monitor.js';
-import * as switches from '../lib/switches.js';
 import * as roles from '../lib/roles.js';
 import * as signoff from '../lib/signoff.js';
 import { PRODUCT_LINES } from '../mixer-core.js';
 
 export default function mount(ctx) {
-const { isStarting, APPROVAL_NOTE, CHECKLIST, REJECT_REASONS, SECURE, TERMS_TEXT, VERSION, api, bad, baseUrl, clientIp, clip, emailLimit, ipLimit, linkError, mailLink, needsTerms, newTicket, noticesFor, nowIso, orphanInvite, route, send, startSession, supportEmail, terms, termsStamp, tickets, twofaLimit, validTz, who, wsSummary } = ctx;
+const { isStarting, APPROVAL_NOTE, CHECKLIST, REJECT_REASONS, SECURE, TERMS_TEXT, VERSION, api, bad, baseUrl, clientIp, clip, emailLimit, ipLimit, linkError, needsTerms, newTicket, noticesFor, nowIso, orphanInvite, route, send, startSession, supportEmail, terms, termsStamp, tickets, twofaLimit, validTz, who, wsSummary } = ctx;
 // For an uptime checker: 200 when all is well, 503 when something needs you (disk, backups, a stuck
 // video). Point UptimeRobot or Better Stack at https://yourdomain.com/api/health. Numbers and the
 // version only with ?token=HEALTH_TOKEN, so strangers learn nothing useful.
@@ -34,7 +32,7 @@ route('GET', '/api/health', 'public', ({ res, url }) => {
 
 route('GET', '/api/me', 'public', ({ me }) => {
   const t = terms();
-  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), instagram: ig.igOn(), facebook: fb.fbOn(), email: mail.emailOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, products: PRODUCT_LINES, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
+  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), instagram: ig.igOn(), facebook: fb.fbOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, products: PRODUCT_LINES, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
   if (!me) return { ...base, account: null };
   const admin = me.account.role === 'admin', ws = me.wsId ? store.getWorkspace(me.wsId) : null;
   // What this person can do here, which portal they see, and the other workspaces they belong to.
@@ -81,24 +79,6 @@ route('POST', '/api/login/2fa', 'public', ({ req, res, body }) => {
   startSession(req, res, store.getAccount(acc.id), how === 'backup' ? 'password + backup code' : 'password + app code');
   const left = store.getAccount(acc.id).twofa?.backup?.length || 0;
   return { ok: true, usedBackup: how === 'backup', backupLeft: left };
-});
-
-// Forgot password: emails a reset link when email is set up. Same answer whether or not the
-// address has an account, so it can't be used to find out who's signed up.
-route('POST', '/api/password/forgot', 'public', async ({ req, body }) => {
-  if (!mail.emailOn()) bad(400, 'Ask your admin for a reset link.');
-  const ip = clientIp(req), email = store.normEmail(body.email);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) bad(400, 'Enter your email address.');
-  if (ipLimit.blocked(ip) || emailLimit.blocked(email)) bad(429, 'Too many tries. Wait 15 minutes and try again.');
-  ipLimit.fail(ip); emailLimit.fail(email);
-  const acc = store.findAccountByEmail(email);
-  if (acc && !acc.disabled) {
-    audit.record({ action: 'password.forgot', who: acc, ws: acc.workspaceId || '', ip });
-    const link = `${baseUrl(req)}/#/reset/${auth.createLink('reset', { accountId: acc.id }, 'self')}`;
-    const r = await mailLink(acc.email, mail.resetEmail({ link, days: 7 }));
-    if (r.emailError) console.error('[email] reset:', r.emailError);
-  }
-  return { ok: true };
 });
 
 route('POST', '/api/logout', 'public', ({ res, me }) => {

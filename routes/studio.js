@@ -11,7 +11,6 @@ import * as store from '../lib/store.js';
 import * as allowance from '../lib/allowance.js';
 import * as usage from '../lib/usage.js';
 import * as queue from '../lib/queue.js';
-import * as switches from '../lib/switches.js';
 import * as insights from '../lib/insights.js';
 import * as library from '../lib/library.js';
 import * as studio from '../lib/studio.js';
@@ -28,7 +27,6 @@ const { BASE_HEADERS, MAX_PER_REQUEST, TESTS_PER_DAY, api, autoPlanState, bad, c
 // script; only rendering uses one of the month's videos.
 function studioGate(wsId, ws) {
   if (!ws.onboarded) bad(409, 'Finish setup first.');
-  if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
   const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
@@ -203,7 +201,6 @@ route('POST', '/api/studio/:id/render', 'ws', ({ wsId, ws, params, me }) => {
   // A new version costs a render like any video: up to MAX_VERSIONS of one video (fixes have their own limit).
   if (replace && (prev.versions?.length || 1) >= MAX_VERSIONS) bad(409, `This video already has ${MAX_VERSIONS} versions. The agent can approve or reject it; for something new, start a new draft.`);
   if (replace && fixing(wsId, replace)) bad(409, 'This video is being fixed. Submit again when the new version is ready.');
-  if (!switches.isOn('videos', ws)) bad(503, switches.offText('videos', ws));
   let job;
   const spelling = spellFindings(cfg, d.scenes).map(f => f.text);
   try { job = queue.enqueue({ ws: wsId, kind: 'studio', opts: { draftId: d.id, brief: d.brief, scenes: applyAutoFixes(d.scenes, check.findings), ...(spelling.length ? { notes: spelling } : {}), ...(replace ? { replace } : {}) }, by: me.account.id, source: 'studio' }); } catch (e) { bad(429, e.message); }
