@@ -5,7 +5,7 @@
 //     taps "Save for offline" in Review, the videos waiting for review (and the lists they need) are
 //     kept too. Nothing personal is cached unless they asked; logging out clears it.
 const SHELL = 'shell-v1', MEDIA = 'media-v1', DATA = 'offline-v1', PRELOAD = 'preload-v1';
-const SHELL_PATHS = ['/', '/index.html', '/app.js', '/screens/account.js', '/screens/admin.js', '/screens/billing.js', '/screens/brand.js', '/screens/coach.js', '/screens/communicate.js', '/screens/content.js', '/screens/create.js', '/screens/mindset.js', '/screens/review.js', '/screens/settings.js', '/screens/signoff.js', '/screens/replies.js', '/screens/grow.js', '/screens/guide.js', '/screens/steps.js', '/screens/setup.js', '/screens/studio.js', '/screens/team.js', '/mixer-core.js', '/comms-core.js', '/mindset-core.js', '/niches/index.js', '/niches/life-insurance.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'];
+const SHELL_PATHS = ['/', '/index.html', '/app.js', '/screens/account.js', '/screens/admin.js', '/screens/brand.js', '/screens/coach.js', '/screens/communicate.js', '/screens/content.js', '/screens/create.js', '/screens/mindset.js', '/screens/review.js', '/screens/settings.js', '/screens/signoff.js', '/screens/replies.js', '/screens/grow.js', '/screens/guide.js', '/screens/steps.js', '/screens/setup.js', '/screens/studio.js', '/screens/team.js', '/mixer-core.js', '/comms-core.js', '/mindset-core.js', '/niches/index.js', '/niches/life-insurance.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'];
 const DATA_PATHS = ['/api/me', '/api/videos', '/api/config'];
 
 self.addEventListener('install', () => self.skipWaiting());

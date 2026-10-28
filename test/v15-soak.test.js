@@ -75,7 +75,7 @@ const time = async fn => { const t = process.hrtime.bigint(); const out = await 
 const report = [];
 // Budgets in milliseconds: agent screens don't depend on how many agents there are; admin screens and
 // nightly jobs get time per agent.
-const AGENT_SCREEN = 1000, PER_AGENT = { overview: 100, managed: 100, engine: 60 }, NIGHTLY_PER_AGENT = 400;
+const AGENT_SCREEN = 1000, PER_AGENT = { overview: 100, engine: 60 }, NIGHTLY_PER_AGENT = 400;
 
 test('every agent screen opens within its budget with five years of data', { timeout: 300000 }, async () => {
   const c = client(port);
@@ -92,7 +92,7 @@ test('every agent screen opens within its budget with five years of data', { tim
 test('admin screens stay within their budgets across every agent', { timeout: 300000 }, async () => {
   const c = client(port);
   assert.equal((await c.post('/api/login', { email: 'soakadmin@example.com', password: 'soakpass1234' })).status, 200);
-  for (const [p, k] of [['/api/admin/overview', 'overview'], ['/api/admin/managed', 'managed'], ['/api/admin/engine', 'engine']]) {
+  for (const [p, k] of [['/api/admin/overview', 'overview'], ['/api/admin/engine', 'engine']]) {
     await c.get(p);
     const budget = 1000 + PER_AGENT[k] * AGENTS;
     const { ms, out } = await time(() => c.get(p));

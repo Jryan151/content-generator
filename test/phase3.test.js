@@ -138,64 +138,6 @@ test('insights: posted videos get views, reach and more from Instagram daily; me
 });
 
 /* ---------------- 13. Yearly plans and referral credits ---------------- */
-test('billing: yearly prices at checkout, and a referred agent’s first payment credits the referrer once', async () => {
-  const crypto = await import('crypto');
-  const subs = {};
-  const stripe = await fake({
-    'GET /v1/prices/price_m': () => [200, { id: 'price_m', unit_amount: 15000, currency: 'usd', recurring: { interval: 'month' } }],
-    'GET /v1/prices/price_y': () => [200, { id: 'price_y', unit_amount: 150000, currency: 'usd', recurring: { interval: 'year' } }],
-    'POST /v1/checkout/sessions': () => [200, { url: 'https://checkout.stripe.test/s' }],
-    'POST /v1/customers/:id/balance_transactions': () => [200, { id: 'cbtxn_1' }],
-    'GET /v1/subscriptions/:id': u => [200, subs[u.pathname.split('/').pop()]],
-  });
-  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test', STRIPE_WEBHOOK_SECRET: 'whsec_ref', STRIPE_API_BASE: stripe.base + '/v1', STRIPE_PRICE_STARTER: 'price_m', STRIPE_PRICE_STARTER_YEARLY: 'price_y', PLAN_STARTER_NAME: 'Solo' });
-  try {
-    const billing = await import('../lib/billing.js');
-    const { c, ws } = await agent('referrer@example.com', { comped: false });
-    const b = (await c.get('/api/billing')).data;
-    const solo = b.plans.find(p => p.id === 'starter');
-    assert.deepEqual(solo.yearly, { amount: 150000, currency: 'usd', interval: 'year', saves: 30000 }, 'two months free');
-    assert.match(b.referral.code, /^[A-Z]{2,6}-[2-9A-HJ-NP-Z]{4}$/);
-    assert.match(b.referral.link, new RegExp(`/welcome\\?ref=${b.referral.code}#request$`));
-    await c.post('/api/billing/checkout', { plan: 'starter', interval: 'year' });
-    assert.match(decodeURIComponent(stripe.calls.at(-1).body), /line_items\[0\]\[price\]=price_y/);
-
-    // The referrer is on a paid yearly plan.
-    store.updateWorkspace(ws, { billing: { status: 'active', plan: 'starter', interval: 'year', customerId: 'cus_ref', subscriptionId: 'sub_ref' } });
-    // An access request with their code → invited → the new workspace is "referred".
-    const anon = client(port);
-    await anon.post('/api/access-request', { name: 'New Agent', email: 'newbie@example.com', consent: true, elapsed: 9000, ref: b.referral.code.toLowerCase() });
-    const access = await import('../lib/access.js');
-    assert.equal(access.listRequests().find(r => r.email === 'newbie@example.com').ref, b.referral.code);
-    store.createAccount({ email: 'boss-ref@example.com', role: 'admin', hash: await auth.hashPassword('bosspass1234') });
-    const boss = client(port);
-    await boss.post('/api/login', { email: 'boss-ref@example.com', password: 'bosspass1234' });
-    assert.equal((await boss.post('/api/admin/invite', { email: 'x@example.com', referralCode: 'NOPE-2222' })).status, 400, 'unknown codes are refused');
-    const inv = await boss.post('/api/admin/invite', { email: 'newbie@example.com', workspaceName: 'Newbie Agency', referralCode: b.referral.code });
-    assert.equal(store.getWorkspace(inv.data.workspaceId).referredBy, ws);
-    store.updateWorkspace(inv.data.workspaceId, { billing: { customerId: 'cus_new' } });
-
-    const sign = ev => { const raw = JSON.stringify(ev), t = Math.floor(Date.now() / 1000); return [raw, `t=${t},v1=${crypto.createHmac('sha256', 'whsec_ref').update(`${t}.${raw}`).digest('hex')}`]; };
-    // A $0 trial invoice doesn't count; the first real payment does, once.
-    await billing.handleWebhook(...sign({ id: 'evt_0', type: 'invoice.paid', data: { object: { customer: 'cus_new', amount_paid: 0 } } }));
-    assert.equal(stripe.calls.filter(x => x.path.endsWith('/balance_transactions')).length, 0);
-    await billing.handleWebhook(...sign({ id: 'evt_1', type: 'invoice.paid', data: { object: { customer: 'cus_new', amount_paid: 15000 } } }));
-    await billing.handleWebhook(...sign({ id: 'evt_2', type: 'invoice.paid', data: { object: { customer: 'cus_new', amount_paid: 15000 } } }));
-    const credits = stripe.calls.filter(x => x.path.endsWith('/balance_transactions'));
-    assert.equal(credits.length, 1, 'credited once');
-    assert.equal(credits[0].path, '/v1/customers/cus_ref/balance_transactions');
-    assert.match(decodeURIComponent(credits[0].body), /amount=-12500/, 'a yearly plan’s month is a twelfth of the year');
-    assert.equal(credits[0].headers['idempotency-key'], `referral-credit-${inv.data.workspaceId}`, 'Stripe can never apply it twice');
-    assert.equal((await c.get('/api/billing')).data.referral.credits.length, 1);
-    // A referrer without a paid plan isn't credited, and you're told why.
-    const { c: c2, ws: ws2 } = await agent('comped-ref@example.com');
-    const code2 = billing.referralCode(ws2); void c2;
-    const inv2 = await boss.post('/api/admin/invite', { email: 'newbie2@example.com', referralCode: code2 });
-    store.updateWorkspace(inv2.data.workspaceId, { billing: { customerId: 'cus_new2' } });
-    await billing.handleWebhook(...sign({ id: 'evt_3', type: 'invoice.paid', data: { object: { customer: 'cus_new2', amount_paid: 15000 } } }));
-    assert.match(store.getWorkspace(inv2.data.workspaceId).referral.skipped, /no paid plan/);
-  } finally { ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_API_BASE', 'STRIPE_PRICE_STARTER', 'STRIPE_PRICE_STARTER_YEARLY', 'PLAN_STARTER_NAME'].forEach(k => delete process.env[k]); stripe.close(); }
-});
 
 /* ---------------- 14. The agent's own clips ---------------- */
 test('own clips: upload (re-encoded), describe, plan which scenes use them, mix with stock, delete', { skip: !hasFfmpeg() && 'needs ffmpeg' }, async () => {

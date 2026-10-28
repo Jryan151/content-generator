@@ -230,26 +230,6 @@ test('one-time keys: a double tap or a resend does the change once', async () =>
   assert.notEqual(o.replay, 'true');
 });
 
-test('a change sent to Stripe whose answer is lost is sent again with the same key', async () => {
-  breaker._reset();
-  const billing = await import('../lib/billing.js');
-  const keys = [];
-  let first = true;
-  const stripe = await listen(async (req, res) => {
-    for await (const _ of req);
-    keys.push(req.headers['idempotency-key']);
-    if (first) { first = false; req.socket.destroy(); return; }
-    json(res, 200, { url: 'https://billing.stripe.com/session/x' });
-  });
-  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test', STRIPE_API_BASE: `http://127.0.0.1:${stripe.address().port}/v1` });
-  try {
-    const url = await billing.portal({ billing: { customerId: 'cus_1' } }, 'https://app.example.com');
-    assert.equal(url, 'https://billing.stripe.com/session/x');
-    assert.equal(keys.length, 2);
-    assert.ok(keys[0] && keys[0] === keys[1], 'same key both times');
-  } finally { delete process.env.STRIPE_SECRET_KEY; delete process.env.STRIPE_API_BASE; stripe.close(); }
-});
-
 /* ---------------- Review fixes ---------------- */
 test('timeouts count as the service being down; an empty account or a bad setting doesn’t', () => {
   assert.equal(breaker.isServiceFailure(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })), true);

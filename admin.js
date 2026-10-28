@@ -1,9 +1,8 @@
 // admin.js — account tasks from the terminal.
 //   node admin.js create-admin you@example.com          first admin (prints a one-time password)
-//   node admin.js invite agent@example.com "Jane Doe Insurance" [--comp] [--ws <workspaceId>]
+//   node admin.js invite agent@example.com "Jane Doe Insurance" [--ws <workspaceId>]
 //   node admin.js reset someone@example.com             prints a password reset link
-//   node admin.js list                                  workspaces, members and plans
-//   node admin.js comp <workspaceId> on|off             no-charge workspace on or off
+//   node admin.js list                                  workspaces, members and this month's use
 //   node admin.js delete-workspace <workspaceId> --yes  remove a workspace, its videos and its logins
 //   node admin.js reset-2fa someone@example.com         turn off two-factor login (lost phone); they set it up again
 //   node admin.js backup-now                            back up data/ now (and upload it off-site, if set up)
@@ -27,7 +26,7 @@ import * as store from './lib/store.js';
 import { isMember, membershipsOf } from './lib/roles.js';
 import * as auth from './lib/auth.js';
 import { PUBLIC_URL, DIRS, removeTree } from './lib/paths.js';
-import { access } from './lib/billing.js';
+import { access } from './lib/allowance.js';
 import { monthUsage } from './lib/usage.js';
 import { record } from './lib/audit.js';
 import { backup, offsiteJobs } from './lib/scheduler.js';
@@ -52,12 +51,12 @@ switch (cmd) {
     break;
   }
   case 'invite': {
-    const ws = flag('--ws'), comp = flag('--comp');
-    const email = store.normEmail(args[0] || die('Usage: node admin.js invite agent@example.com "Workspace name" [--comp] [--ws <id>]'));
+    const ws = flag('--ws');
+    const email = store.normEmail(args[0] || die('Usage: node admin.js invite agent@example.com "Workspace name" [--ws <id>]'));
     if (store.findAccountByEmail(email)) die('That email already has an account.');
     let workspaceId = ws;
     if (workspaceId && !store.getWorkspace(workspaceId)) die('No workspace with id ' + workspaceId);
-    if (!workspaceId) workspaceId = store.createWorkspace({ name: args[1] || email, comped: !!comp }).id;
+    if (!workspaceId) workspaceId = store.createWorkspace({ name: args[1] || email }).id;
     const token = auth.createLink('invite', { email, role: 'agent', workspaceId }, 'cli');
     record({ action: 'invite.created', who: 'cli', target: email, ws: workspaceId });
     console.log(`\nInvite for ${email} (workspace ${workspaceId}), valid 7 days:\n${base}/#/invite/${token}\n`);
@@ -74,18 +73,10 @@ switch (cmd) {
     accounts.filter(a => a.role === 'admin').forEach(a => console.log(`admin  ${a.email}${a.disabled ? ' (disabled)' : ''}`));
     for (const ws of store.listWorkspaces()) {
       const a = access(ws), u = monthUsage(ws.id);
-      console.log(`\n${ws.id}  ${ws.name}${ws.comped ? '  [comped]' : ''}${ws.suspended ? '  [paused]' : ''}${ws.onboarded ? '' : '  [setup not finished]'}`);
-      console.log(`  plan: ${a.plan || ws.billing?.status || 'none'} · this month: ${u.videos}/${a.limit || 0} videos · AI cost ~$${u.cost.toFixed(2)}`);
+      console.log(`\n${ws.id}  ${ws.name}${ws.suspended ? '  [paused]' : ''}${ws.onboarded ? '' : '  [setup not finished]'}`);
+      console.log(`  this month: ${u.videos}/${a.limit || 0} videos · AI cost ~$${u.cost.toFixed(2)}`);
       accounts.filter(x => isMember(x, ws.id)).forEach(x => console.log(`  member: ${x.email}${x.disabled ? ' (disabled)' : ''}`));
     }
-    break;
-  }
-  case 'comp': {
-    const [id, onoff] = args;
-    if (!store.getWorkspace(id)) die('No workspace with id ' + id);
-    store.updateWorkspace(id, { comped: onoff !== 'off' });
-    record({ action: 'workspace.changed', who: 'cli', ws: id, detail: `comped: ${onoff !== 'off'}` });
-    console.log(`Workspace ${id} is ${onoff !== 'off' ? 'now comped (no charge)' : 'no longer comped'}.`);
     break;
   }
   case 'delete-workspace': {

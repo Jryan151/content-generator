@@ -198,7 +198,6 @@ function drawBrand() {
   // Done for you: the team runs the look and voice; the agent connects their own accounts.
   if (!can('settings')) {
     main.innerHTML = `<div class="head"><h1>Brand</h1><p class="lede">Your Instagram and Facebook.</p></div>
-      <div class="note">Your team takes care of how your videos look and sound. ${can('requests') ? '<a href="#/team">Ask for a change</a>.' : ''}</div>
       ${can('connect') ? igPanel() + fbPanel() : ''}`;
     return;
   }

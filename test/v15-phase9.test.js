@@ -85,7 +85,6 @@ test('sign-off: invite a reviewer, turn it on, and nothing leaves until they sig
   const inv = await a.post('/api/people/invite', { email: 'rita@carrier.example', role: 'reviewer' });
   assert.equal(inv.status, 200, JSON.stringify(inv.data));
   assert.equal(inv.data.reviewers.invites[0].email, 'rita@carrier.example');
-  assert.equal(inv.data.seats.used, 0, 'a reviewer takes no assistant seat');
   const token = inv.data.link.split('/invite/')[1], pub = client(port);
   assert.equal((await pub.post('/api/link/check', { kind: 'invite', token })).data.role, 'reviewer');
   assert.equal((await pub.post('/api/link/accept', { kind: 'invite', token, name: 'Rita Review', password: 'ritapass12345' })).status, 200);
@@ -170,39 +169,30 @@ const signed = body => { const raw = JSON.stringify(body); return { raw, sig: `s
 const igHook = (body, sig) => fetch(`http://127.0.0.1:${port}/hooks/instagram`, { method: 'POST', headers: { 'content-type': 'application/json', ...(sig ? { 'x-hub-signature-256': sig } : {}) }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 const until = async (fn, ms = 3000) => { const end = Date.now() + ms; for (;;) { const v = fn(); if (v || Date.now() > end) return v; await new Promise(r => setTimeout(r, 30)); } };
 
-test('keyword replies: the wording is checked, the agent approves an assistant’s draft, and it can be tried first', async () => {
+test('keyword replies: the wording is checked, the agent’s own are approved as written, and it can be tried first', async () => {
   const w = mkWs('Replies rules');
   store.createAccount({ email: 'rr@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('rrpass123456') });
-  const asst = store.createAccount({ email: 'rra@example.com', name: 'Sam Helper', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('rrapass12345') });
-  store.setMembership(asst.id, w.id, { role: 'assistant' });
-  store.updateWorkspace(w.id, { limits: { assistantSeats: 1 } });
-  const a = await login('rr@example.com', 'rrpass123456'), s = await login('rra@example.com', 'rrapass12345');
+  const a = await login('rr@example.com', 'rrpass123456');
   for (const [text, why] of [['Plans start at $9 a month!', /prices/], ['You will be approved, guaranteed.', /promises/], ['See https://example.com/x', /\{link\}/], ['Medicare can help.', /government/]]) {
     const r = await a.post('/api/replies/rules', { keyword: 'plan', where: 'both', text });
     assert.equal(r.status, 400, text); assert.match(r.data.error, why, text);
   }
   assert.equal((await a.post('/api/replies/rules', { keyword: 'x', where: 'both', text: 'Hi' })).status, 400, 'a real word');
-  // The assistant's draft waits; it isn't used and can't turn replies on.
-  let r = await s.post('/api/replies/rules', { keyword: 'Plan!', where: 'comment', text: 'Hi {name}! Here’s the checklist: {link}' });
+  assert.equal((await a.post('/api/replies/on', { on: true })).status, 409, 'add one first');
+  // The agent's own wording is approved as written.
+  let r = await a.post('/api/replies/rules', { keyword: 'Plan!', where: 'comment', text: 'Hi {name}! Here’s the checklist: {link}' });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const rule = r.data.rules[0];
-  assert.deepEqual([rule.keyword, rule.status], ['PLAN', 'draft']);
-  assert.equal((await a.post('/api/replies/on', { on: true })).status, 409, 'approve one first');
-  assert.equal((await s.post(`/api/replies/rules/${rule.id}/approve`, {})).status, 403, 'only the agent approves');
-  assert.equal(replies.match(w.id, 'PLAN please', 'comment'), null, 'a draft isn’t used');
-  r = await a.post(`/api/replies/rules/${rule.id}/approve`, {});
-  assert.equal(r.data.rules[0].status, 'approved'); assert.equal(r.data.rules[0].approvedByName, 'Dana Agent');
-  // Edited by the assistant: a draft again. The same keyword twice is refused.
-  r = await s.post('/api/replies/rules', { id: rule.id, keyword: 'PLAN', where: 'comment', text: 'Hi {name}! Here it is: {link}' });
-  assert.equal(r.data.rules[0].status, 'draft');
-  await a.post(`/api/replies/rules/${rule.id}/approve`, {});
+  assert.deepEqual([rule.keyword, rule.status], ['PLAN', 'approved']); assert.equal(rule.approvedByName, 'Dana Agent');
+  r = await a.post('/api/replies/rules', { id: rule.id, keyword: 'PLAN', where: 'comment', text: 'Hi {name}! Here it is: {link}' });
+  assert.equal(r.data.rules[0].status, 'approved');
+  // The same keyword twice is refused.
   assert.equal((await a.post('/api/replies/rules', { keyword: 'plan', where: 'dm', text: 'Hello' })).status, 409);
   // Tried first: which reply, filled in.
   const tr = (await a.post('/api/replies/try', { text: 'plan please!!', where: 'comment' })).data;
   assert.equal(tr.rule.keyword, 'PLAN'); assert.match(tr.text, /^Hi Maria! Here it is: http/);
   assert.equal((await a.post('/api/replies/try', { text: 'plan please', where: 'dm' })).data.rule, null, 'comments only');
   assert.equal((await a.post('/api/replies/try', { text: 'planning ahead', where: 'comment' })).data.rule, null, 'a whole word');
-  assert.equal((await s.del(`/api/replies/rules/${rule.id}`)).status, 404, 'an assistant can’t remove an approved one');
   assert.equal((await a.post('/api/replies/on', { on: true })).data.on, true);
   assert.equal(replies.fill('Hi {name}, more: {link}', {}), 'Hi there, more:');
 });

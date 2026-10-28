@@ -28,16 +28,6 @@ await c.post('/api/login', { email: 'tailor@example.com', password: 'tailorpass1
 const cfg = () => store.loadConfig(ws.id);
 const pain = () => M.usableRoutes(cfg()).pains[0];
 
-test('plan video limits match what’s sold: Starter 30, Pro 60 unless .env says otherwise', async () => {
-  const billing = await import('../lib/billing.js');
-  Object.assign(process.env, { STRIPE_PRICE_STARTER: 'price_s', STRIPE_PRICE_PRO: 'price_p' });
-  try {
-    assert.deepEqual(billing.planList().map(p => [p.id, p.videos]), [['starter', 30], ['pro', 60]]);
-    process.env.PLAN_PRO_VIDEOS = '45';
-    assert.equal(billing.planList().find(p => p.id === 'pro').videos, 45);
-  } finally { ['STRIPE_PRICE_STARTER', 'STRIPE_PRICE_PRO', 'PLAN_PRO_VIDEOS'].forEach(k => delete process.env[k]); }
-});
-
 test('the simple start: a tapped worry gets a format that fits and takes turns with recent drafts', () => {
   const brief = { painId: pain().id, scenes: 6 };
   const fits = Object.keys(M.FORMATS).filter(k => !M.FORMATS[k].needs && k !== 'local' && !M.studioPicks(cfg(), { ...brief, format: k }).problems.length);

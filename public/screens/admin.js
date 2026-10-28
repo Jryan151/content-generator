@@ -1,11 +1,11 @@
 // public/screens/admin.js — Admin.
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
-import { PRODUCT_NAMES, S, actions, ago, api, app, day, esc, main, outage, page, plural, render, status, toast, when } from '../app.js';
+import { S, actions, ago, api, app, day, esc, main, outage, page, plural, render, status, toast, when } from '../app.js';
 
 /* ================= Admin ================= */
 const SWITCH_LABELS = { videos: 'Making videos', overnight: 'Overnight videos and plans', autopost: 'Posting to Instagram and Facebook', coach: 'The coach and AI helpers', emails: 'Emails', push: 'Phone notifications' };
-async function viewAdmin() { S.admin = await api('/api/admin/overview'); drawAdmin(); loadSwitches(); loadEngine(); loadAudit(); loadAccess(); loadManaged(); loadRequests(); }
+async function viewAdmin() { S.admin = await api('/api/admin/overview'); drawAdmin(); loadSwitches(); loadEngine(); loadAudit(); }
 // The Engine bay: the line, outside services, processes, disk and backups, the targets, recent runs.
 async function loadEngine() { try { S.engine = await api('/api/admin/engine'); } catch { S.engine = null; } drawEngine(); }
 const LIGHT = { green: 'ok', yellow: 'warn', red: 'err', grey: '' };
@@ -58,52 +58,6 @@ function drawSwitches() {
     <p class="small" style="margin:0">${o.waiting ? `<b>${o.waiting}</b> waiting to send · ` : ''}${o.sent} sent this week${o.failed ? ` · <b>${o.failed}</b> refused` : ''}${o.expired ? ` · ${o.expired} gave up (too old)` : ''}${o.waiting ? ' <button class="btn sm ghost" data-act="outbox-drain">Send now</button>' : ''}</p>
     ${o.recent.length ? `<details><summary class="small">Recent messages</summary><div class="stack" style="gap:4px;margin-top:6px">${o.recent.map(m => `<span class="small"><span class="pill${m.status === 'sent' ? ' ok' : m.status === 'failed' || m.status === 'expired' ? ' err' : ''}">${esc(m.status)}</span> ${esc(m.kind)} · ${esc(m.subject || '')}${m.to ? ` → ${esc(m.to)}` : ''} · <span class="muted">${esc(when(m.at))}${m.error ? ` · ${esc(m.error)}` : ''}</span></span>`).join('')}</div></details>` : ''}`;
 }
-// Change requests from done-for-you clients, oldest first: reply and mark done.
-async function loadRequests() { try { S.adminRequests = (await api('/api/admin/requests')).requests; } catch { S.adminRequests = null; } drawRequests(); }
-function drawRequests() {
-  const box = document.getElementById('requestsPanel'), R = S.adminRequests;
-  if (!box) return;
-  if (R === null) { box.hidden = false; box.innerHTML = '<h2>Change requests</h2><p class="small muted">Couldn’t load change requests. <button class="btn sm ghost" data-act="requests-retry">Try again</button></p>'; return; }
-  box.hidden = !R?.length;
-  if (!R?.length) return;
-  box.innerHTML = `<h2>Change requests <span class="badge">${R.length}</span></h2><div class="stack" style="gap:8px">${R.map(r => `<form class="box" data-form="request-done" data-ws="${esc(r.ws)}" data-id="${esc(r.id)}" style="gap:6px"><div class="row between"><b class="small">${esc(r.workspaceName)}</b><span class="small muted">${esc(r.byName)} · ${esc(ago(r.at))}</span></div>
-    <span class="small">${esc(r.text)}</span><div class="row"><input class="ctl sm" name="reply" maxlength="500" placeholder="What you did (they’ll see this)" style="flex:1 1 220px"><button class="btn sm primary">Mark done</button><button type="button" class="btn sm ghost" data-act="open-ws" data-id="${esc(r.ws)}">Open</button></div></form>`).join('')}</div>`;
-}
-// Done for you: all managed clients on one screen, needs-attention first, with batch actions.
-async function loadManaged() { try { S.managed = await api('/api/admin/managed'); } catch { S.managed = null; } drawManaged(); }
-function drawManaged() {
-  const box = document.getElementById('managedPanel'), M = S.managed;
-  if (!box) return;
-  if (!M?.rows?.length) { box.hidden = true; return; }
-  box.hidden = false;
-  const mins = m => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60 ? (m % 60) + 'm' : ''}`.trim() : `${m}m`);
-  const t = M.totals;
-  box.innerHTML = `<div class="row between"><h2>Done-for-you clients</h2><button class="btn sm primary" data-act="managed-make">Make 3 for everyone</button></div>
-    <p class="small muted" style="margin:0">${M.rows.length} client${M.rows.length === 1 ? '' : 's'} · ${t.pending} video${t.pending === 1 ? '' : 's'} waiting for their review · your time this month ${mins(t.minutes)}${t.perHour != null ? ` · about <b>$${t.perHour.toLocaleString()}</b> an hour after AI cost` : ''}</p>
-    <div class="stack" style="gap:8px">${M.rows.map(r => `<div class="box" style="gap:6px"><div class="row between"><b>${esc(r.name)}</b><span class="row">${r.attention.length ? r.attention.map(a => `<span class="pill warn">${esc(a)}</span>`).join('') : '<span class="pill ok">All good</span>'}</span></div>
-      <span class="small">${r.pending} to review · ${r.queue.waiting + r.queue.running} in line · ${r.used}/${r.limit} this month · ${r.approved30} approved, ${r.rejected30} rejected (30 days)${r.topRejection ? ` · top reason: ${esc(r.topRejection.reason)}` : ''} · facts: ${r.facts.confirmed} confirmed${r.facts.unconfirmed ? `, ${r.facts.unconfirmed} unconfirmed` : ''}${r.facts.stale ? `, ${r.facts.stale} due for review` : ''} · ${mins(r.minutes)}${r.perHour != null ? ` · $${r.perHour}/h` : ''}</span>
-      <div class="row"><button class="btn sm" data-act="open-ws" data-id="${r.id}">Open</button><button class="btn sm" data-act="managed-make" data-id="${r.id}">Make 3</button>${r.facts.unconfirmed + r.facts.stale ? `<button class="btn sm" data-act="managed-facts" data-id="${r.id}" data-name="${esc(r.name)}">Confirm facts (${r.facts.unconfirmed + r.facts.stale})</button>` : ''}</div>
-      <div data-mout="${r.id}"></div></div>`).join('')}</div>`;
-}
-async function loadAccess() {
-  try { S.access = (await api('/api/admin/access-requests')).requests; } catch { S.access = null; }
-  drawAccess();
-}
-function drawAccess() {
-  const box = document.getElementById('accessPanel');
-  if (!box) return;
-  if (S.access === null) { box.innerHTML = '<h2>Access requests</h2><p class="small muted">Couldn’t load access requests. <button class="btn sm ghost" data-act="access-retry">Try again</button></p>'; return; }
-  const list = S.access || [], fresh = list.filter(r => r.status === 'new'), done = list.filter(r => r.status !== 'new');
-  const item = r => `<div class="box" style="gap:6px"><div class="row between"><b>${esc(r.name)}</b><span class="small muted">${esc(when(r.at))}</span></div>
-    <span class="small"><a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.phone ? ' · ' + esc(r.phone) : ''}${r.business ? ' · ' + esc(r.business) : ''}${r.states ? ' · ' + esc(r.states) : ''}</span>
-    ${r.products?.length ? `<span class="small muted">${r.products.map(p => esc(PRODUCT_NAMES[p] || p)).join(', ')}</span>` : ''}
-    ${r.heard ? `<span class="small muted">Heard about us: ${esc(r.heard)}</span>` : ''}${r.ref ? `<span class="small"><span class="pill ok">Referred</span> code ${esc(r.ref)}</span>` : ''}${r.message ? `<span class="small">“${esc(r.message)}”</span>` : ''}
-    <div class="row">${r.status === 'new' ? `<button class="btn sm primary" data-act="access-invite" data-id="${r.id}">Invite</button><button class="btn sm ghost" data-act="access-status" data-id="${r.id}" data-v="dismissed">Dismiss</button>`
-      : `<span class="pill">${r.status === 'invited' ? 'Invited' : 'Dismissed'}</span><button class="btn sm ghost" data-act="access-status" data-id="${r.id}" data-v="new">Reopen</button>`}</div></div>`;
-  box.innerHTML = `<h2>Access requests${fresh.length ? `<span class="badge">${fresh.length}</span>` : ''}</h2>
-    ${fresh.length ? fresh.map(item).join('') : '<p class="empty">No new requests. People ask for access on your landing page at <a href="/welcome" target="_blank" rel="noopener">/welcome</a>.</p>'}
-    ${done.length ? `<details><summary class="small">Handled (${done.length})</summary><div class="stack" style="gap:8px;margin-top:8px">${done.slice(0, 50).map(item).join('')}</div></details>` : ''}`;
-}
 async function loadAudit() {
   const box = document.getElementById('auditPanel');
   if (!box) return;
@@ -128,32 +82,26 @@ function drawAudit() {
 function drawAdmin() {
   const A = S.admin, sys = A.system;
   const yes = ok => `<span class="pill ${ok ? 'ok' : 'err'}">${ok ? 'OK' : 'Missing'}</span>`;
-  const statusOf = w => w.suspended ? ['err', 'Paused'] : w.comped ? ['ok', 'Comped'] : w.access.allowed ? ['ok', w.billing.status || 'Included'] : ['warn', w.billing.status || 'No plan'];
-  const mins = m => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60 ? (m % 60) + 'm' : ''}`.trim() : `${m}m`);
+  const statusOf = w => (w.suspended ? ['err', 'Paused'] : ['ok', 'Active']);
   const al = A.alerts || [];
-  main.innerHTML = `<div class="head"><h1>Admin</h1><p class="lede">Agents, plans, alerts and the server.</p></div>
+  main.innerHTML = `<div class="head"><h1>Admin</h1><p class="lede">Workspaces, alerts and the server.</p></div>
     <section class="panel"><div class="row between"><h2>Alerts${A.unread ? `<span class="badge">${A.unread}</span>` : ''}</h2><div class="row">${A.unread ? '<button class="btn sm" data-act="alerts-read">Mark all read</button>' : ''}<button class="btn sm ghost" data-act="alerts-test">Send a test</button></div></div>
       ${al.length ? `<ul class="alerts">${al.slice(0, S.allAlerts ? 30 : 5).map(a => `<li class="al-${esc(a.level)}${a.readAt ? '' : ' unread'}"><div class="row between"><b class="small">${esc(a.title)}</b><span class="small muted">${esc(when(a.at))}</span></div><span class="small">${a.workspaceName ? `<b>${esc(a.workspaceName)}:</b> ` : ''}${esc(a.text)}</span>${a.did ? `<span class="small muted" style="display:block">Already done: ${esc(a.did)}</span>` : ''}${a.did || a.run ? `<span class="small" style="display:block">Left for you: ${a.run ? `<code class="mono" style="overflow-wrap:anywhere">${esc(a.run)}</code>` : 'nothing.'}</span>` : ''}</li>`).join('')}</ul>${al.length > 5 && !S.allAlerts ? `<button class="btn sm ghost" data-act="all-alerts">Show all ${al.length}</button>` : ''}`
-        : '<p class="empty">Nothing to report. Failed videos, failed payments, failed backups, low disk and Instagram problems show up here.</p>'}
+        : '<p class="empty">Nothing to report. Failed videos, failed backups, low disk and Instagram problems show up here.</p>'}
       <p class="small muted" style="margin:0">${sys.keys.alerts ? 'Alerts are also sent to your phone.' : 'To get alerts on your phone, set ALERT_WEBHOOK_URL in .env (a free ntfy.sh topic works). See SETUP.md.'}</p></section>
     <section class="panel" id="switchPanel"><h2>Switchboard</h2><p class="small muted"><span class="spin"></span> Loading…</p></section>
     <section class="panel"><div class="row between"><div class="head"><h2>Render rules</h2><p>Every check Studio, Fix a scene and automatic videos run: set style checks to block, warn or off, adjust the numbers and word lists, for everyone or one workspace. Compliance rules are locked.</p></div><a class="btn" href="#/rules">Open render rules</a></div></section>
     <section class="panel" id="enginePanel"><h2>Engine bay</h2><p class="small muted"><span class="spin"></span> Loading…</p></section>
-    <section class="panel" id="requestsPanel" hidden></section>
-    <section class="panel" id="managedPanel" hidden></section>
-    <section class="panel" id="accessPanel"><h2>Access requests</h2><p class="small muted"><span class="spin"></span> Loading access requests…</p></section>
     <section class="panel" id="auditPanel"><h2>Activity log</h2><p class="small muted"><span class="spin"></span> Loading the activity log…</p></section>
     <section class="panel"><h2>Invite</h2><form class="stack" data-form="invite">
       <div class="fields"><label class="field"><span>Email</span><input class="ctl" name="email" type="email" required></label>
         <label class="field"><span>Workspace</span><select class="ctl" name="workspaceId"><option value="">New workspace</option>${A.workspaces.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}<option value="__admin">No workspace (another admin)</option></select></label>
-        <label class="field"><span>New workspace name</span><input class="ctl" name="workspaceName" placeholder="e.g. Jane Smith Insurance"></label>
-        <label class="field"><span>Referral code (optional)</span><input class="ctl" name="referralCode" placeholder="e.g. JANE-7K2P" autocapitalize="characters"></label></div>
-      <label class="check"><input type="checkbox" name="comped"> <span>No charge (comped)</span></label>
+        <label class="field"><span>New workspace name</span><input class="ctl" name="workspaceName" placeholder="e.g. Jane Smith Insurance"></label></div>
       <div class="row"><button class="btn primary">Create invite link</button></div><div id="inviteOut"></div></form></section>
     <section class="stack"><h2>Workspaces</h2>${A.workspaces.map(w => { const [cls, label] = statusOf(w); return `<div class="panel" style="gap:12px">
-      <div class="row between"><div class="head"><h3>${esc(w.name)}</h3><span class="small muted mono">${w.id} · since ${esc(day(w.createdAt))}${w.lastActiveAt ? ' · active ' + esc(when(w.lastActiveAt)) : ''}</span></div><div class="row"><span class="pill ${cls}">${esc(label)}</span>${w.managed ? '<span class="pill ai">Done for you</span>' : ''}${w.onboarded ? '' : '<span class="pill warn">Setup not finished</span>'}${w.spend.over ? '<span class="pill err">AI cap reached</span>' : w.spend.warn ? `<span class="pill warn">AI ${w.spend.pct}%</span>` : ''}</div></div>
+      <div class="row between"><div class="head"><h3>${esc(w.name)}</h3><span class="small muted mono">${w.id} · since ${esc(day(w.createdAt))}${w.lastActiveAt ? ' · active ' + esc(when(w.lastActiveAt)) : ''}</span></div><div class="row"><span class="pill ${cls}">${esc(label)}</span>${w.onboarded ? '' : '<span class="pill warn">Setup not finished</span>'}${w.spend.over ? '<span class="pill err">AI cap reached</span>' : w.spend.warn ? `<span class="pill warn">AI ${w.spend.pct}%</span>` : ''}</div></div>
       <div class="stats"><div class="stat"><b>${w.used}/${w.access.limit || 0}</b><span>videos this month</span></div><div class="stat"><b>$${w.usage.cost.toFixed(2)}</b><span>AI cost this month${w.spend.cap ? ` of $${w.spend.cap.toFixed(2)} cap` : ', no cap'}</span></div><div class="stat"><b>${w.pending}</b><span>to review</span></div><div class="stat"><b>${w.posted}</b><span>posted</span></div><div class="stat"><b>${w.facts}</b><span>confirmed facts</span></div></div>
-      <div class="stack" style="gap:6px">${w.members.map(m => `<div class="row between small"><span>${esc(m.name || m.email)}${m.roleHere === 'assistant' ? ' <span class="pill">Assistant</span>' : ''} <span class="muted">${esc(m.email)}${m.lastLoginAt ? ' · last in ' + esc(when(m.lastLoginAt)) : ' · never logged in'}${m.disabled ? ' · disabled' : ''}${S.me.terms?.on ? (m.termsCurrent ? ` · terms v${esc(m.termsVersion)} accepted` : ' · terms not accepted yet') : ''} · 2FA ${m.twofa ? 'on' : 'off'}</span></span><span class="row">${m.twofa ? `<button class="btn sm ghost" data-act="reset-2fa" data-id="${m.id}" data-email="${esc(m.email)}">Reset 2FA</button>` : ''}<button class="btn sm ghost" data-act="reset-link" data-id="${m.id}">Reset link</button><button class="btn sm ghost${m.disabled ? '' : ' danger'}" data-act="disable" data-id="${m.id}" data-v="${m.disabled ? '0' : '1'}">${m.disabled ? 'Enable' : 'Disable'}</button></span></div>`).join('')}
+      <div class="stack" style="gap:6px">${w.members.map(m => `<div class="row between small"><span>${esc(m.name || m.email)}${m.roleHere === 'reviewer' ? ' <span class="pill">Reviewer</span>' : ''} <span class="muted">${esc(m.email)}${m.lastLoginAt ? ' · last in ' + esc(when(m.lastLoginAt)) : ' · never logged in'}${m.disabled ? ' · disabled' : ''}${S.me.terms?.on ? (m.termsCurrent ? ` · terms v${esc(m.termsVersion)} accepted` : ' · terms not accepted yet') : ''} · 2FA ${m.twofa ? 'on' : 'off'}</span></span><span class="row">${m.twofa ? `<button class="btn sm ghost" data-act="reset-2fa" data-id="${m.id}" data-email="${esc(m.email)}">Reset 2FA</button>` : ''}<button class="btn sm ghost" data-act="reset-link" data-id="${m.id}">Reset link</button><button class="btn sm ghost${m.disabled ? '' : ' danger'}" data-act="disable" data-id="${m.id}" data-v="${m.disabled ? '0' : '1'}">${m.disabled ? 'Enable' : 'Disable'}</button></span></div>`).join('')}
         ${w.instagram ? `<div class="small muted">Instagram: ${w.instagram === 'connected' ? 'connected' : '@' + esc(w.instagram)}</div>` : ''}
         ${w.facebook ? `<div class="small muted">Facebook: ${esc(w.facebook)}</div>` : ''}
         ${w.clicks ? `<div class="small muted">${plural(w.clicks, 'link visit')} this month</div>` : ''}
@@ -162,23 +110,15 @@ function drawAdmin() {
       ${w.deletionRequest ? `<div class="note warn"><b>Deletion requested</b> by ${esc(w.deletionRequest.byName)} (${esc(w.deletionRequest.email)}) on ${esc(day(w.deletionRequest.at))}.${w.deletionRequest.note ? ` “${esc(w.deletionRequest.note)}”` : ''}${w.liveSubscription ? ' <b>Their Stripe subscription is still active: cancel it in Stripe first.</b>' : ''}
         <div class="row" style="margin-top:8px"><button class="btn sm danger" data-act="ws-delete" data-id="${w.id}" data-name="${esc(w.name)}">Delete everything</button><button class="btn sm ghost" data-act="ws-keep" data-id="${w.id}">Decline</button></div></div>` : ''}
       <div class="row"><button class="btn sm${A.openWorkspace === w.id ? ' primary' : ''}" data-act="open-ws" data-id="${w.id}">${A.openWorkspace === w.id ? 'Open now' : 'Open'}</button>
-        <button class="btn sm" data-act="ws-set" data-id="${w.id}" data-k="comped" data-v="${w.comped ? '0' : '1'}">${w.comped ? 'Stop comp' : 'Comp'}</button>
         <button class="btn sm" data-act="ws-set" data-id="${w.id}" data-k="suspended" data-v="${w.suspended ? '0' : '1'}">${w.suspended ? 'Resume' : 'Pause'}</button>
         <button class="btn sm" data-act="ws-limit" data-id="${w.id}">Monthly limit${w.limits?.videosPerMonth ? ': ' + w.limits.videosPerMonth : ''}</button>
-        <button class="btn sm" data-act="ws-seats" data-id="${w.id}" data-v="${w.limits?.assistantSeats || 0}">Assistant seats you give: ${w.limits?.assistantSeats || 0}</button>
         <button class="btn sm" data-act="ws-cap" data-id="${w.id}" data-v="${w.spend.custom ? w.spend.cap : ''}">AI cap: ${w.spend.cap ? '$' + w.spend.cap.toFixed(2) : 'none'}${w.spend.custom ? '' : ' (default)'}</button>
-        <button class="btn sm" data-act="ws-set" data-id="${w.id}" data-k="managed" data-v="${w.managed && !w.managedByPlan ? '0' : '1'}" ${w.managedByPlan ? 'disabled title="On the done-for-you plan"' : ''}>${w.managed ? 'Not done for you' : 'Done for you'}</button></div>
-      ${w.managed ? `<div class="box"><div class="row between"><h3>Your time this month</h3><b class="mono">${mins(w.time.minutes)}</b></div>
-        ${w.price != null && w.time.minutes ? `<span class="small muted">About <b>$${Math.round((w.price - w.usage.cost) / (w.time.minutes / 60)).toLocaleString()}</b> an hour: their $${w.price} plan minus $${w.usage.cost.toFixed(2)} AI cost, over your time.</span>` : w.price == null ? '<span class="small muted">No paid plan on this workspace, so no hourly figure.</span>' : ''}
-        ${w.time.recent.map(t => `<div class="row between small"><span>${esc(day(t.at))} · ${mins(t.minutes)}${t.note ? ' · ' + esc(t.note) : ''}</span><button class="x" data-act="time-del" data-id="${w.id}" data-e="${t.id}" aria-label="Remove this entry">×</button></div>`).join('')}
-        <form class="row" data-form="time" data-id="${w.id}"><input class="ctl sm" name="minutes" type="number" min="1" max="600" inputmode="numeric" placeholder="Minutes" style="width:110px" required aria-label="Minutes"><input class="ctl sm" name="note" maxlength="120" placeholder="What you did (optional)" style="flex:1 1 160px;width:auto" aria-label="What you did"><button class="btn sm">Log time</button></form></div>` : ''}
       <div data-out="${w.id}"></div></div>`; }).join('') || '<p class="empty">No workspaces yet. Invite your first agent above.</p>'}</section>
     <section class="panel"><h2>Server</h2><table class="t"><tbody>
       <tr><td>Version</td><td class="mono">${esc(sys.version)}</td></tr>
       <tr><td>Site address</td><td class="mono">${esc(sys.publicUrl || 'PUBLIC_URL not set')}</td></tr>
       <tr><td>OpenAI key</td><td>${yes(sys.keys.openai)}</td></tr><tr><td>Pixabay key</td><td>${yes(sys.keys.pixabay)}</td></tr>
       <tr><td>FFmpeg</td><td>${yes(sys.ffmpeg)}</td></tr>
-      <tr><td>Stripe</td><td>${sys.keys.stripe ? `${yes(true)} <span class="small muted">webhook secret</span> ${yes(sys.keys.webhook)}<br><span class="small muted">${sys.lastWebhook ? 'Last event ' + esc(when(sys.lastWebhook)) : 'No events received yet'}</span>` : '<span class="pill">Off</span>'}</td></tr>
       <tr><td>Facebook posting</td><td>${sys.keys.facebook ? `${yes(sys.facebook.ready)}${sys.facebook.ready ? '' : ' <span class="small muted">needs an https PUBLIC_URL</span>'}<br><span class="small muted">Redirect URI for Facebook Login:</span><br><code class="mono small" style="overflow-wrap:anywhere">${esc(sys.facebook.redirect)}</code>` : '<span class="pill">Off</span> <span class="small muted">see SETUP.md</span>'}</td></tr>
       <tr><td>Instagram posting</td><td>${sys.keys.instagram ? `${yes(sys.instagram.ready)}${sys.instagram.ready ? '' : ' <span class="small muted">needs an https PUBLIC_URL</span>'}<br><span class="small muted">Redirect URI for your Meta app:</span><br><code class="mono small" style="overflow-wrap:anywhere">${esc(sys.instagram.redirect)}</code>` : '<span class="pill">Off</span> <span class="small muted">see SETUP.md</span>'}</td></tr>
       <tr><td>AI cost cap</td><td>${sys.aiCap ? `$${sys.aiCap.toFixed(2)} per workspace per month <span class="small muted">(AI_COST_CAP_USD; alert at 80%, paused at 100%)</span>` : '<span class="pill">Off</span> <span class="small muted">AI_COST_CAP_USD=0</span>'}</td></tr>
@@ -282,4 +222,4 @@ document.addEventListener('change', e => {
   if (t.dataset.rrVideo !== undefined) S.rr.tryOut.videoId = t.value;
 });
 
-export { drawAccess, drawAdmin, drawRules, loadAccess, loadAudit, loadEngine, loadManaged, loadRequests, loadSwitches, rulesActions, secs, viewAdmin, viewRules };
+export { drawAdmin, drawRules, loadAudit, loadEngine, loadSwitches, rulesActions, secs, viewAdmin, viewRules };

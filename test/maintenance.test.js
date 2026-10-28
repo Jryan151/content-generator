@@ -9,7 +9,6 @@ tempEnv();
 const auth = await import('../lib/auth.js');
 const store = await import('../lib/store.js');
 const { keepReady, cleanup, backup, KEEP } = await import('../lib/scheduler.js');
-const { verifySignature } = await import('../lib/billing.js');
 const { DIRS, readJSON, writeJSON } = await import('../lib/paths.js');
 const crypto = await import('crypto');
 
@@ -35,14 +34,6 @@ test('links are single use and expire', () => {
   list.at(-1).expiresAt = Date.now() - 1;
   writeJSON(file, (list));
   assert.equal(auth.peekLink(t2, 'reset'), null);
-});
-
-test('Stripe signatures: right secret, wrong secret, too old', () => {
-  const raw = '{"id":"evt"}', t = Math.floor(Date.now() / 1000);
-  const sig = s => crypto.createHmac('sha256', s).update(`${t}.${raw}`).digest('hex');
-  assert.equal(verifySignature(raw, `t=${t},v1=${sig('whsec_a')}`, 'whsec_a'), true);
-  assert.throws(() => verifySignature(raw, `t=${t},v1=${sig('whsec_b')}`, 'whsec_a'), /doesn’t match/);
-  assert.throws(() => verifySignature(raw, `t=${t - 1000},v1=${sig('whsec_a')}`, 'whsec_a'), /too old/);
 });
 
 test('overnight top-up runs once a night, in the agent’s time zone', () => {

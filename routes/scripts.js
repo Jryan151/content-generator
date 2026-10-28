@@ -6,7 +6,7 @@
 import crypto from 'crypto';
 import { PRODUCT_NAME } from '../lib/paths.js';
 import * as store from '../lib/store.js';
-import * as billing from '../lib/billing.js';
+import * as allowance from '../lib/allowance.js';
 import * as usage from '../lib/usage.js';
 import * as switches from '../lib/switches.js';
 import * as studio from '../lib/studio.js';
@@ -19,7 +19,7 @@ const { TESTS_PER_DAY, api, bad, clip, coach, coachGate, content, draftCfg, draf
 /* ----- Scripts and jobs ----- */
 route('POST', '/api/script', 'ws', async ({ wsId, ws, body, me }) => {
   if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (usage.scriptsToday(wsId) >= TESTS_PER_DAY) bad(429, `That’s ${TESTS_PER_DAY} test scripts today. More tomorrow.`);
@@ -38,7 +38,7 @@ route('POST', '/api/script', 'ws', async ({ wsId, ws, body, me }) => {
 
 // See what the clip check sees: one footage search, scored. Counts as a test.
 route('POST', '/api/footage-test', 'ws', async ({ wsId, ws, body }) => {
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (usage.scriptsToday(wsId) >= TESTS_PER_DAY) bad(429, `That’s ${TESTS_PER_DAY} tests today. More tomorrow.`);
@@ -100,7 +100,7 @@ route('POST', '/api/comms/workshop', 'ws', async ({ wsId, ws, body, me }) => {
 const seeded = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 route('POST', '/api/coach/try', 'ws', async ({ wsId, ws, body, me }) => {
   if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (usage.scriptsToday(wsId) + 2 > TESTS_PER_DAY) bad(429, `Trying a change uses 2 of your ${TESTS_PER_DAY} test scripts a day, and there aren’t enough left today.`);

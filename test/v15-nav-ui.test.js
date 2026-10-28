@@ -34,8 +34,6 @@ test.before(async () => {
   store.updateWorkspace(ws.id, { onboarded: true, limits: { assistantSeats: 1 } });
   for (let i = 0; i < 2; i++) store.addVideo(ws.id, { id: 'tv' + i, status: 'pending', version: 1, file: `video_tv${i}.mp4`, createdAt: new Date().toISOString(), scenes: [{ text: `Video ${i} line`, keyword: 'family' }], meta: { painPoint: 'Funeral costs' }, post: 'p', preflight: [] });
   store.createAccount({ email: 'ten@example.com', name: 'Dana Agent', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('tenpass12345') });
-  const a = store.createAccount({ email: 'tena@example.com', name: 'Sam Helper', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('tenapass1234') });
-  store.setMembership(a.id, ws.id, { role: 'assistant' });
   const r = store.createAccount({ email: 'tenr@example.com', name: 'Rita Review', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('tenrpass1234') });
   store.setMembership(r.id, ws.id, { role: 'reviewer' });
   browser = await chromium.launch(exe ? { executablePath: exe } : {});
@@ -96,13 +94,13 @@ test('Setup’s six steps: each shows its panels, in order, with the way on; a c
     voice: ['Voice', 'Your voice', 'Rules', 'What the app remembers'],
     look: ['Captions and footage', 'Video', 'Saved versions'],
     autopilot: ['Keyword replies', 'Also running by itself'],
-    team: ['Assistants', 'Compliance reviewer'],
+    team: ['Compliance reviewer'],
   };
   for (const [step, want] of Object.entries(expect)) {
     await goto(page, `#/${step}`, '.steps');
     const h = await headings(page);
     for (const x of want) assert.ok(h.includes(x), `${step}: ${x} in ${JSON.stringify(h)}`);
-    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Library', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'Team' }[step]);
+    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Library', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'Reviewer' }[step]);
   }
   // Library leaves "Your voice" to Voice and rules.
   await goto(page, '#/library', '.steps');
@@ -163,13 +161,8 @@ test('the steps behave like their old pages: autolink, save redraws, one Never u
   await page.close();
 });
 
-test('an assistant lands on Review (no Setup); a reviewer on Sign-off', { skip, timeout: 120000 }, async () => {
-  let { page, errors } = await open('tena@example.com', 'tenapass1234');
-  await page.waitForFunction(() => location.hash === '#/review');
-  assert.deepEqual(await tabs(page), ['Review', 'Create', 'Grow']);
-  assert.deepEqual(errors, []);
-  await page.close();
-  ({ page, errors } = await open('tenr@example.com', 'tenrpass1234'));
+test('a reviewer lands on Sign-off', { skip, timeout: 120000 }, async () => {
+  const { page, errors } = await open('tenr@example.com', 'tenrpass1234');
   await page.waitForFunction(() => location.hash === '#/signoff');
   assert.deepEqual(await tabs(page), ['Sign-off']);
   assert.deepEqual(errors, []);

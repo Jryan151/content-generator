@@ -27,16 +27,16 @@ async function viewLink(kind, token) {
   try { info = await api('/api/link/check', { method: 'POST', body: { token, kind } }); }
   catch (e) { return authPage(`<div class="note err">${esc(e.message)}</div><a class="btn" href="#/login">Go to log in</a>`); }
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-  // Someone who already has a login accepts an assistant invite while logged in as that email.
+  // Someone who already has a login accepts a reviewer invite while logged in as that email.
   if (kind === 'invite' && info.existing) {
     const mine = S.me?.account && S.me.account.email === info.email, other = S.me?.account && !mine;
     if (!S.me?.account) { try { sessionStorage.setItem('joinToken', token); } catch { /* they can open the link again */ } }
-    return authPage(`<p class="lede">You’re invited to help in <b>${esc(info.workspace)}</b> as an assistant. You can prepare and fix their videos, draft replies and keep their follow-ups going. The agent approves every video.</p>
+    return authPage(`<p class="lede">You’re invited to <b>${esc(info.workspace)}</b> as their compliance reviewer. You’ll sign off each video they approve before it posts, or send it back with a note.</p>
       ${mine ? `<div class="row"><button class="btn primary big" data-act="join-accept" data-token="${esc(token)}">Join ${esc(info.workspace)}</button><a class="btn ghost" href="#/">Not now</a></div><p class="small muted">You’ll be asked to set up two-factor login if it isn’t on yet.</p>`
         : other ? `<p class="small">You’re logged in as <b>${esc(S.me.account.email)}</b>. This invite is for <b>${esc(info.email)}</b>: log out, then open the link again and log in with that email.</p><div class="row"><button class="btn primary" data-act="logout">Log out</button><a class="btn ghost" href="#/">Not now</a></div>`
         : `<p class="small">You already have a login with <b>${esc(info.email)}</b>. Log in with it to accept.</p><a class="btn primary" href="#/login">Log in</a>`}<div class="status" data-st></div>`);
   }
-  authPage(`<p class="lede">${kind === 'invite' ? `You’re invited${info.role === 'assistant' ? ' as an assistant' : ''}${info.workspace ? ` to <b>${esc(info.workspace)}</b>` : ''}. Set a password to get started.${info.role === 'assistant' ? ' Next you’ll set up two-factor login with an app on your phone.' : ''}` : 'Choose a new password.'}</p>
+  authPage(`<p class="lede">${kind === 'invite' ? `You’re invited${info.role === 'reviewer' ? ' as a compliance reviewer' : ''}${info.workspace ? ` to <b>${esc(info.workspace)}</b>` : ''}. Set a password to get started.${info.role === 'reviewer' ? ' Next you’ll set up two-factor login with an app on your phone.' : ''}` : 'Choose a new password.'}</p>
     <form class="stack" data-form="link" data-kind="${kind}" data-token="${esc(token)}" data-tz="${esc(tz)}">
       <label class="field"><span>Email</span><input class="ctl" value="${esc(info.email)}" autocomplete="username" readonly></label>
       ${kind === 'invite' ? '<label class="field"><span>Your name</span><input class="ctl" name="name" autocomplete="name" required maxlength="80"></label>' : ''}

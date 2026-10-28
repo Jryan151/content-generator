@@ -8,7 +8,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { DIRS } from '../lib/paths.js';
 import * as store from '../lib/store.js';
-import * as billing from '../lib/billing.js';
+import * as allowance from '../lib/allowance.js';
 import * as usage from '../lib/usage.js';
 import * as queue from '../lib/queue.js';
 import * as switches from '../lib/switches.js';
@@ -29,7 +29,7 @@ const { BASE_HEADERS, MAX_PER_REQUEST, TESTS_PER_DAY, api, autoPlanState, bad, c
 function studioGate(wsId, ws) {
   if (!ws.onboarded) bad(409, 'Finish setup first.');
   if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (usage.scriptsToday(wsId) >= TESTS_PER_DAY) bad(429, `That’s ${TESTS_PER_DAY} test scripts and Studio helpers today. More tomorrow.`);
@@ -193,7 +193,7 @@ route('POST', '/api/studio/:id/render', 'ws', ({ wsId, ws, params, me }) => {
   // one-tap fixes; notes go along with the video, onto its review card and compliance receipt.
   const check = studioChecks(d.scenes, draftCfg(cfg, d), picks);
   if (!check.ok) bad(400, 'Fix these first: ' + check.problems.join(' '), { problems: check.problems, findings: check.findings });
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   // Submitted before and still in review: this is its next version (like a fix, it isn't a new video).

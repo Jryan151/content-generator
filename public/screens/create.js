@@ -56,7 +56,7 @@ function drawCreate() {
   const can = a.allowed && left > 0 && !why && !sp.over;
   main.innerHTML = `<div class="head"><h1>Create</h1><p class="lede">Videos are made one at a time in the background, about two minutes each. You can close this page.</p></div>
     ${keysPanel(o, cfg, can)}
-    ${!a.allowed ? `<div class="note err">${esc(a.reason)} ${S.me.billing ? '<a href="#/billing">Go to Billing</a>' : ''}</div>` : a.warning ? `<div class="note warn">${esc(a.warning)} <a href="#/billing">Billing</a></div>` : ''}
+    ${!a.allowed ? `<div class="note err">${esc(a.reason)}</div>` : a.warning ? `<div class="note warn">${esc(a.warning)} <a href="#/billing">Billing</a></div>` : ''}
     ${why ? `<div class="note warn">${esc(why.msg)} <a href="#/content" data-act="goto-tab" data-v="${why.tab}">Fix it in Setup → Library</a></div>` : ''}
     ${spendNote(sp)}
     <section class="panel"><div class="row between"><h2>This month</h2><span class="mono small">${a.allowed ? `${ws.used} of ${ws.limit} videos` : 'No plan yet'}</span></div>

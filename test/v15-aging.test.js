@@ -187,24 +187,6 @@ test('the expiry calendar: Node, Meta’s API, cards, connections and the certif
   assert.ok(alerts.listAlerts().some(a => /HTTPS certificate .* runs out in 6 days/.test(a.title) && a.level === 'error'), 'the 7-day one');
 });
 
-test('a card’s expiry comes from Stripe (on payment, and daily for cards ending soon)', async () => {
-  const billing = await import('../lib/billing.js');
-  const stripe = await listen(async (req, res) => {
-    for await (const _ of req);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ id: 'cus_1', invoice_settings: { default_payment_method: { card: { brand: 'mastercard', last4: '5555', exp_month: 3, exp_year: 2029 } } } }));
-  });
-  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test', STRIPE_API_BASE: `http://127.0.0.1:${stripe.address().port}/v1` });
-  try {
-    store.updateWorkspace(ws.id, w => ({ billing: { ...(w.billing || {}), customerId: 'cus_1', status: 'active', card: null } }));
-    const card = await billing.refreshCard(ws.id);
-    assert.deepEqual({ brand: card.brand, last4: card.last4, exp: card.exp }, { brand: 'mastercard', last4: '5555', exp: '2029-03' });
-    assert.equal(store.getWorkspace(ws.id).billing.card.last4, '5555');
-    assert.equal(billing.cardEnds('2029-03'), '2029-03-31');
-    assert.equal(await billing.refreshCards(), 0, 'a card far from its end isn’t asked about again');
-  } finally { delete process.env.STRIPE_SECRET_KEY; delete process.env.STRIPE_API_BASE; stripe.close(); }
-});
-
 /* ---------------- Numbered data changes ---------------- */
 test('numbered data changes run once, in order, recorded per workspace; a failing one stops the rest and shows in health', async () => {
   const changes = await import('../lib/changes.js');

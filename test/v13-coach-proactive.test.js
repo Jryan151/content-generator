@@ -168,22 +168,6 @@ test('Monday auto-plan: writes the check-in and makes its videos, once, unless s
   assert.equal((await S.proactiveJobs(new Date('2026-10-20T15:00:00Z'), () => {})).plans.some(p => p.ws === tuesday.id), false);
 });
 
-test('running low: a done-for-you client gets videos made and you get a note', async () => {
-  const ws = await workspace('Managed low', { schedule: { autopost: { on: true, time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] } } }, { managed: true });
-  const before = alerts.listAlerts().length;
-  const r = await S.proactiveJobs(new Date('2026-10-21T16:00:00Z'), () => {});
-  const mine = r.refills.find(x => x.ws === ws.id);
-  assert.ok(mine && mine.queued >= 1, JSON.stringify(r.refills));
-  assert.ok(queue.listJobs(ws.id).some(j => j.source === 'refill'));
-  assert.ok(alerts.listAlerts().length > before);
-  // Once a day.
-  assert.equal((await S.proactiveJobs(new Date('2026-10-21T17:00:00Z'), () => {})).refills.some(x => x.ws === ws.id), false);
-  // An agent running their own workspace isn't given videos; they see a note in Review instead.
-  const solo = await workspace('Solo low', { schedule: { autopost: { on: true, time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] } } });
-  await S.proactiveJobs(new Date('2026-10-22T16:00:00Z'), () => {});
-  assert.equal(queue.listJobs(solo.id).length, 0);
-});
-
 test('the portal gets what’s next, the plan state, running low and the skip button', async () => {
   const ws = await workspace('Portal', { schedule: { autoPlan: true, autopost: { on: true, time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] } } });
   store.createAccount({ email: 'next@example.com', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('nextpass1234') });

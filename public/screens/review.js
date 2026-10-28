@@ -100,7 +100,7 @@ function drawReview() {
   const by = s => vids.filter(v => v.status === s);
   const pending = by('pending'), approved = by('approved'), posted = by('posted'), rejected = by('rejected');
   if (S.focus) { if (pending.length) return drawFocus(pending); S.focus = null; toast('All caught up'); }
-  main.innerHTML = `<div class="head"><h1>Review</h1><p class="lede">${S.me.workspace?.managed ? 'Your videos are written and tuned for you. Watch each one with sound and approve the ones you’re happy to post.' : 'Watch each video and check it. Approved videos can be downloaded and posted.'}</p></div>
+  main.innerHTML = `<div class="head"><h1>Review</h1><p class="lede">Watch each video and check it. Approved videos can be downloaded and posted.</p></div>
     ${S.me.workspace?.spend?.over ? spendNote(S.me.workspace.spend) : ''}
     ${!vids.length ? `<section class="panel"><h2>${S.making ? 'Your first video is on its way' : 'Your videos will show up here'}</h2><p class="small" style="margin:0">${S.making ? 'It takes about two minutes. You can leave this page; it’ll be waiting here.' : 'Each video is written, checked against the rules and made in about two minutes. Then you watch it here and approve it before it goes anywhere.'}</p>${S.making ? '' : '<div class="row"><a class="btn primary" href="#/create">Make your first video</a></div>'}</section>` : `<section class="panel"><div class="stats">
       <div class="stat"><b>${pending.length}</b><span>to review</span></div>

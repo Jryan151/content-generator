@@ -1,7 +1,7 @@
 // public/screens/steps.js — Setup (v15 Phase 10): everything an agent sets once and tunes now and then,
 // as one guided path in the order a video is built: who you are (Profile), what you teach (Library),
 // how it sounds and what it never says (Voice and rules), how it looks (Look), what runs by itself
-// (Autopilot), and who helps (Team). Each step shows the same panels the Content, Brand and Settings
+// (Autopilot), and who signs off (Reviewer). Each step shows the same panels the Content, Brand and Settings
 // pages always had (those pages still open from older links), so every control works exactly as before.
 import { S, can, esc, loadCfg, main, roll } from '../app.js';
 import { captionsPanel, endCardPanel, fbPanel, igPanel, libraryPanel, loadLibrary, loadLogoColors, planPanel, socialReturn, voicePanel } from './brand.js';
@@ -17,7 +17,7 @@ const STEPS = [
   ['voice', 'Voice and rules', 'How you sound, your own words and stories, and what a video must always or never say.', () => can('settings')],
   ['look', 'Look', 'How a video looks and is built: captions, colors, footage, length and formats.', () => can('settings')],
   ['autopilot', 'Autopilot', 'What runs by itself: Instagram and its keyword replies, Facebook, and the posting plan.', () => can('settings') || can('connect')],
-  ['team', 'Team', 'Who helps: assistants and a compliance reviewer, or your done-for-you team.', () => can('people') || can('requests')],
+  ['team', 'Reviewer', 'A compliance reviewer who signs off each video before it posts, if your carrier asks for one.', () => can('people')],
 ];
 const STEP_OF = Object.fromEntries(STEPS.map((x, i) => [x[0], i]));
 const stepsFor = () => STEPS.filter(x => x[3]());

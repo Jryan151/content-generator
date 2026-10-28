@@ -1,4 +1,4 @@
-// routes/public.js — Terms of service and privacy policy; The public landing page (/welcome): plans, links and "request access" (invite only).
+// routes/public.js — health, who's asking (/api/me), logins, two-factor, password resets and invite links.
 // Split out of server.js by area (v15). server.js mounts it, passing in the helpers these routes share
 // with the rest of the server; the capability each route needs is still listed in one place
 // (server.js ROUTE_CAPS). The code below is as it was in server.js (not re-indented, so its text and
@@ -7,23 +7,20 @@ import crypto from 'crypto';
 import { PRODUCT_NAME } from '../lib/paths.js';
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
-import * as billing from '../lib/billing.js';
 import * as alerts from '../lib/alerts.js';
 import * as ig from '../lib/instagram.js';
 import * as fb from '../lib/facebook.js';
 import * as mail from '../lib/email.js';
 import * as twofa from '../lib/twofa.js';
 import * as audit from '../lib/audit.js';
-import * as access from '../lib/access.js';
 import * as monitor from '../lib/monitor.js';
 import * as switches from '../lib/switches.js';
 import * as roles from '../lib/roles.js';
 import * as signoff from '../lib/signoff.js';
-import * as requests from '../lib/requests.js';
 import { PRODUCT_LINES } from '../mixer-core.js';
 
 export default function mount(ctx) {
-const { isStarting, APPROVAL_NOTE, CHECKLIST, REJECT_REASONS, SECURE, TERMS_TEXT, VERSION, api, bad, baseUrl, clientIp, clip, emailLimit, ipLimit, linkError, mailLink, needsTerms, newTicket, noticesFor, nowIso, orphanInvite, peopleRoom, route, send, startSession, supportEmail, terms, termsStamp, tickets, twofaLimit, validTz, who, wsSummary } = ctx;
+const { isStarting, APPROVAL_NOTE, CHECKLIST, REJECT_REASONS, SECURE, TERMS_TEXT, VERSION, api, bad, baseUrl, clientIp, clip, emailLimit, ipLimit, linkError, mailLink, needsTerms, newTicket, noticesFor, nowIso, orphanInvite, route, send, startSession, supportEmail, terms, termsStamp, tickets, twofaLimit, validTz, who, wsSummary } = ctx;
 // For an uptime checker: 200 when all is well, 503 when something needs you (disk, backups, a stuck
 // video). Point UptimeRobot or Better Stack at https://yourdomain.com/api/health. Numbers and the
 // version only with ?token=HEALTH_TOKEN, so strangers learn nothing useful.
@@ -35,42 +32,18 @@ route('GET', '/api/health', 'public', ({ res, url }) => {
   send(res, h.ok ? 200 : 503, { ok: h.ok, checks: h.checks, ...(isStarting() ? { starting: true } : {}), ...(full ? { version: VERSION, detail: h.detail } : {}) });
 });
 
-/* ----- The public landing page (/welcome): plans, links and "request access" (invite only) ----- */
-route('GET', '/api/public/info', 'public', async () => {
-  const t = terms();
-  const plans = billing.billingOn() ? (await billing.plansWithPrices().catch(() => [])).map(p => ({ name: p.name, videos: p.videos, about: p.about, amount: p.amount ?? null, currency: p.currency || 'usd', interval: p.interval || '' })) : [];
-  return { product: PRODUCT_NAME, plans, trialDays: billing.billingOn() ? billing.TRIAL_DAYS() : 0, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl, contact: supportEmail() };
-});
-// Bots: a hidden "website" field, or a form sent faster than a person could fill it, gets a normal
-// "thanks" and nothing is saved. People: 5 saved requests an hour per address.
-const accessLimit = auth.limiter({ max: 5, windowMs: 60 * 60000 });
-route('POST', '/api/access-request', 'public', async ({ req, body }) => {
-  const ip = clientIp(req);
-  if (accessLimit.blocked(ip)) bad(429, 'That’s a lot of requests. Try again in an hour.');
-  if (String(body.website || '').trim() || Number(body.elapsed) < 2500) return { ok: true };
-  let r;
-  try { r = access.addRequest(body, { ip }); } catch (e) { bad(e.status || 400, e.message); }
-  accessLimit.fail(ip);
-  if (r.fresh) {
-    audit.record({ action: 'access.requested', who: r.request.email, detail: r.request.business || r.request.name, ip });
-    const sent = await mailLink(r.request.email, mail.accessRequestEmail({ name: r.request.name }));
-    if (sent.emailError) console.error('[email] access request:', sent.emailError);
-  }
-  return { ok: true };
-});
-
 route('GET', '/api/me', 'public', ({ me }) => {
   const t = terms();
-  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), billing: billing.billingOn(), instagram: ig.igOn(), facebook: fb.fbOn(), email: mail.emailOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, products: PRODUCT_LINES, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
+  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), instagram: ig.igOn(), facebook: fb.fbOn(), email: mail.emailOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, products: PRODUCT_LINES, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
   if (!me) return { ...base, account: null };
-  const admin = me.account.role === 'admin', ws = me.wsId ? store.getWorkspace(me.wsId) : null, managed = billing.isManaged(ws);
+  const admin = me.account.role === 'admin', ws = me.wsId ? store.getWorkspace(me.wsId) : null;
   // What this person can do here, which portal they see, and the other workspaces they belong to.
-  const caps = roles.capsFor(me.account, ws, { managed });
+  const caps = roles.capsFor(me.account, ws);
   const workspaces = roles.membershipsOf(me.account).map(m => ({ id: m.ws, name: store.getWorkspace(m.ws)?.name || '', role: m.role, current: m.ws === me.wsId })).filter(x => x.name);
   return { ...base, account: store.publicAccount(me.account), termsRequired: needsTerms(me.account), twofaSetupRequired: twofa.needsSetup(me.account), workspace: me.wsId ? wsSummary(me.wsId, caps) : null, acting: admin && !!me.wsId, alerts: admin ? alerts.unreadCount() : 0,
-    caps, portal: roles.portalFor(me.account, ws, { managed }), role: admin ? 'admin' : roles.membership(me.account, me.wsId)?.role || '', workspaces, notices: noticesFor(ws, caps) };
+    caps, portal: roles.portalFor(me.account, ws), role: admin ? 'admin' : roles.membership(me.account, me.wsId)?.role || '', workspaces, notices: noticesFor(ws, caps) };
 });
-// Someone in more than one workspace (an assistant helping two agents) switches between them.
+// Someone in more than one workspace (a reviewer for two agents) switches between them.
 route('POST', '/api/workspaces/switch', 'user', ({ me, body }) => {
   const id = clip(body.workspaceId, 40);
   if (!roles.isMember(me.account, id) || !store.getWorkspace(id)) bad(404, 'You’re not in that workspace.');
@@ -139,8 +112,8 @@ route('POST', '/api/link/check', 'public', ({ body }) => {
   const t = auth.peekLink(body.token, kind);
   if (!t || orphanInvite(t)) bad(410, linkError);
   if (kind === 'reset') return { kind, email: store.getAccount(t.accountId)?.email || '' };
-  // An assistant invite for someone who already has a login is accepted after logging in (/api/link/join).
-  return { kind, email: t.email, role: ['assistant', 'reviewer'].includes(t.wsRole) ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: ['assistant', 'reviewer'].includes(t.wsRole) && !!store.findAccountByEmail(t.email) };
+  // A reviewer invite for someone who already has a login is accepted after logging in (/api/link/join).
+  return { kind, email: t.email, role: t.wsRole === 'reviewer' ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: t.wsRole === 'reviewer' && !!store.findAccountByEmail(t.email) };
 });
 
 route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
@@ -151,20 +124,17 @@ route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
   if (!t || orphanInvite(t)) bad(410, linkError);
   let acc;
   if (kind === 'invite') {
-    if (store.findAccountByEmail(t.email)) bad(409, ['assistant', 'reviewer'].includes(t.wsRole) ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
-    if (t.wsRole === 'assistant' && !peopleRoom(t.workspaceId, t.email)) bad(409, 'This workspace has no free assistant seat right now. Ask the agent to add one.');
+    if (store.findAccountByEmail(t.email)) bad(409, t.wsRole === 'reviewer' ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
     if (t.wsRole === 'reviewer' && signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
     const askTerms = t.role !== 'admin' && terms().on;
     if (askTerms && body.acceptTerms !== true) bad(400, TERMS_TEXT);
     const hash = await auth.hashPassword(body.password);
     if (!auth.useLink(body.token, kind)) bad(410, linkError);
-    if (t.role !== 'admin' && !['assistant', 'reviewer'].includes(t.wsRole) && t.workspaceId && body.timezone) {
+    if (t.role !== 'admin' && !t.wsRole === 'reviewer' && t.workspaceId && body.timezone) {
       const cfg = store.loadConfig(t.workspaceId);
       if (!cfg.look.name && !store.getWorkspace(t.workspaceId).onboarded) { cfg.profile.timezone = validTz(body.timezone); store.saveConfig(t.workspaceId, cfg); }
     }
     acc = store.createAccount({ email: t.email, name: clip(body.name, 80), role: t.role === 'admin' ? 'admin' : 'agent', workspaceId: t.role === 'admin' ? null : t.workspaceId, hash });
-    // An assistant joins as an assistant (the agent invited them from People).
-    if (t.wsRole === 'assistant') acc = store.setMembership(acc.id, t.workspaceId, { role: 'assistant', canPost: !!t.canPost, since: nowIso() });
     if (t.wsRole === 'reviewer') acc = store.setMembership(acc.id, t.workspaceId, { role: 'reviewer', since: nowIso() });
     if (askTerms) acc = store.updateAccount(acc.id, termsStamp());
   } else {

@@ -209,21 +209,6 @@ test('a job that fails for good reaches the failed hook once; quiet failures do 
   assert.deepEqual(seen, ['Render broke']);
 });
 
-test('done for you: mark a workspace managed and log time against it', async () => {
-  assert.equal((await admin.post(`/api/admin/workspaces/${ws.id}`, { managed: true })).status, 200);
-  const t1 = await admin.post(`/api/admin/workspaces/${ws.id}/time`, { minutes: 30, note: 'Wrote new worries' });
-  assert.equal(t1.data.minutes, 30);
-  await admin.post(`/api/admin/workspaces/${ws.id}/time`, { minutes: 45 });
-  assert.equal((await admin.post(`/api/admin/workspaces/${ws.id}/time`, { minutes: 0 })).status, 400);
-  const o = (await admin.get('/api/admin/overview')).data.workspaces.find(w => w.id === ws.id);
-  assert.equal(o.managed, true);
-  assert.equal(o.time.minutes, 75);
-  const del = await admin.del(`/api/admin/workspaces/${ws.id}/time/${o.time.recent[0].id}`);
-  assert.equal(del.data.minutes, 30);
-  assert.equal((await c.get('/api/me')).data.workspace.managed, true);
-  assert.equal((await c.post(`/api/admin/workspaces/${ws.id}/time`, { minutes: 5 })).status, 403, 'admins only');
-});
-
 /* ---------------- Instagram ---------------- */
 test('Instagram: connect, schedule an approved video, and it posts from a signed link', async () => {
   const info = await c.get('/api/instagram');

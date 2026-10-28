@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { DIRS, localTime } from '../lib/paths.js';
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
-import * as billing from '../lib/billing.js';
+import * as allowance from '../lib/allowance.js';
 import * as queue from '../lib/queue.js';
 import { KEEP } from '../lib/scheduler.js';
 import * as ig from '../lib/instagram.js';
@@ -204,7 +204,7 @@ route('POST', '/api/videos/:id/fix', 'ws', async ({ wsId, ws, params, body, me }
   const v = getV(wsId, params.id);
   if (!['pending', 'rejected'].includes(v.status)) bad(409, 'Send the video back to review before fixing it.');
   if (fixing(wsId, v.id)) bad(409, 'This video is already being fixed.');
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   const n = (v.scenes || []).length;

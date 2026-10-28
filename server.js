@@ -1,4 +1,4 @@
-// server.js — runs the product: logins, each agent's workspace, the job queue, billing and the portal.
+// server.js — runs the product: logins, each agent's workspace, the job queue and the portal.
 // Start:  pm2 start server.js --name generator      (nginx handles HTTPS in front of it)
 // Listens on 127.0.0.1 only.
 import http from 'http';
@@ -11,7 +11,7 @@ import { pathToFileURL } from 'url';
 import { ROOT, DIRS, PUBLIC_URL, PRODUCT_NAME, monthKey, storageEngine, localTime, onDamage } from './lib/paths.js';
 import * as store from './lib/store.js';
 import * as auth from './lib/auth.js';
-import * as billing from './lib/billing.js';
+import * as allowance from './lib/allowance.js';
 import * as usage from './lib/usage.js';
 import * as queue from './lib/queue.js';
 import { startScheduler, maintenanceState, saveMaintenance, KEEP, freeGB, diskGate, nightCapacity } from './lib/scheduler.js';
@@ -25,7 +25,6 @@ import * as mail from './lib/email.js';
 import * as data from './lib/data.js';
 import * as twofa from './lib/twofa.js';
 import * as audit from './lib/audit.js';
-import * as access from './lib/access.js';
 import * as offsite from './lib/offsite.js';
 import * as monitor from './lib/monitor.js';
 import * as ai from './lib/ai.js';
@@ -40,7 +39,6 @@ import * as library from './lib/library.js';
 import * as studio from './lib/studio.js';
 import * as memory from './lib/memory.js';
 import * as roles from './lib/roles.js';
-import * as requests from './lib/requests.js';
 import * as push from './lib/push.js';
 import * as signoff from './lib/signoff.js';
 import * as replies from './lib/replies.js';
@@ -69,7 +67,6 @@ import mount_studio from './routes/studio.js';
 import mount_videos from './routes/videos.js';
 import mount_brand from './routes/brand.js';
 import mount_social from './routes/social.js';
-import mount_billing from './routes/billing.js';
 import mount_admin from './routes/admin.js';
 import mount_people from './routes/people.js';
 import mount_signoff from './routes/signoff.js';
@@ -192,21 +189,19 @@ function touch(wsId) {
 
 /* ---------------- Workspace views ---------------- */
 const usedThisMonth = wsId => usage.monthUsage(wsId).videos + queue.waiting(wsId).filter(j => j.kind === 'video' || (j.kind === 'studio' && !j.opts?.replace)).length;
-// `caps`: what the viewer may do; billing details, deletion requests and data receipts are only for
-// people who handle those (the agent).
+// `caps`: what the viewer may do; deletion requests and data receipts are only for the agent.
 function wsSummary(wsId, caps = null) {
   const ws = store.getWorkspace(wsId);
   if (!ws) return null;
   const out = wsSummaryAll(ws, wsId);
   if (!caps) return out;
-  return { ...out, ...(caps.includes('billing') ? {} : { billing: { status: '', plan: '', periodEnd: '', cancelAtPeriodEnd: false } }), ...(caps.includes('data') ? {} : { deletionRequest: null, lastExport: null }) };
+  return { ...out, ...(caps.includes('data') ? {} : { deletionRequest: null, lastExport: null }) };
 }
 function wsSummaryAll(ws, wsId) {
-  const access = billing.access(ws);
+  const access = allowance.access(ws);
   return {
-    id: ws.id, name: ws.name, onboarded: ws.onboarded, comped: ws.comped, suspended: ws.suspended, managed: billing.isManaged(ws), logo: store.hasLogo(wsId),
+    id: ws.id, name: ws.name, onboarded: ws.onboarded, suspended: ws.suspended, logo: store.hasLogo(wsId),
     timezone: store.loadConfig(wsId).profile?.timezone || 'America/Denver',   // (v15: the portal writes times in the agent's zone)
-    billing: { status: ws.billing?.status || '', plan: ws.billing?.plan || '', periodEnd: ws.billing?.periodEnd || '', cancelAtPeriodEnd: !!ws.billing?.cancelAtPeriodEnd },
     access, used: usedThisMonth(wsId), limit: access.limit,
     pending: store.videoCounts(wsId).pending,
     deletionRequest: ws.deletionRequest ? { at: ws.deletionRequest.at, byName: ws.deletionRequest.byName } : null,
@@ -280,7 +275,7 @@ function stats(vids) {
 export function enqueueVideos(wsId, n, source = 'manual', by = '', force = {}) {
   const ws = store.getWorkspace(wsId);
   if (!switches.isOn('videos', ws)) bad(503, switches.offText('videos', ws));
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (!ws.onboarded) bad(409, 'Finish setup first.');
@@ -312,7 +307,7 @@ export async function notifyReady(job, result, { now = new Date() } = {}) {
 export async function runJob(job, log) {
   const ws = store.getWorkspace(job.ws);
   if (!ws) throw quiet('This workspace no longer exists.');
-  const a = billing.access(ws);
+  const a = allowance.access(ws);
   if (!a.allowed) throw quiet(a.reason);
   if (overCap(ws)) throw quiet(SPEND_TEXT);   // you were already alerted when the cap was reached
   const { makeVideo, fixVideo } = await import('./pipeline.js');
@@ -435,7 +430,6 @@ export function noticesFor(ws, caps = []) {
     }
   }
   if (caps.includes('coach') && !switches.isOn('coach', ws)) add('coach', switches.offText('coach', ws));
-  if (caps.includes('billing') && open.has('stripe')) add('stripe', 'Payments aren’t answering right now. Billing pages work again in a few minutes.');
   return out;
 }
 
@@ -444,8 +438,8 @@ export function noticesFor(ws, caps = []) {
 const coachLimit = auth.limiter({ max: Number(process.env.COACH_PER_DAY || 60), windowMs: 24 * 3600000 });
 function coachGate(wsId, ws) {
   if (!switches.isOn('coach', ws)) bad(503, switches.offText('coach', ws));
-  const a = billing.access(ws);
-  if (!a.allowed && !ws.comped) bad(402, a.reason);
+  const a = allowance.access(ws);
+  if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (coachLimit.blocked(wsId)) bad(429, 'That’s a lot of coaching for one day. The coach is back tomorrow.');
   coachLimit.fail(wsId);
@@ -484,31 +478,15 @@ const draftPicks = (wsId, cfg, d) => ({ ...studioPicks(cfg, d.brief), recent: st
 const draftCfg = (cfg, d) => ({ ...cfg, output: { ...cfg.output, scenes: d.scenes.length || studioPicks(cfg, d.brief).scenes } });
 /* ----- Videos ----- */
 const getV = (wsId, id) => store.getVideo(wsId, id) || bad(404, 'Video not found.');
-/* ----- People: assistant seats, invites, who can post ----- */
+/* ----- People: the compliance reviewer's invites ----- */
 // Pending invites, one per email (the newest), for people who aren't in the workspace yet.
-// (v15: the same for compliance reviewers, role 'reviewer'.)
-function pendingInvites(wsId, role = 'assistant') {
+function pendingInvites(wsId, role = 'reviewer') {
   const live = auth.listLinks().filter(t => t.kind === 'invite' && t.wsRole === role && t.workspaceId === wsId && !t.usedAt && t.expiresAt > Date.now())
     .filter(t => !roles.isMember(store.findAccountByEmail(t.email), wsId)).sort((a, b) => b.createdAt - a.createdAt);
   return live.filter((t, i) => live.findIndex(x => x.email === t.email) === i);
 }
-const pendingAssistantInvites = wsId => pendingInvites(wsId, 'assistant');
 // Room for one more reviewer (an invite already out for this email doesn't count twice)?
-const reviewerRoom = (wsId, email = '') => signoff.reviewersOf(wsId).length + pendingInvites(wsId, 'reviewer').filter(t => t.email !== store.normEmail(email)).length < signoff.MAX_REVIEWERS;
-// Assistants in order of joining: the first `seats` of them have a seat; any beyond that (seats were
-// lowered or the plan ended) are paused until there's a seat again.
-const assistantsIn = wsId => store.listAccounts().filter(a => !a.disabled && roles.membership(a, wsId)?.role === 'assistant')
-  .sort((a, b) => String(roles.membership(a, wsId).since || a.createdAt).localeCompare(String(roles.membership(b, wsId).since || b.createdAt)));
-export function hasSeat(account, wsId) {
-  const ws = store.getWorkspace(wsId), seats = billing.seatsFor(ws);
-  return assistantsIn(wsId).findIndex(a => a.id === account.id) < seats;
-}
-const seatsUsed = wsId => assistantsIn(wsId).length + pendingAssistantInvites(wsId).length;
-// Is there a seat for one more assistant (an invite already out for this email doesn't count twice)?
-function peopleRoom(wsId, email = '') {
-  const seats = billing.seatsFor(store.getWorkspace(wsId));
-  return seatsUsed(wsId) - pendingAssistantInvites(wsId).filter(t => t.email === store.normEmail(email)).length < seats;
-}
+const reviewerRoom = (wsId, email = '') => signoff.reviewersOf(wsId).length + pendingInvites(wsId).filter(t => t.email !== store.normEmail(email)).length < signoff.MAX_REVIEWERS;
 const ownersOf = wsId => store.listAccounts().filter(a => !a.disabled && roles.membership(a, wsId)?.role === 'owner').map(a => a.id);
 
 /* ---------------- Capabilities: what each workspace route needs ---------------- */
@@ -534,27 +512,22 @@ const ROUTE_CAPS = {
   'POST /api/brand/logo': 'settings', 'DELETE /api/brand/logo': 'settings', 'GET /api/brand/logo-colors': 'settings',
   'POST /api/library': 'settings', 'POST /api/library/:id': 'settings', 'DELETE /api/library/:id': 'settings',
   'POST /api/instagram/connect': 'connect', 'DELETE /api/instagram': 'connect', 'POST /api/facebook/connect': 'connect', 'POST /api/facebook/page': 'connect', 'DELETE /api/facebook': 'connect',
-  'GET /api/billing': 'billing', 'POST /api/billing/checkout': 'billing', 'POST /api/billing/portal': 'billing',
-  'GET /api/requests': 'view', 'POST /api/requests': 'requests',
   'GET /api/replies': 'replies', 'POST /api/replies/rules': 'replies', 'POST /api/replies/rules/:id/approve': 'approve', 'DELETE /api/replies/rules/:id': 'replies', 'POST /api/replies/on': 'approve', 'POST /api/replies/try': 'replies',
-  'GET /api/people': 'people', 'POST /api/people/signoff': 'people', 'POST /api/people/invite': 'people', 'PUT /api/people/:id': 'people', 'DELETE /api/people/:id': 'people', 'POST /api/people/invites/revoke': 'people', 'POST /api/billing/seats': 'billing',
+  'GET /api/people': 'people', 'POST /api/people/signoff': 'people', 'POST /api/people/invite': 'people', 'DELETE /api/people/:id': 'people', 'POST /api/people/invites/revoke': 'people',
   // The compliance reviewer's page (v15): theirs alone.
   'GET /api/signoff': 'signoff', 'POST /api/signoff/:id': 'signoff',
 };
 export const capFor = r => ROUTE_CAPS[`${r.method} ${r.pattern}`] || (r.method === 'GET' ? 'view' : null);
 export const deadCaps = () => Object.keys(ROUTE_CAPS).filter(k => !routes.some(r => `${r.method} ${r.pattern}` === k));
 export const unlistedRoutes = () => routes.filter(r => r.level === 'ws' && r.method !== 'GET' && !ROUTE_CAPS[`${r.method} ${r.pattern}`]).map(r => `${r.method} ${r.pattern}`);
-const managedHere = c => billing.isManaged(c.ws);
 const CAP_DENIED = {
-  settings: c => (managedHere(c) ? 'Your team takes care of this in your done-for-you workspace. Ask them for the change under Your team.' : 'Only the agent can change this.'),
+  settings: () => 'Only the agent can change this.',
   approve: () => 'Only the agent can approve, reject or delete videos. You can fix a scene and leave it for them.',
   post: () => 'Posting is up to the agent. They can let you post under Your team.',
   mindset: () => 'Mindset is the agent’s own page.',
-  billing: () => 'Only the agent sees plans and payment.',
   data: () => 'Only the agent can download or delete the workspace’s data.',
   people: () => 'Only the agent can invite or remove people.',
   connect: () => 'Only the agent can connect Instagram and Facebook.',
-  requests: () => 'Requests are for done-for-you workspaces.',
 };
 
 /* ---------------- Audit log: what gets recorded after a route succeeds ---------------- */
@@ -590,26 +563,19 @@ const AUDIT = {
   'POST /api/admin/accounts/:id': c => ({ action: c.body.disabled ? 'account.disabled' : 'account.enabled', target: emailOf(c.params.id), ws: store.getAccount(c.params.id)?.workspaceId || '' }),
   'POST /api/admin/accounts/:id/reset-2fa': c => ({ action: 'twofa.reset', target: emailOf(c.params.id), ws: store.getAccount(c.params.id)?.workspaceId || '' }),
   'POST /api/admin/open': c => (c.body.workspaceId ? { action: 'admin.open', ws: c.body.workspaceId } : { action: 'admin.leave', ws: c.me.wsId || '' }),
-  'POST /api/admin/workspaces/:id': c => ({ action: 'workspace.changed', ws: c.params.id, detail: Object.entries(c.body).filter(([k]) => ['name', 'comped', 'suspended', 'managed', 'videosPerMonth', 'aiCostUsd'].includes(k)).map(([k, v]) => `${k}: ${clip(v, 60)}`).join(', ') }),
+  'POST /api/admin/workspaces/:id': c => ({ action: 'workspace.changed', ws: c.params.id, detail: Object.entries(c.body).filter(([k]) => ['name', 'suspended', 'videosPerMonth', 'aiCostUsd'].includes(k)).map(([k, v]) => `${k}: ${clip(v, 60)}`).join(', ') }),
   'POST /api/admin/workspaces/:id/delete': (c, out) => ({ action: 'workspace.deleted', ws: c.params.id, target: out?.deleted?.name || '', detail: `${out?.deleted?.logins ?? 0} login(s), ${out?.deleted?.videos ?? 0} video record(s)` }),
   'DELETE /api/admin/workspaces/:id/delete-request': c => ({ action: 'deletion.declined', ws: c.params.id }),
-  'POST /api/admin/access-requests/:id': (c, out) => ({ action: `access.${c.body.status}`, target: out?.request?.email || c.params.id }),
-  'POST /api/admin/workspaces/:id/confirm-facts': (c, out) => (out?.confirmed?.length ? { action: 'facts.confirmed', ws: c.params.id, detail: `${out.confirmed.length} fact(s) confirmed by admin for a done-for-you client: ${out.confirmed.map(f => f.text).join(' | ').slice(0, 250)}` } : null),
   'POST /api/videos/:id/fix': c => ({ action: 'video.fixed', target: c.params.id }),
-  'POST /api/people/invite': c => ({ action: 'people.invited', target: store.normEmail(c.body.email), detail: c.body.canPost ? 'can post' : '' }),
-  'PUT /api/people/:id': c => ({ action: 'people.changed', target: emailOf(c.params.id), detail: 'canEdit' in c.body ? (c.body.canEdit ? 'can edit settings' : 'can’t edit settings') : c.body.canPost ? 'can post' : 'can’t post' }),
+  'POST /api/people/invite': c => ({ action: 'people.invited', target: store.normEmail(c.body.email), detail: 'reviewer' }),
   'DELETE /api/people/:id': c => ({ action: 'people.removed', target: emailOf(c.params.id) }),
   'POST /api/people/invites/revoke': c => ({ action: 'people.uninvited', target: store.normEmail(c.body.email) }),
-  'POST /api/billing/seats': c => ({ action: 'seats.changed', detail: String(Math.round(Number(c.body.seats) || 0)) }),
   'POST /api/signoff/:id': c => ({ action: c.body.ok === true ? 'video.signedoff' : 'video.sentback', target: c.params.id, detail: clip(c.body.note, 120) }),
   'POST /api/people/signoff': c => ({ action: c.body.on ? 'signoff.on' : 'signoff.off' }),
   'POST /api/replies/rules': c => ({ action: 'replies.saved', detail: clip(c.body.keyword, 20) }),
   'POST /api/replies/rules/:id/approve': c => ({ action: 'replies.approved', target: c.params.id }),
   'POST /api/replies/on': c => ({ action: c.body.on ? 'replies.on' : 'replies.off' }),
-  'POST /api/requests': (c, out) => ({ action: 'request.made', target: out?.request?.id || '', detail: clip(c.body.text, 120) }),
-  'POST /api/admin/requests/:ws/:id': c => ({ action: 'request.done', ws: c.params.ws, target: c.params.id }),
   'POST /api/workspaces/switch': c => ({ action: 'workspace.switched', ws: clip(c.body.workspaceId, 40) }),
-  'POST /api/admin/managed/make': (c, out) => ({ action: 'admin.batch', detail: `queued ${out?.queued || 0} video(s) across ${out?.results?.length || 0} done-for-you workspace(s)` }),
 };
 
 /* ---------------- Dispatch ---------------- */
@@ -636,10 +602,8 @@ async function api(req, res, url) {
       const want = req.headers['x-workspace'] || url.searchParams.get('ws');
       if (want && want !== ctx.wsId) bad(409, 'You switched workspaces in another tab. Reload this page to keep going.', { wsChanged: true });
       // What this person may do here (lib/roles.js); every workspace route names what it needs.
-      ctx.caps = roles.capsFor(ctx.me.account, ctx.ws, { managed: billing.isManaged(ctx.ws) });
+      ctx.caps = roles.capsFor(ctx.me.account, ctx.ws);
       const need = capFor(r);
-      // An assistant beyond the workspace's seats (seats lowered, plan ended) is paused until there's one.
-      if (roles.membership(ctx.me.account, ctx.wsId)?.role === 'assistant' && !/^\/api\/push\//.test(url.pathname) && !hasSeat(ctx.me.account, ctx.wsId)) bad(402, 'This workspace has no assistant seat for you right now. Ask the agent to add one.', { seat: true });
       const needs = [].concat(need);
       if (!needs.some(n => ctx.caps.includes(n))) bad(403, CAP_DENIED[needs[0]]?.(ctx) || 'You don’t have access to this in this workspace.', { cap: needs[0] });
       touch(ctx.wsId);
@@ -708,7 +672,6 @@ const STATIC = {
   // The portal's screens (public/screens/*.js), loaded by app.js.
   '/screens/account.js': ['public/screens/account.js', 'text/javascript; charset=utf-8'],
   '/screens/admin.js': ['public/screens/admin.js', 'text/javascript; charset=utf-8'],
-  '/screens/billing.js': ['public/screens/billing.js', 'text/javascript; charset=utf-8'],
   '/screens/brand.js': ['public/screens/brand.js', 'text/javascript; charset=utf-8'],
   '/screens/coach.js': ['public/screens/coach.js', 'text/javascript; charset=utf-8'],
   '/screens/communicate.js': ['public/screens/communicate.js', 'text/javascript; charset=utf-8'],
@@ -739,10 +702,6 @@ const STATIC = {
   // Public: how to get your data deleted (the "data deletion instructions URL" for Meta's App Review).
   '/data-deletion': ['public/data-deletion.html', 'text/html; charset=utf-8'],
   '/data-deletion.html': ['public/data-deletion.html', 'text/html; charset=utf-8'],
-  // Public landing page with "request access" (invite only: no account is created).
-  '/welcome': ['public/welcome.html', 'text/html; charset=utf-8'],
-  '/welcome.html': ['public/welcome.html', 'text/html; charset=utf-8'],
-  '/welcome.js': ['public/welcome.js', 'text/javascript; charset=utf-8'],
   // The service worker that shows "your video is ready" notifications.
   '/sw.js': ['public/sw.js', 'text/javascript; charset=utf-8'],
 };
@@ -826,13 +785,6 @@ function replyNotice(wsId, person, rule, video) {
   push.send(wsId, { title: `Someone asked for ${rule.keyword}`, body: `${person.name} ${rule.where === 'dm' ? 'messaged' : 'commented'} “${rule.keyword}”${video ? ' on a video' : ''}. Your reply went to them.`, url: '/#/replies', tag: `reply-${rule.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids }).catch(e => console.error('[push]', e.message));
 }
 
-async function stripeWebhook(req, res) {
-  if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-  const raw = (await readRaw(req)).toString('utf8');
-  try { return send(res, 200, { received: true, ...(await billing.handleWebhook(raw, req.headers['stripe-signature'])) }); }
-  catch (e) { console.error('[stripe]', e.message); return send(res, 400, { error: e.message }); }
-}
-
 export const isDiskFull = e => e?.code === 'ENOSPC' || e?.diskFull || /SQLITE_FULL|database or disk is full|no space left on device/i.test(String(e?.message || ''));
 let diskFullAt = 0;
 function diskFullAlert(e, now = Date.now()) {
@@ -851,7 +803,6 @@ export function createServer() {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (url.pathname === '/api/stripe/webhook') return await stripeWebhook(req, res);
       if (url.pathname.startsWith('/api/')) return await api(req, res, url);
       if (url.pathname.startsWith('/media/')) return media(req, res, url);
       if (url.pathname.startsWith('/pub/')) return pub(req, res, url);
@@ -897,23 +848,23 @@ export function autoPlanState(wsId, cfg, now = new Date()) {
 export const lowFor = (wsId, cfg, vids) => runningLow(cfg, signoff.asPlanned(store.getWorkspace(wsId), vids), Date.now(), 3, { postedToday: store.getWorkspace(wsId)?.autopostDay === localTime(cfg.profile?.timezone || 'America/Denver').date });
 export async function proactiveJobs(now = new Date(), log = console.log) {
   const { weekKey, weeklyCheckin } = await coach();
-  const out = { plans: [], refills: [] };
+  const out = { plans: [] };
   for (const ws of store.listWorkspaces()) { try {
-    // Switched off (overnight or making videos): skipped without using up this week's plan or today's
-    // refill, so they still run if it's back on within their window (the Monday morning, or today).
+    // Switched off (overnight or making videos): skipped without using up this week's plan, so it
+    // still runs if it's back on within the Monday morning.
     if (!ws.onboarded || ws.suspended || !switches.isOn('overnight', ws) || !switches.isOn('videos', ws)) continue;
     const cfg = store.loadConfig(ws.id), tz = cfg.profile?.timezone || 'America/Denver', { date, hour } = localTime(tz, now);
     // 1. The Monday plan: once per local Monday (`date` names the week).
-    // (The coach writes the plan: with it switched off, the plan waits; the refills below still run.)
+    // (The coach writes the plan: with it switched off, the plan waits.)
     if (cfg.schedule?.autoPlan && switches.isOn('coach', ws) && weekdayIn(tz, now.getTime()) === 1 && hour >= AUTO_PLAN_HOURS[0] && hour < AUTO_PLAN_HOURS[1] && ws.autoPlanWeek !== date) {
       store.updateWorkspace(ws.id, { autoPlanWeek: date });
       const existing = store.readWeekly(ws.id);
-      const left = billing.access(ws).limit - usedThisMonth(ws.id);
+      const left = allowance.access(ws).limit - usedThisMonth(ws.id);
       if (ws.autoPlanSkip === date) { store.updateWorkspace(ws.id, { autoPlanSkip: '' }); out.plans.push({ ws: ws.id, skipped: true }); }
       // The agent already made this week's plan videos (or a check-in was queued in the last few days).
       else if (existing?.week === weekKey(now) && existing.queuedAt && now - Date.parse(existing.queuedAt) < 4 * DAY_MS) out.plans.push({ ws: ws.id, alreadyQueued: true });
       // Nothing is spent on a check-in when no video could be made from it anyway.
-      else if (!billing.access(ws).allowed || overCap(ws) || whyNoVideos(cfg) || left <= 0 || queue.waiting(ws.id).length >= 6 || coachLimit.blocked(ws.id)) out.plans.push({ ws: ws.id, blocked: true });
+      else if (!allowance.access(ws).allowed || overCap(ws) || whyNoVideos(cfg) || left <= 0 || queue.waiting(ws.id).length >= 6 || coachLimit.blocked(ws.id)) out.plans.push({ ws: ws.id, blocked: true });
       else {
         try {
           coachLimit.fail(ws.id);
@@ -930,30 +881,15 @@ export async function proactiveJobs(now = new Date(), log = console.log) {
         }
       }
     }
-    // 2. Posting plan running low. Done-for-you clients get videos made to cover it (they only
-    // approve); agents running it themselves see a note in Review and Create.
-    if (ws.lowCheckDay !== date && hour >= 7) {
-      store.updateWorkspace(ws.id, { lowCheckDay: date });
-      const low = runningLow(cfg, signoff.asPlanned(ws, store.readVideos(ws.id)), now.getTime(), 3, { postedToday: ws.autopostDay === date });
-      if (low && billing.isManaged(ws)) {
-        const pending = store.videoCounts(ws.id).pending + queue.waiting(ws.id).filter(j => j.kind === 'video' || j.kind === 'studio').length;
-        const n = Math.max(0, Math.min(MAX_PER_REQUEST, low.needed - low.approved - pending));
-        let queued = 0;
-        if (n) { try { queued = enqueueVideos(ws.id, n, 'refill', 'auto').length; } catch (e) { out.refills.push({ ws: ws.id, error: e.message }); } }
-        alerts.notify({ level: 'info', kind: 'plan', title: 'A posting plan is running low', text: `${low.approved} approved video${low.approved === 1 ? '' : 's'} for ${low.needed} posting day${low.needed === 1 ? '' : 's'} coming up.${queued ? ` Queued ${queued} new video${queued === 1 ? '' : 's'} for their review.` : pending ? ` ${pending} already waiting for their review.` : ''}`, ws: ws.id, workspaceName: ws.name });
-        out.refills.push({ ws: ws.id, queued });
-      }
-    }
   } catch (e) { store.skipWorkspace(ws, e, 'proactive'); } }
   out.plans.filter(p => p.queued || p.error).forEach(p => log(`[plan] ${p.ws}: ${p.error || `queued ${p.queued}`}`));
   return out;
 }
 
-// Emails sent at a time rather than by an action: trial ending (backstop for Stripe's event) and the
-// Monday "videos ready for review" reminder. Both send once and remember it.
+// The Monday "videos ready for review" email. Sends once and remembers it.
 export async function emailJobs(now = new Date()) {
-  if (!mail.emailOn()) return { trial: [], review: [] };
-  return { trial: await mail.trialReminders(now.getTime()), review: await mail.reviewReminders(now) };
+  if (!mail.emailOn()) return { review: [] };
+  return { review: await mail.reviewReminders(now) };
 }
 
 let processHooked = false;
@@ -1068,7 +1004,7 @@ export async function start({ port = Number(process.env.PORT || 3100), host = pr
   if (worker && workerMode() === 'here') startWorkerHere();
   else if (worker) console.log('Videos are made by worker.js (WORKER_MODE=separate).');
   if (queue.loadProblem) alerts.notify({ level: 'error', kind: 'server', title: 'The list of videos being made was damaged', text: 'data/jobs.json couldn’t be read.', did: 'Started the line empty, and kept the damaged copy in data/damaged/.', run: 'Ask agents with videos waiting to start them again (or restore jobs.json from a backup).' });
-  if (scheduler) startScheduler((wsId, n, source) => enqueueVideos(wsId, n, source, 'overnight'), console.log, { minute: async () => { await platforms.tickAll(); await outbox.drain(); }, daily: async () => { try { nightlyInspection(); } catch (e) { console.error('[inspect]', e.message); monitor.noteError(e, 'nightly inspection'); } await ig.refreshDue(); await insights.refreshResults(); await ai.checkModels().catch(e => console.error('[models]', e.message)); await clock.check().catch(e => console.error('[clock]', e.message)); await billing.refreshCards().catch(e => console.error('[cards]', e.message)); await expiry.checkExpiry().catch(e => console.error('[expiry]', e.message)); try { targets.checkTargets(); } catch (e) { console.error('[targets]', e.message); } }, afterBackup: () => referenceRender(), tick: async () => { monitor.checkBackups(); gauges.noteDisk(freeGB()); await emailJobs(); await proactiveJobs(); } });
+  if (scheduler) startScheduler((wsId, n, source) => enqueueVideos(wsId, n, source, 'overnight'), console.log, { minute: async () => { await platforms.tickAll(); await outbox.drain(); }, daily: async () => { try { nightlyInspection(); } catch (e) { console.error('[inspect]', e.message); monitor.noteError(e, 'nightly inspection'); } await ig.refreshDue(); await insights.refreshResults(); await ai.checkModels().catch(e => console.error('[models]', e.message)); await clock.check().catch(e => console.error('[clock]', e.message)); await expiry.checkExpiry().catch(e => console.error('[expiry]', e.message)); try { targets.checkTargets(); } catch (e) { console.error('[targets]', e.message); } }, afterBackup: () => referenceRender(), tick: async () => { monitor.checkBackups(); gauges.noteDisk(freeGB()); await emailJobs(); await proactiveJobs(); } });
   // The gauges (Engine bay), and a clock check a minute after start (a server that was off for a while
   // may come back with a drifted clock).
   if (process.env.NODE_ENV !== 'test') { gauges.start('server'); setTimeout(() => clock.check().catch(e => console.error('[clock]', e.message)), 60000).unref(); }
@@ -1138,8 +1074,8 @@ export function main() {
 /* ---------------- The routes, by area (routes/*.js) ---------------- */
 // Mounted last, in the order they were written (the first route that matches a request answers it),
 // with the helpers they share with the rest of the server.
-const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, hasSeat, ipLimit, jobView, keyProblem, linkError, lowFor, mailLink, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, pendingAssistantInvites, peopleRoom, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
-for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_billing, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
+const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, mailLink, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
+for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
 
 // On restart (pm2 sends SIGINT), main() hands running videos back and writes what's waiting, then exits.
 // (Compared as real paths: the app folder, or `current`, may be a link.)

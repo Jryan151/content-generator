@@ -22,13 +22,10 @@ test('release: version 15.0.0 everywhere', async () => {
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8'), /being built in steps/);
 });
 
-test('release: a Get help button when SUPPORT_EMAIL is set; link previews on /welcome', async () => {
+test('release: a Get help button when SUPPORT_EMAIL is set', async () => {
   assert.equal((await c.get('/api/me')).data.support, '');
   process.env.SUPPORT_EMAIL = 'help@agentreels.example';
   try { assert.equal((await c.get('/api/me')).data.support, 'help@agentreels.example'); }
   finally { delete process.env.SUPPORT_EMAIL; }
   assert.match(portalSource(), /Get help/);
-  const html = (await c.get('/welcome')).data.toString();
-  for (const p of ['og:title', 'og:description', 'og:image', 'og:url', 'twitter:card']) assert.ok(html.includes(p), p);
-  assert.doesNotMatch(html, /\{\{/, 'no leftover placeholders');
 });

@@ -1,6 +1,6 @@
 // app.js — the portal. One page with hash routes:
 //   #/login  #/invite/<token>  #/reset/<token>  #/setup
-//   #/review  #/create  #/content  #/communicate  #/brand  #/settings  #/guide  #/billing  #/admin  #/account
+//   #/review  #/create  #/content  #/communicate  #/brand  #/settings  #/guide  #/admin  #/account
 // It imports the same engine as the server (mixer-core.js), so previews and checks match exactly.
 // The prompt text itself is built only on the server (lib/prompts.js); admins can preview it in Setup → Look.
 import {
@@ -23,12 +23,11 @@ import { drawMemory, drawSettings, loadMemory, loadPromptPreview, promptHTML, pr
 import { drawCommunicate, drillPanel, loadCalibration, shuffled, viewCommunicate, workshopPanel, wsItems } from './screens/communicate.js';
 import { drawTeam, viewTeam } from './screens/team.js';
 import { viewGuide } from './screens/guide.js';
-import { drawBilling, viewBilling } from './screens/billing.js';
 import { drawSignoff, signoffActions, soBackForm, viewSignoff } from './screens/signoff.js';
 import { repliesActions, repliesForm } from './screens/replies.js';
 import { drawGrow, viewGrow } from './screens/grow.js';
 import { canSetup, drawStep, firstStep, stepView, viewStep } from './screens/steps.js';
-import { drawAccess, drawAdmin, loadAccess, loadAudit, loadEngine, loadManaged, loadRequests, loadSwitches, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
+import { drawAdmin, loadAudit, loadEngine, loadSwitches, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
 import { applyStudio, applySuggestion, describe, drawCoach, lines, loadCoachNotes, makeVideos, openCoach, redraw, saveCoachMsgs, sendCoach, setCoachMode } from './screens/coach.js';
 
 /* ================= Basics ================= */
@@ -81,7 +80,7 @@ const ago = iso => {
 const S = {
   me: null, product: document.title, view: '',
   cfg: null, saved: '', versions: [],
-  videos: [], stats: null, fixing: [], overview: null, billing: null, admin: null,
+  videos: [], stats: null, fixing: [], overview: null, admin: null,
   setup: null, open: {}, fix: null, picks: null, test: null, shareFiles: {}, timers: [],
   suggestedLinks: {}, rewrites: {}, weekly: null, weeklyAsked: false,
 };
@@ -291,17 +290,16 @@ async function render() {
   // New or updated terms: accepted once before going on (setup has its own checkbox).
   if (S.me.termsRequired) return page('terms', viewTerms);
   // Daily stops (Review, Create, Grow) and Setup's steps. Content, Brand and Settings open as full pages.
-  const views = { studio: viewStudio, review: viewReview, create: viewCreate, grow: viewGrow, content: viewContent, communicate: viewCommunicate, mindset: viewMindset, brand: viewBrand, settings: viewSettings, billing: viewBilling, team: viewTeam, signoff: viewSignoff, profile: viewStep, library: viewStep, voice: viewStep, look: viewStep, autopilot: viewStep };
+  const views = { studio: viewStudio, review: viewReview, create: viewCreate, grow: viewGrow, content: viewContent, communicate: viewCommunicate, mindset: viewMindset, brand: viewBrand, settings: viewSettings, team: viewTeam, signoff: viewSignoff, profile: viewStep, library: viewStep, voice: viewStep, look: viewStep, autopilot: viewStep };
   if (view === 'setup') return firstStep() ? go(firstStep()) : go('');
-  // Only the pages this person can use (lib/roles.js): a managed agent's portal has no Content or
-  // Settings (their team runs those) and gets Your team instead.
+  // Only the pages this person can use (lib/roles.js).
   if (!views[view] || !canSee(view)) return go(homeView());
   return page(view, views[view], { arg, q });
 }
 
 // What this person can do here (from the server, lib/roles.js), and which pages that opens.
 const can = cap => (S.me?.caps || []).includes(cap);
-const PAGE_CAPS = { review: ['view'], create: ['make'], studio: ['make'], grow: ['view'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], billing: ['billing'], team: ['requests', 'people'], signoff: ['signoff'],
+const PAGE_CAPS = { review: ['view'], create: ['make'], studio: ['make'], grow: ['view'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], team: ['people'], signoff: ['signoff'],
   profile: ['settings'], library: ['settings'], voice: ['settings'], look: ['settings'], autopilot: ['settings', 'connect'] };
 const canSee = view => !PAGE_CAPS[view] || PAGE_CAPS[view].some(can);
 // Where someone lands: the agent on Review, a reviewer on Sign-off.
@@ -316,12 +314,12 @@ function shell(view) {
   if (ws && !ws.onboarded) tabs.push(['setup', 'Setup']);
   if (admin) tabs.push(['admin', 'Admin', me.alerts || 0]);
   const here = NAV_OF[view] || view;
-  // Account, the guide and billing: under the initial in the corner (v15 Phase 10).
-  const menu = [['account', 'Account'], ['guide', 'Guide'], ...(ws?.onboarded && me.billing && (!ws.comped || admin) && can('billing') ? [['billing', 'Billing']] : [])];
+  // Account and the guide: under the initial in the corner.
+  const menu = [['account', 'Account'], ['guide', 'Guide']];
   const initial = String(me.account.name || me.account.email || '?').trim().charAt(0).toUpperCase();
   const others = (me.workspaces || []).filter(w => !w.current);
   return `<header class="top"><div class="top-row"><div class="brand"><img src="/icon.svg" alt=""><b>${esc(S.product)}</b>${ws ? (others.length ? `<select class="ctl sm ws-switch" data-ws-switch aria-label="Workspace">${(me.workspaces || []).map(w => `<option value="${esc(w.id)}"${w.current ? ' selected' : ''}>${esc(w.name)}${w.role === 'assistant' ? ' (assistant)' : ''}</option>`).join('')}</select>` : `<span>${esc(ws.name)}</span>`) : ''}</div>
-      <div class="me-menu"><button class="me-btn" data-act="menu" aria-expanded="false" aria-controls="mePop" aria-label="Account, guide and billing"${['account', 'guide', 'billing'].includes(view) ? ' aria-current="page"' : ''}>${esc(initial)}</button>
+      <div class="me-menu"><button class="me-btn" data-act="menu" aria-expanded="false" aria-controls="mePop" aria-label="Account and guide"${['account', 'guide'].includes(view) ? ' aria-current="page"' : ''}>${esc(initial)}</button>
         <div class="me-pop" id="mePop" hidden><p class="small muted">${esc(me.account.name || me.account.email)}</p>${menu.map(([k, l]) => `<a href="#/${k}"${k === view ? ' aria-current="page"' : ''}>${esc(l)}</a>`).join('')}<button class="danger" data-act="logout">Log out</button></div></div></div>
     ${me.acting ? `<div class="acting"><span>You’re working in <b>${esc(ws.name)}</b>’s workspace.</span><button class="btn sm" data-act="leave-ws">Back to Admin</button></div>` : ''}
     <nav class="nav" aria-label="Sections">${tabs.map(([k, label, n, key = k]) => `<a href="#/${k}"${key === here ? ' aria-current="page"' : ''}>${label}${n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}</nav></header>
@@ -331,7 +329,7 @@ function shell(view) {
 }
 
 let main = null;
-const VIEW_NAMES = { grow: 'your results', profile: 'your profile', library: 'your library', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', billing: 'billing', admin: 'the admin view', account: 'your account', setup: 'setup' };
+const VIEW_NAMES = { grow: 'your results', profile: 'your profile', library: 'your library', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', admin: 'the admin view', account: 'your account', setup: 'setup' };
 let pageGen = 0;
 async function page(view, fn, ctx = {}) {
   const gen = ++pageGen;
@@ -425,7 +423,7 @@ function freshAfterLogin() {
 // Buttons that need the AI or a video from this month's allowance are turned off, with the reason,
 // when they can't work (budget used up, no plan, all videos made), instead of failing on tap.
 const AI_ACTS = ['rewrite', 'test', 'st-hooks', 'st-fill', 'st-ideas', 'st-foot', 'st-hear', 'gen', 'link-all', 'check-links', 'autolink', 'mind-advice', 'coach-starter', 'comms-starter', 'ws-run', 'weekly-refresh', 'aud-style', 'drill-next'];
-const MAKE_ACTS = ['make', 'make-topic', 'next-make', 'plan-make', 'st-render', 'managed-make', 'job-again'];
+const MAKE_ACTS = ['make', 'make-topic', 'next-make', 'plan-make', 'st-render', 'job-again'];
 const AI_FORMS = ['footage', 'mind-lens', 'coach', 'coach-reply'];
 // Controls that change the workspace's settings: off (with the reason) for people who can't.
 const SETTINGS_ACTS = ['keep-ready', 'auto-plan', 'aud-style-set', 'ws-use', 'weekly-apply', 'save-search', 'season'];
@@ -445,7 +443,7 @@ function markBlocked() {
     const isForm = el.tagName === 'FORM', act = isForm ? el.dataset.form : el.dataset.act;
     const kind = isForm ? (AI_FORMS.includes(act) ? 'ai' : '') : AI_ACTS.includes(act) ? 'ai' : MAKE_ACTS.includes(act) && !(act === 'job-again' && el.dataset.kind !== 'video') ? 'make' : SETTINGS_ACTS.includes(act) && !can('settings') ? 'settings' : '';
     if (!kind) return;
-    const why = kind === 'make' ? mk : kind === 'settings' ? (can('requests') ? 'Your team takes care of this. Ask them in Setup → Team.' : 'Only the agent can change this.') : ai;
+    const why = kind === 'make' ? mk : kind === 'settings' ? 'Only the agent can change this.' : ai;
     const btn = isForm ? el.querySelector('button:not([type="button"])') : el;
     if (!btn) return;
     if (why) { shown = true; if (!btn.disabled) { btn.disabled = true; btn.dataset.blocked = '1'; btn.title = why; } }
@@ -886,10 +884,8 @@ S.st = null;   // the open draft: { d, foot: {}, rw: {}, busy: '', saveTimer }
 /* ================= Settings: public/screens/settings.js ================= */
 /* ================= Communicate: public/screens/communicate.js ================= */
 /* ================= Team: public/screens/team.js ================= */
-/* ================= Billing: public/screens/billing.js ================= */
 /* ================= Admin: public/screens/admin.js ================= */
 // What stays here from it: it runs as the page loads (the screen file loads before this one runs).
-// Access requests from the landing page (/welcome). Invite only: you invite the people you want.
 const PRODUCT_NAMES = { final_expense: 'Final expense', mortgage: 'Mortgage protection', family: 'Family protection', other: 'Something else' };
 // Activity log (audit): who did what, newest first. Filters: workspace and kind.
 S.auditF = { ws: '', kind: '', limit: 30 };
@@ -962,12 +958,11 @@ const actions = {
     try { await api('/api/link/join', { method: 'POST', body: { token: el.dataset.token } }); try { sessionStorage.removeItem('joinToken'); } catch { /* fine */ } location.hash = '#/'; location.reload(); }
     catch (e) { el.disabled = false; status(document.querySelector('[data-st]'), e.message, 'err'); }
   },
-  async seats(el) { el.disabled = true; try { S.people = { ...S.people, ...(await api('/api/billing/seats', { method: 'POST', body: { seats: Number(el.dataset.v) } })) }; drawTeam(); toast('Seats updated'); } catch (e) { el.disabled = false; toast(e.message); } },
   async 'person-del'(el) {
     if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; setTimeout(() => { if (document.contains(el)) { el.dataset.confirm = ''; el.textContent = 'Remove'; } }, 3000); return; }
-    try { S.people = { ...S.people, ...(await api(`/api/people/${el.dataset.id}`, { method: 'DELETE' })) }; drawTeam(); toast('Removed. Their seat is free.'); } catch (e) { toast(e.message); }
+    try { S.people = { ...S.people, ...(await api(`/api/people/${el.dataset.id}`, { method: 'DELETE' })) }; drawTeam(); toast('Removed'); } catch (e) { toast(e.message); }
   },
-  // The initial's menu (v15 Phase 10): Account, Guide, Billing, Log out.
+  // The initial's menu: Account, Guide, Log out.
   menu(el) { const pop = document.getElementById('mePop'); if (!pop) return; pop.hidden = !pop.hidden; el.setAttribute('aria-expanded', String(!pop.hidden)); if (!pop.hidden) pop.querySelector('a')?.focus(); },
   'copy-text'(el) { copy(el.dataset.text || '', el.dataset.what || 'Address'); },
   async 'signoff-on'(el) {
@@ -977,8 +972,6 @@ const actions = {
   },
   async 'invite-del'(el) { try { S.people = { ...S.people, ...(await api('/api/people/invites/revoke', { method: 'POST', body: { email: el.dataset.email } })) }; drawTeam(); toast('Invite taken back'); } catch (e) { toast(e.message); } },
   'page-reload'() { location.reload(); },
-  'access-retry'() { loadAccess(); },
-  'requests-retry'() { loadRequests(); },
   'switches-retry'() { loadSwitches(); },
   'engine-retry'() { loadEngine(); },
   'update-now'() { keepDraft(); location.reload(); },
@@ -1574,14 +1567,6 @@ const actions = {
     if (/^Scene /.test(msg)) { sg.usedScenes = [...new Set([...(sg.usedScenes || []), k])]; if (sg.usedScenes.length === sg.scenes.length) sg.applied = true; saveCoachMsgs(); drawCoach(); }
     toast(msg);
   },
-  async 'coach-ask-team'(el) {
-    const m = S.coach.msgs[+el.dataset.m], sg = m?.suggestions?.[+el.dataset.j];
-    if (!sg || sg.applied) return;
-    el.disabled = true;
-    const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.replace(/\s+/g, ' ').trim(); };
-    try { await api('/api/requests', { method: 'POST', body: { area: 'other', text: `From the coach: ${sg.label}. ${plain(describe(sg, +el.dataset.m, +el.dataset.j))}${sg.why ? ` (${sg.why})` : ''}`.slice(0, 800) } }); sg.applied = true; saveCoachMsgs(); drawCoach(); toast('Sent to your team'); }
-    catch (e) { el.disabled = false; toast(e.message); }
-  },
   // Every scene's line at once: the first offered for each scene (v15).
   async 'coach-apply-all'(el) {
     const m = S.coach.msgs[+el.dataset.m];
@@ -1624,56 +1609,19 @@ const actions = {
   async 'load-version'(el) { const name = document.getElementById('versionSel').value; if (el) { el.disabled = true; el.innerHTML = '<span class="spin"></span> Loading…'; } try { const r = await api('/api/history/' + encodeURIComponent(name)); S.cfg = migrate(r.config); drawSettings(); saveBar(); toast('Loaded. Save to use it.'); } catch (e) { toast(e.message); if (el && document.contains(el)) { el.disabled = false; el.textContent = 'Load'; } } },
   reroll() { S.picks = roll(S.cfg); S.promptPreview = null; S.promptOpen = true; drawSettings(); },
 
-  // Billing
-  'bill-every'(el) { S.billEvery = el.dataset.v; drawBilling(); },
-  'copy-ref'() { copy(S.billing.referral.link, 'Referral link'); },
-  async checkout(el) { el.disabled = true; try { const r = await api('/api/billing/checkout', { method: 'POST', body: { plan: el.dataset.id, interval: el.dataset.every || 'month' } }); location.href = r.url; } catch (e) { status(main.querySelector('[data-st="billing"]'), e.message, 'err'); el.disabled = false; } },
-  async portal(el) { el.disabled = true; try { const r = await api('/api/billing/portal', { method: 'POST', body: {} }); location.href = r.url; } catch (e) { status(main.querySelector('[data-st="billing"]'), e.message, 'err'); el.disabled = false; } },
 
   // Admin
   async 'open-ws'(el) { await api('/api/admin/open', { method: 'POST', body: { workspaceId: el.dataset.id } }); location.hash = '#/'; location.reload(); },
   async 'ws-set'(el) { try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { [el.dataset.k]: el.dataset.v === '1' } }); await viewAdmin(); } catch (e) { toast(e.message); } },
   async 'ws-limit'(el) {
-    const v = prompt('Videos per month for this workspace (blank = plan default):', '');
+    const v = prompt('Most videos a month for this workspace (blank = the default, 200):', '');
     if (v === null) return;
     try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { videosPerMonth: Number(v) || 0 } }); await viewAdmin(); } catch (e) { toast(e.message); }
-  },
-  async 'ws-seats'(el) {
-    const v = prompt('Assistant seats you give this workspace (on top of any it pays for). 0 to 10:', el.dataset.v || '0');
-    if (v === null) return;
-    try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { assistantSeats: Number(v) || 0 } }); await viewAdmin(); toast('Seats updated'); } catch (e) { toast(e.message); }
   },
   async 'ws-cap'(el) {
     const v = prompt(`Monthly AI cost cap for this workspace, in dollars.\nBlank = the default ($${(S.admin.system.aiCap || 0).toFixed(2)}), 0 = no cap. At 80% you get an alert; at 100% new videos, test scripts and the coach pause until next month.`, el.dataset.v || '');
     if (v === null) return;
     try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { aiCostUsd: v.trim() } }); await viewAdmin(); } catch (e) { toast(e.message); }
-  },
-  async 'managed-make'(el) {
-    el.disabled = true;
-    try {
-      const r = await api('/api/admin/managed/make', { method: 'POST', body: { count: 3, ...(el.dataset.id ? { workspaceIds: [el.dataset.id] } : {}) } });
-      const errs = r.results.filter(x => x.error);
-      toast(`${r.queued} video${r.queued === 1 ? '' : 's'} queued${errs.length ? `; ${errs.map(x => `${x.name || x.id}: ${x.error}`).join(' · ')}` : ''}`);
-      await loadManaged();
-    } catch (e) { toast(e.message); el.disabled = false; }
-  },
-  async 'managed-facts'(el) {
-    if (!confirm(`Confirm ${el.dataset.name}’s unconfirmed and due-for-review facts?\n\nOnly confirm if you’ve checked each one is accurate for the products they sell. Each is recorded as confirmed by you. Facts that break a rule are skipped.`)) return;
-    try {
-      const r = await api(`/api/admin/workspaces/${el.dataset.id}/confirm-facts`, { method: 'POST', body: { attest: true } });
-      toast(`${r.confirmed.length} confirmed${r.skipped.length ? `, ${r.skipped.length} skipped (they break a rule; fix them in Setup → Library)` : ''}`);
-      await loadManaged();
-    } catch (e) { toast(e.message); }
-  },
-  'access-invite'(el) {
-    const r = (S.access || []).find(x => x.id === el.dataset.id), f = main.querySelector('[data-form="invite"]');
-    if (!r || !f) return;
-    f.elements.email.value = r.email; f.elements.workspaceId.value = ''; f.elements.workspaceName.value = r.business || r.name; f.elements.referralCode.value = r.ref || '';
-    f.scrollIntoView({ behavior: 'smooth', block: 'center' }); f.elements.email.focus();
-    toast('Check the details, then Create invite link');
-  },
-  async 'access-status'(el) {
-    try { S.access = (await api(`/api/admin/access-requests/${el.dataset.id}`, { method: 'POST', body: { status: el.dataset.v } })).requests; drawAccess(); } catch (e) { toast(e.message); }
   },
   async 'reset-link'(el) {
     try { const r = await api('/api/admin/reset', { method: 'POST', body: { accountId: el.dataset.id } }); showLink(el.closest('.panel').querySelector('[data-out]') || el.closest('.panel'), r.link, r.emailed ? `Reset link emailed to ${r.email} (valid 7 days, single use). It’s here too:` : `${r.queued ? `${r.emailError} ` : r.emailError ? `Couldn’t email it (${r.emailError}). ` : ''}Reset link (valid 7 days, single use). Send it to them directly:`); }
@@ -1710,7 +1658,6 @@ const actions = {
     if (!confirm('Decline this deletion request? Nothing is deleted, and the request disappears from their Account page. Let them know why.')) return;
     try { await api(`/api/admin/workspaces/${el.dataset.id}/delete-request`, { method: 'DELETE' }); await viewAdmin(); } catch (e) { toast(e.message); }
   },
-  async 'time-del'(el) { try { await api(`/api/admin/workspaces/${el.dataset.id}/time/${el.dataset.e}`, { method: 'DELETE' }); await viewAdmin(); } catch (e) { toast(e.message); } },
 
   // Instagram
   async 'ig-connect'(el) {
@@ -1908,8 +1855,6 @@ document.addEventListener('change', e => {
   // The weekly plan's ticks survive a redraw (new videos arriving redraw Create).
   if (t.dataset.plan !== undefined) { const at = S.weekly?.weekly?.at || ''; if (S.planOff?.at !== at) S.planOff = { at, off: {} }; S.planOff.off[t.dataset.plan] = !t.checked; return; }
   if (t.dataset.act === 'accept') return actions.accept(t);
-  if (t.dataset.personEdit !== undefined) { api(`/api/people/${t.dataset.personEdit}`, { method: 'PUT', body: { canEdit: t.checked } }).then(r => { S.people = { ...S.people, ...r }; toast(t.checked ? 'They can edit content and settings now' : 'They can’t edit settings anymore'); }).catch(e => { t.checked = !t.checked; toast(e.message); }); return; }
-  if (t.dataset.personPost !== undefined) { api(`/api/people/${t.dataset.personPost}`, { method: 'PUT', body: { canPost: t.checked } }).then(r => { S.people = { ...S.people, ...r }; toast(t.checked ? 'They can post for you now' : 'They can’t post anymore'); }).catch(e => { t.checked = !t.checked; toast(e.message); }); return; }
   if (t.dataset.wsSwitch !== undefined) { if (dirty() && !confirm('You have unsaved changes. Switch anyway?')) { t.value = S.me.workspace.id; return; } api('/api/workspaces/switch', { method: 'POST', body: { workspaceId: t.value } }).then(() => { location.hash = '#/'; location.reload(); }).catch(e => toast(e.message)); return; }
   if (t.dataset.act === 'accept-terms' && S.setup) { S.setup.acceptTerms = t.checked; return; }
   if (t.dataset.audit) { S.auditF[t.dataset.audit] = t.value; S.auditF.limit = 30; loadAudit(); return; }
@@ -2081,7 +2026,6 @@ document.addEventListener('submit', async e => {
       if (v) { const it = { id: uid(list === 'stories' ? 'st' : 'q'), text: v, links: [], ...(list === 'stories' ? { confirmed: false } : {}) }; S.cfg.bank[list].unshift(it); S.openLinks = it.id; drawContent(); saveBar(); }
     }
     if (kind === 'coach') { const q = String(data.q || '').trim(); if (q) { f.reset(); await sendCoach(q); } return; }
-    if (kind === 'time') { await api(`/api/admin/workspaces/${f.dataset.id}/time`, { method: 'POST', body: { minutes: Number(data.minutes), note: data.note } }); toast('Logged'); await viewAdmin(); return; }
     if (kind === 'coach-reply') {
       const r = S.coach.reply;
       r.message = String(data.message || ''); r.note = String(data.note || ''); r.audienceId = String(data.audienceId || ''); r.busy = true; r.error = ''; drawCoach();
@@ -2103,14 +2047,6 @@ document.addEventListener('submit', async e => {
       showLink(document.getElementById('reviewerOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too:` : `Send this invite link to ${data.email} (valid 7 days, single use):`);
       return;
     }
-    if (kind === 'person-invite') {
-      const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, canPost: !!data.canPost } });
-      S.people = { ...S.people, ...r }; drawTeam();
-      showLink(document.getElementById('inviteOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too:` : `Send this invite link to ${data.email} (valid 7 days, single use):`);
-      return;
-    }
-    if (kind === 'request-done') { await api(`/api/admin/requests/${f.dataset.ws}/${f.dataset.id}`, { method: 'POST', body: { reply: data.reply } }); toast('Marked done. They’ll see your reply.'); loadRequests(); return; }
-    if (kind === 'request') { S.requests = { ...S.requests, ...(await api('/api/requests', { method: 'POST', body: { text: data.text, area: data.area } })) }; drawTeam(); toast('Sent to your team'); return; }
     if (kind === 'add') {
       const text = String(data.text || '').trim(), list = f.dataset.list;
       if (text) {
@@ -2131,10 +2067,10 @@ document.addEventListener('submit', async e => {
     if (kind === 'posted') { await api(`/api/videos/${f.dataset.id}/posted`, { method: 'POST', body: { url: data.url } }); await loadVideos(); drawReview(); toast('Marked posted. Add views and messages in a few days.'); }
     if (kind === 'results') { await api(`/api/videos/${f.dataset.id}/results`, { method: 'POST', body: data }); await loadVideos(); drawReview(); toast('Saved'); }
     if (kind === 'invite') {
-      const body = { email: data.email, comped: !!data.comped, workspaceName: data.workspaceName, referralCode: data.referralCode };
+      const body = { email: data.email, workspaceName: data.workspaceName };
       if (data.workspaceId === '__admin') body.role = 'admin'; else if (data.workspaceId) body.workspaceId = data.workspaceId;
       const r = await api('/api/admin/invite', { method: 'POST', body });
-      S.admin = await api('/api/admin/overview'); drawAdmin(); loadAudit(); loadAccess();
+      S.admin = await api('/api/admin/overview'); drawAdmin(); loadAudit();
       showLink(document.getElementById('inviteOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too, in case it lands in spam:` : `${r.queued ? `${r.emailError} ` : r.emailError ? `Couldn’t email it (${r.emailError}). ` : ''}Invite for ${data.email} (valid 7 days, single use). Send it to them directly:`);
     }
   } catch (err) {
@@ -2147,9 +2083,6 @@ document.addEventListener('submit', async e => {
 // as soon as it's active, no reload needed (clients.claim).
 function registerSw() { if (offlineOK()) navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 (async function boot() {
-  // Coming back from Stripe Checkout or the billing portal.
-  const back = new URLSearchParams(location.search).get('billing');
-  if (back) history.replaceState(null, '', '/#/billing' + (back === 'done' ? '?done=1' : ''));
   await refreshMe();
   if (!S.me) S.me = { account: null };
   render();

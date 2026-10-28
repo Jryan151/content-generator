@@ -131,7 +131,7 @@ test('the nightly inspection fixes what’s safe and lists the rest', () => {
   const goneId = 'w0000000000aa';
   fs.mkdirSync(path.join(paths.DIRS.videos, goneId), { recursive: true });
   const acc = store.createAccount({ email: 'helper@example.com', role: 'agent', workspaceId: ws.id, hash: 'x' });
-  store.updateAccount(acc.id, { memberships: [{ ws: ws.id, role: 'owner' }, { ws: goneId, role: 'assistant' }] });
+  store.updateAccount(acc.id, { memberships: [{ ws: ws.id, role: 'owner' }, { ws: goneId, role: 'reviewer' }] });
   const lonely = store.createAccount({ email: 'lonely@example.com', role: 'agent', workspaceId: goneId, hash: 'x' });
   const job = queue.enqueue({ ws: goneId, kind: 'video' });
 

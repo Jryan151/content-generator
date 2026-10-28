@@ -241,7 +241,7 @@ test('email: off without a key; invites and resets are emailed with Postmark, an
   } finally { MAIL_KEYS.forEach(k => delete process.env[k]); fm.close(); }
 });
 
-test('email: Resend format, failed payment, trial ending (once) and the Monday review reminder', async () => {
+test('email: Resend format and the Monday review reminder', async () => {
   const mail = await import('../lib/email.js');
   const { emailJobs } = await import('../server.js');
   const fm = await fakeMail();
@@ -253,26 +253,8 @@ test('email: Resend format, failed payment, trial ending (once) and the Monday r
     assert.equal(r.headers.authorization, 'Bearer re_key');
     assert.deepEqual(r.body.to, ['x@example.com']);
 
-    // Failed payment: the agent gets an email (the admin alert is unchanged).
-    const { c, ws } = await agent('payer@example.com');
-    store.updateWorkspace(ws, { billing: { customerId: 'cus_mail' } });
-    const { handleWebhook } = await import('../lib/billing.js');
-    const sign = ev => { const raw = JSON.stringify(ev), t = Math.floor(Date.now() / 1000); return [raw, `t=${t},v1=${crypto.createHmac('sha256', 'whsec_mail').update(`${t}.${raw}`).digest('hex')}`]; };
-    await handleWebhook(...sign({ id: 'evt_pf', type: 'invoice.payment_failed', data: { object: { customer: 'cus_mail' } } }));
-    assert.equal(fm.got.at(-1).body.to[0], 'payer@example.com');
-    assert.match(fm.got.at(-1).body.subject, /payment didn’t go through/);
-
-    // Trial ending: about three days out, sent once per subscription.
-    store.updateWorkspace(ws, { billing: { status: 'trialing', subscriptionId: 'sub_t', trialEnd: new Date(Date.now() + 2.5 * 86400000).toISOString() } });
-    const n0 = fm.got.length;
-    const first = await emailJobs(new Date());
-    assert.deepEqual(first.trial, [{ ws, sent: 1 }]);
-    assert.match(fm.got.at(-1).body.subject, /free trial ends soon/);
-    assert.deepEqual((await emailJobs(new Date())).trial, [], 'not twice');
-    assert.equal(fm.got.length, n0 + 1);
-    store.updateWorkspace(ws, { billing: { status: 'active' } });
-
     // Monday 9am in Denver with a video waiting: one reminder per Monday; agents can turn it off.
+    const { c, ws } = await agent('payer@example.com');
     fakeVideo(ws, 'pending');
     const monday = new Date('2026-10-19T15:00:00Z');
     assert.deepEqual((await mail.reviewReminders(new Date('2026-10-20T15:00:00Z'))).filter(x => x.ws === ws), [], 'Tuesday: nothing');
@@ -366,14 +348,10 @@ test('data: deletion is requested by the agent, confirmed by an admin, and remov
     // Asking twice doesn't send a second email.
     assert.equal((await c.post('/api/data/delete-request', { confirm: true })).data.emailed, false);
 
-    // Confirming: the typed name must match, and a live Stripe subscription has to be dealt with first.
+    // Confirming: the typed name must match.
     assert.equal((await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'wrong name' })).status, 400);
-    store.updateWorkspace(ws, { billing: { status: 'active', subscriptionId: 'sub_live' } });
-    const live = await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'LEAVING@example.com' });
-    assert.equal(live.status, 409);
-    assert.equal(live.data.stripe, true);
     assert.ok(store.getWorkspace(ws), 'nothing deleted yet');
-    const done = await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'leaving@example.com', stripeHandled: true });
+    const done = await admin.post(`/api/admin/workspaces/${ws}/delete`, { confirm: 'LEAVING@example.com' });
     assert.equal(done.status, 200);
     assert.deepEqual({ logins: done.data.deleted.logins, videos: done.data.deleted.videos }, { logins: 2, videos: 1 });
     assert.equal(done.data.emailed, true);

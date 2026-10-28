@@ -170,46 +170,6 @@ test('admin can open a workspace and reset a password', async () => {
   await admin.post('/api/admin/open', { workspaceId: null });
 });
 
-test('Stripe: signed webhooks turn a plan on and off', async () => {
-  const subs = {};
-  const stripe = http.createServer((req, res) => {
-    const id = req.url.split('/').pop();
-    res.writeHead(subs[id] ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(subs[id] || { error: { message: 'nope' } }));
-  });
-  await new Promise(r => stripe.listen(0, '127.0.0.1', r));
-  Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_test', STRIPE_API_BASE: `http://127.0.0.1:${stripe.address().port}/v1`, STRIPE_PRICE_STARTER: 'price_starter', PLAN_STARTER_VIDEOS: '12' });
-  try {
-    const { c, ws } = await newAgent('gil@example.com', 'Gil');
-    await admin.post(`/api/admin/workspaces/${ws}`, { comped: false });
-    await finishSetup(c);
-    assert.equal((await c.post('/api/jobs', { count: 1 })).status, 402, 'no plan yet');
-    const send = async event => {
-      const raw = JSON.stringify(event), t = Math.floor(Date.now() / 1000);
-      const sig = crypto.createHmac('sha256', 'whsec_test').update(`${t}.${raw}`).digest('hex');
-      return fetch(`http://127.0.0.1:${port}/api/stripe/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': `t=${t},v1=${sig}` }, body: raw });
-    };
-    subs.sub_1 = { id: 'sub_1', object: 'subscription', status: 'active', customer: 'cus_1', metadata: { workspace: ws }, items: { data: [{ price: { id: 'price_starter' }, current_period_end: Math.floor(Date.now() / 1000) + 86400 * 30 }] } };
-    assert.equal((await send({ id: 'evt_1', type: 'checkout.session.completed', data: { object: { client_reference_id: ws, customer: 'cus_1', subscription: 'sub_1' } } })).status, 200);
-    let w = store.getWorkspace(ws);
-    assert.equal(w.billing.status, 'active');
-    assert.equal(w.billing.plan, 'starter');
-    assert.ok(w.billing.periodEnd);
-    assert.equal((await c.post('/api/jobs', { count: 1 })).status, 200, 'plan active');
-    const bad = await fetch(`http://127.0.0.1:${port}/api/stripe/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': 't=1,v1=00' }, body: '{}' });
-    assert.equal(bad.status, 400, 'unsigned or stale events are refused');
-    subs.sub_1 = { ...subs.sub_1, status: 'canceled' };
-    await send({ id: 'evt_2', type: 'customer.subscription.deleted', data: { object: subs.sub_1 } });
-    w = store.getWorkspace(ws);
-    assert.equal(w.billing.status, 'canceled');
-    assert.equal((await c.post('/api/jobs', { count: 1 })).status, 402, 'plan ended');
-    assert.equal((await (await send({ id: 'evt_2', type: 'customer.subscription.deleted', data: { object: subs.sub_1 } })).json()).duplicate, true);
-  } finally {
-    ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_API_BASE', 'STRIPE_PRICE_STARTER', 'PLAN_STARTER_VIDEOS'].forEach(k => delete process.env[k]);
-    stripe.close();
-  }
-});
-
 test('static pages carry a strict content security policy', async () => {
   const r = await client(port).get('/');
   assert.equal(r.status, 200);
