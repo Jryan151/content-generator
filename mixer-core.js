@@ -22,7 +22,7 @@ import { NICHES, DEFAULT_NICHE, nicheOf } from './niches/index.js';
 export { nicheOf, NICHES, DEFAULT_NICHE };
 
 /* ---------------- Platform constants ---------------- */
-export const CONFIG_VERSION = 13;
+export const CONFIG_VERSION = 14;
 export const END_CARD_SECONDS = 2.5;
 
 // Niche-specific content (products, the compliance floor, government-sounding words, eligibility
@@ -125,8 +125,8 @@ export const DEFAULT_CONFIG = {
     clipCheck: 'on',         // AI looks at each clip's thumbnail before using it
     music: 'off',            // 'off' (add a trending sound in Instagram) | 'library'
     ownClips: 'off',         // the agent's own clips (Brand): 'off' | 'few' (first and last scenes) | 'many' (about half)
-    footageMix: 'balanced',  // shot plan: 'people' (2 in 3 scenes show people) | 'balanced' (half) | 'scenery' (1 in 3)
-    shotTypes: ['people', 'closeup', 'action', 'wide', 'still', 'soft', 'golden', 'overhead', 'slow'],   // SHOT_TYPES the plan may use
+    footageMix: 'people',    // shot plan: 'people' (2 in 3 scenes show people) | 'balanced' (half) | 'scenery' (1 in 3)
+    shotTypes: ['people', 'closeup', 'action', 'slow', 'wide', 'still'],   // SHOT_TYPES the plan may use (soft focus, golden hour and overhead are there to turn on)
   },
   schedule: {
     keepReady: 0,            // overnight, top up to this many videos waiting for review (0 = off)
@@ -412,9 +412,15 @@ export function migrate(c) {
   // Version 10 added structures: everyone gets them all, and Classic always stays on.
   out.output.structures = uniq(['classic', ...(Array.isArray(out.output.structures) ? out.output.structures : d.output.structures)]).filter(k => STRUCTURES[k]);
   if (!['on', 'off'].includes(out.output.clipCheck)) out.output.clipCheck = 'on';
-  if (!FOOTAGE_MIX[out.output.footageMix]) out.output.footageMix = 'balanced';
+  if (!FOOTAGE_MIX[out.output.footageMix]) out.output.footageMix = d.output.footageMix;
   // Version 12 added the shot plan. People shots always stay on: openings and calls to action need a face.
   out.output.shotTypes = uniq(['people', ...(Array.isArray(out.output.shotTypes) ? out.output.shotTypes : d.output.shotTypes)]).filter(k => SHOT_TYPES[k]);
+  // Version 14 (lean): footage shows the people a line is about more often, and the mood-only shots
+  // (soft focus, golden hour, overhead) that made footage feel unrelated are off unless turned back on.
+  if (c.version < 14) {
+    if (out.output.footageMix === 'balanced') out.output.footageMix = 'people';
+    out.output.shotTypes = out.output.shotTypes.filter(k => !['soft', 'golden', 'overhead'].includes(k));
+  }
   if (!LEVELS.includes(out.voice.energy)) out.voice.energy = d.voice.energy;
   if (!LEVELS.includes(out.voice.tone)) out.voice.tone = d.voice.tone;
   if (!['on', 'off'].includes(out.voice.aiNote)) out.voice.aiNote = d.voice.aiNote;

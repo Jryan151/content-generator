@@ -126,14 +126,14 @@ test('a v6 single-agent config upgrades without losing content', () => {
     guardrails: { mustUse: ['licensed agent'], neverUse: ['guaranteed', 'cheapest', 'my own rule'], mustDo: ['Make clear that coverage depends on qualifying', 'Speak as Jane'], neverDo: [] },
     look: { name: 'Jane Smith', title: 'Licensed Agent', location: 'Gallup, NM' }, output: { scenes: 6 }, voice: { role: 'Custom role' } };
   const c = migrate(v6);
-  assert.equal(c.version, 13);
+  assert.equal(c.version, 14);
   assert.equal(c.story.insights[0].confirmed, false, 'facts need confirming once');
   assert.equal(c.story.solutions[0].mustMention, 'waiting period');
   assert.deepEqual(c.guardrails.neverUse, ['my own rule'], 'platform rules no longer duplicated');
   assert.deepEqual(c.guardrails.mustDo, ['Speak as Jane']);
   assert.ok(guardrailsFor(c).neverUse.includes('guaranteed'), 'platform rules still apply');
   assert.equal(c.voice.role, 'Custom role');
-  assert.equal(migrate({ version: 3, strategy: {} }).version, 13);
+  assert.equal(migrate({ version: 3, strategy: {} }).version, 14);
 });
 
 test('the role line reads well with and without details', () => {
@@ -245,4 +245,23 @@ test('openings that brought messages guide new hooks', async () => {
   assert.deepEqual(w.map(x => x.hook), ['Mom never talked about it.']);
   const c = cfgWith();
   assert.match(buildHookPrompt(c, { ...picksFor(c, 't_health_f'), winners: w }).user, /OPENINGS THAT WORKED FOR JANE: THEY BROUGHT MESSAGES OR WON A TEST[\s\S]*Mom never talked about it\."\s\(3 messages\)/);
+});
+
+test('the example scripts pass the checks they teach: short, plain, no numbers, banned words or ad phrases', async () => {
+  const { EXAMPLES, exampleFor } = await import('../lib/prompts.js');
+  const { clicheHits, countWords } = await import('../mixer-core.js');
+  const banned = guardrailsFor(migrate(DEFAULT_CONFIG)).neverUse;
+  for (const e of EXAMPLES) {
+    assert.equal(e.scenes.length, 6, e.id);
+    e.scenes.forEach((l, i) => {
+      assert.ok(countWords(l) <= 10, `${e.id} ${i + 1}: ${countWords(l)} words`);
+      assert.deepEqual(clicheHits(l), [], `${e.id} ${i + 1}`);
+      assert.ok(!/\d|\$|%/.test(l), `${e.id} ${i + 1}: no numbers`);
+      assert.ok(!banned.some(b => l.toLowerCase().includes(b)), `${e.id} ${i + 1}: banned word`);
+      if (i > 0 && i < 4) assert.ok(!l.endsWith('?'), `${e.id} ${i + 1}: only the hook asks`);
+    });
+  }
+  // The example is on another subject than the video.
+  assert.notEqual(exampleFor({ painPoint: { text: 'I have coverage through work.' } }).id, 'work');
+  assert.notEqual(exampleFor({ insight: { text: 'Many policies ask a few health questions.' } }).id, 'health');
 });

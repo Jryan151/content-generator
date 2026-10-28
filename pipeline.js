@@ -42,7 +42,7 @@ export function pickMusic(log, skip = []) {
 
 // The scene's `shot` (from the shot plan) and `manual` (a search the agent typed) shape what counts as a fit.
 export const clipChecker = (cfg, visual, meter) => (cfg.output.clipCheck === 'off' ? null
-  : (hits, scene) => rankClips({ clips: hits.map(h => ({ image: thumbnailOf(h) })), caption: scene.text, keyword: scene.keyword, visual, place: cfg.look?.location, meter, shot: SHOT_TYPES[scene.shot] || null, manual: !!scene.manual }));
+  : (hits, scene) => rankClips({ clips: hits.map(h => ({ image: thumbnailOf(h) })), caption: scene.text, see: scene.see || '', keyword: scene.keyword, visual, place: cfg.look?.location, meter, shot: SHOT_TYPES[scene.shot] || null, manual: !!scene.manual }));
 
 // Automatic checks shown on the review card. The agent still watches the video before approving.
 export function preflight({ cfg, meta, scenes, clips, out, post, inspect, logo, now = Date.now() }) {

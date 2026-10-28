@@ -207,7 +207,7 @@ export function fallbackQueries(visual) {
 
 export const GOOD = 4;       // take a clip this good right away
 export const OK = 3;         // after a few searches, the best clip at this score or better is fine
-const RANK_QUERIES = 3;      // searches ranked per scene before settling for the best seen
+const RANK_QUERIES = 4;      // searches ranked per scene before settling for the best seen
 
 // One scene: rank a batch from the keyword search, then a shorter keyword, then audience
 // fallbacks. Takes the first clip scored GOOD; otherwise the best seen. Never unchecked unless
@@ -218,7 +218,10 @@ async function pickForScene(scene, i, { avoid, visual, saved = [], rank, log, st
   // A shot without people (a street, a photo frame, light) falls back to its own kind of shot, not to people.
   const shot = SHOT_TYPES[scene.shot];
   const fallbacks = shot && !shot.human ? [shot.example] : [...saved.slice(0, 2), ...fallbackQueries(visual)];
-  const queries = [keyword, keyword.split(' ').slice(0, 2).join(' '), ...fallbacks].filter((q, j, a) => q && a.indexOf(q) === j);
+  // The script's own second search for this scene ("backup") comes before anything generic, so a
+  // scene keeps looking for what it's about before settling for the audience's stock moments.
+  const backup = String(scene.backup || '').trim();
+  const queries = [keyword, backup, keyword.split(' ').slice(0, 2).join(' '), ...fallbacks].filter((q, j, a) => q && a.indexOf(q) === j);
   let best = null, ranked = 0;
   for (const q of queries) {
     let list = candidates(await search(q), avoid);

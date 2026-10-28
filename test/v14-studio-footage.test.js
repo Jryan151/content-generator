@@ -65,7 +65,7 @@ test('shot plan: every automatic video gets one, it’s in the prompt, and the s
   assert.doesNotMatch(P.buildPrompt(c0, { ...a, shots: undefined }).user, /FOOTAGE PLAN/, 'older picks are unchanged');
   // Settings: the mix and the kinds of shots, with people shots always on.
   const m = M.migrate({ ...c0, output: { ...c0.output, footageMix: 'loud', shotTypes: ['wide', 'nope'] } });
-  assert.equal(m.output.footageMix, 'balanced');
+  assert.equal(m.output.footageMix, 'people');
   assert.deepEqual(m.output.shotTypes, ['people', 'wide']);
 });
 

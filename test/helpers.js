@@ -40,7 +40,7 @@ const BANNED_ACCENT = new Set(['usually', 'often', 'generally', 'typically', 'ma
 const accentOf = text => (text.toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !BANNED_ACCENT.has(w)).sort((a, b) => b.length - a.length)[0] || 'family';
 
 export function fakeScript(user) {
-  const scenes = Number(between(user, 'Exactly ', ' scenes')) || 6;
+  const scenes = Number((/exactly (\d+) scenes/i.exec(user) || [])[1]) || 6;
   const maxWords = Number(between(user, 'caption: ', ' words or fewer')) || Number(between(user, 'the key phrase from "say", ', ' words or fewer')) || 10;
   const facts = user.split('\n').filter(l => / to teach: /.test(l)).map(l => l.slice(l.indexOf(' to teach: ') + 11).trim());
   const cta = between(user, 'Use the action ', ' (keep the words').trim() || 'Message me';
