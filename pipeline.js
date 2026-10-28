@@ -17,9 +17,9 @@ import { findClips, swapClip, clipFile, downloadClip } from './stages/broll.js';
 import { lens } from './lib/lens.js';
 import * as library from './lib/library.js';
 import * as memory from './lib/memory.js';
-import { rankClips, thumbnailOf, secondLook, LOOK_KINDS } from './stages/vision.js';
+import { rankClips, thumbnailOf } from './stages/vision.js';
 import { renderVideo, makeCover, inspectVideo } from './stages/render.js';
-import { sampleFrames, ZONE_WORDS } from './stages/craft.js';
+import { ZONE_WORDS } from './stages/craft.js';
 import { ensureFont } from './stages/fonts.js';
 import { validateScript, validatePost, insightStatus, boostsFrom, winnersFrom, studioPicks, studioChecks, applyAutoFixes, SHOT_TYPES, tasteFrom, AI_VOICE_NOTE, RULES } from './mixer-core.js';
 // The locked compliance rules this version checks every script against, recorded on each video (and each
@@ -44,29 +44,8 @@ export function pickMusic(log, skip = []) {
 export const clipChecker = (cfg, visual, meter) => (cfg.output.clipCheck === 'off' ? null
   : (hits, scene) => rankClips({ clips: hits.map(h => ({ image: thumbnailOf(h) })), caption: scene.text, keyword: scene.keyword, visual, place: cfg.look?.location, meter, shot: SHOT_TYPES[scene.shot] || null, manual: !!scene.manual }));
 
-// The second look (stages/vision.js): a frame from the middle of each scene of the finished video, with
-// its caption. undefined when it's switched off (the AI clip check is off, or SECOND_LOOK=off); null when
-// it couldn't run.
-export async function lookAgain({ cfg, file, out, scenes, workDir, meter = null, log = console.log }) {
-  if (cfg.output?.clipCheck === 'off' || process.env.SECOND_LOOK === 'off') return undefined;
-  let t = 0;
-  const times = (out.sceneSeconds || []).map(d => { const at = t + d / 2; t += d; return at; });
-  if (!times.length) return undefined;
-  try {
-    const images = await sampleFrames(file, times, workDir);
-    const found = await secondLook({ frames: images.map((image, i) => ({ image, caption: scenes[i]?.text || '', scene: i + 1 })), meter, place: cfg.look?.location || '' });
-    if (found?.length) log(`Second look: ${found.map(x => `scene ${x.scene} (${x.kind}${x.note ? ': ' + x.note : ''})`).join(', ')}.`);
-    return found;
-  } catch (e) {
-    if (e.aborted) throw e;
-    log(`(The second look couldn’t run: ${e.message})`);
-    return null;
-  }
-}
-
 // Automatic checks shown on the review card. The agent still watches the video before approving.
-// `look`: the second look's findings (lookAgain).
-export function preflight({ cfg, meta, scenes, clips, out, post, inspect, logo, look, now = Date.now() }) {
+export function preflight({ cfg, meta, scenes, clips, out, post, inspect, logo, now = Date.now() }) {
   const items = [];
   const add = (ok, label) => items.push({ ok, label });
   add(true, 'Script passed every compliance check');
@@ -120,13 +99,6 @@ export function preflight({ cfg, meta, scenes, clips, out, post, inspect, logo, 
       add(!issues.length, issues.length ? `Final check found ${issues.join(' and ')}. Use Fix a scene to swap that clip.` : 'Final check: no black, frozen or silent stretches');
     }
   }
-  // The second look at the finished frames (signs, watermarks, stray text, a face that fights the line).
-  if (look === null) add(false, 'The second look at the finished frames couldn’t run. Watch for signs, watermarks or stray text in the footage.');
-  else if (Array.isArray(look)) {
-    const byScene = [...new Set(look.map(x => x.scene))].sort((a, b) => a - b);
-    add(!look.length, look.length ? `Second look: ${byScene.map(n => `scene ${n} may show ${look.filter(x => x.scene === n).map(x => x.note || LOOK_KINDS[x.kind]).join(', and ')}`).join('; ')}. Use Fix a scene to swap the clip.`
-      : 'Second look at the finished frames: no signs, watermarks, stray text or mismatched faces');
-  }
   // The finishing touches that were made (stages/craft.js), so the agent knows what's been done.
   const done = out.finish ? [out.finish.matched ? 'clips evened out in brightness and color' : '', out.finish.beat ? 'cuts on the music’s beat' : '', out.finish.loop ? 'loops smoothly back to the start' : '', out.finish.loud ? 'sound leveled for Instagram' : ''].filter(Boolean) : [];
   if (done.length) add(true, `Finished: ${done.join(', ')}`);
@@ -171,7 +143,7 @@ export async function makeVideo({ ws, force = {}, source = 'manual', log = conso
   // unconfirmed, a rule added, or the video type changed since). Otherwise everything is made afresh.
   if (state.script && !savedScriptOk(state, cfg, studio)) {
     log('The settings changed since the last try, so the script is written again.');
-    for (const k of ['script', 'voice', 'clips', 'lens', 'render', 'look']) delete state[k];
+    for (const k of ['script', 'voice', 'clips', 'lens', 'render']) delete state[k];
   }
   let stage = 'script';
   let voiceMode = cfg.output.mode === 'voiceover';
@@ -280,14 +252,11 @@ export async function makeVideo({ ws, force = {}, source = 'manual', log = conso
     if (out) log('Using the render from the last try.');
     else {
       out = await renderVideo({ scenes: script.scenes, clips: clips.map(c => c.file), cfg, outFile, workDir, voice, music, logo, log });
-      delete state.look;   // a second look kept from an earlier render isn't about this one
       keep({ render: { out, music: music ? path.basename(music) : '' } });
     }
     let coverOk = true;
     await makeCover(outFile, store.videoPath(ws, cover)).catch(e => { if (e.aborted) throw e; coverOk = false; log('Cover image failed: ' + e.message); });
     const inspect = await inspectVideo(outFile, { voice: voiceMode });
-    const look = 'look' in state ? state.look : await lookAgain({ cfg, file: outFile, out, scenes: script.scenes, workDir, meter, log });
-    if (!('look' in state) && Array.isArray(look)) keep({ look });   // (one that couldn't run is tried again)
 
     crashPoint('make:render');
     flightStep('save');
@@ -313,7 +282,7 @@ export async function makeVideo({ ws, force = {}, source = 'manual', log = conso
       duration: out.duration, mode: cfg.output.mode,
       meta: { ...script.meta, locked: LOCKED }, scenes: script.scenes, scores: script.scores, post,
       clips: clips.map(c => ({ id: c.id, query: c.query, checked: c.checked, score: c.score ?? null, reason: c.reason || '', vertical: c.vertical, alts: c.alts })),
-      preflight: preflight({ cfg, meta: script.meta, scenes: script.scenes, clips, out, post, inspect, logo, look }),
+      preflight: preflight({ cfg, meta: script.meta, scenes: script.scenes, clips, out, post, inspect, logo }),
       version: 1, fixes: 0, cost: Math.round(((state.costBefore || 0) + meter.total) * 1000) / 1000,
       ...(state.tries > 1 ? { tries: state.tries } : {}),
     };
@@ -344,7 +313,7 @@ export async function makeVideo({ ws, force = {}, source = 'manual', log = conso
     return saved;
   } catch (e) {
     // A render that failed may have failed on its footage: the next try finds footage again.
-    if (stage === 'render') { delete state.clips; delete state.render; delete state.look; }
+    if (stage === 'render') { delete state.clips; delete state.render; }
     if (statePath) keep({ tries: (state.tries || 1) + (e.permanent ? 0 : 1), lastError: String(e.message || e).slice(0, 300) });
     throw e;
   } finally {
@@ -524,7 +493,6 @@ export async function fixVideo({ ws, videoId, edits = [], swaps = [], picks = {}
     let coverOk = true;
     await makeCover(outFile, store.videoPath(ws, cover)).catch(() => { coverOk = false; });
     const inspect = await inspectVideo(outFile, { voice: cfg.output.mode === 'voiceover' });
-    const look = await lookAgain({ cfg: base, file: outFile, out, scenes, workDir, meter, log });
 
     // Changed words get a fresh persuasion read, so the badges and any pressure warning match the new script.
     const reworded = edits.some(e => 'text' in e || 'say' in e);
@@ -543,7 +511,7 @@ export async function fixVideo({ ws, videoId, edits = [], swaps = [], picks = {}
       status: 'pending', approval: null, rejection: null, fileDeleted: false,
       scenes, duration: out.duration,
       clips: clips.map(c => ({ id: c.id, query: c.query, checked: c.checked, score: c.score ?? null, reason: c.reason || '', vertical: c.vertical, alts: c.alts, ...(c.chosen ? { chosen: true } : {}) })),
-      preflight: preflight({ cfg: base, meta: metaFor(old), scenes, clips, out, post: old.post, inspect, logo, look }),
+      preflight: preflight({ cfg: base, meta: metaFor(old), scenes, clips, out, post: old.post, inspect, logo }),
       cost: Math.round(((old.cost || 0) + meter.total) * 1000) / 1000,
       fixLog: [...(old.fixLog || []), { at: new Date().toISOString(), by, edits: edits.map(e => e.i), swaps, ...(Object.keys(picks).length ? { picked: Object.keys(picks).map(Number) } : {}), ...(jobId ? { job: jobId, oldFile: v.file || '', oldCover: v.cover || '' } : {}) }],
     }));

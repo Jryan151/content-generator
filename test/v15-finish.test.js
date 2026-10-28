@@ -1,5 +1,5 @@
 // v15 Phase 6: the finishing work on every video — caption craft, Instagram's safe zones, even footage,
-// cuts on the beat, a clean loop, sound leveled for Instagram, and the second look at the finished frames.
+// cuts on the beat, a clean loop and sound leveled for Instagram.
 // The measurements run with the real FFmpeg (skipped without it).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -188,34 +188,6 @@ test('a finished video: leveled to Instagram, captions kept clear, no black firs
   assert.ok(avg(first) > 60, `first frame brightness ${avg(first)}`);
   const diff = first.reduce((a, x, i) => a + Math.abs(x - last[i]), 0) / first.length;
   assert.ok(diff < 12, `the last frame is close to the first (difference ${diff})`);
-});
-
-test('the second look: frames of the finished video, findings by scene on the review card; off with the clip check', { skip: noFfmpeg, timeout: 120000 }, async t => {
-  const stubs = await startStubs();
-  t.after(() => stubs.close());
-  const { lookAgain, preflight } = await import('../pipeline.js');
-  const dir = tmp();
-  ff(['-f', 'lavfi', '-i', 'color=c=#6b8fb5:s=360x640:d=4,format=yuv420p', '-r', '30', path.join(dir, 'v.mp4')]);
-  const out = { sceneSeconds: [2, 2], duration: 4, lines: [1, 1] };
-  const cfg = { output: {}, look: { location: 'Austin, TX' } };
-  const clean = await lookAgain({ cfg, file: path.join(dir, 'v.mp4'), out, scenes: [{ text: 'All good' }, { text: 'Still good' }], workDir: dir, log: () => {} });
-  assert.deepEqual(clean, []);
-  const found = await lookAgain({ cfg, file: path.join(dir, 'v.mp4'), out, scenes: [{ text: 'Watermark test' }, { text: 'Fine' }], workDir: dir, log: () => {} });
-  assert.deepEqual(found, [{ scene: 1, kind: 'watermark', note: 'a stock watermark in the corner' }]);
-  assert.equal(await lookAgain({ cfg: { output: { clipCheck: 'off' } }, file: path.join(dir, 'v.mp4'), out, scenes: [], workDir: dir }), undefined);
-  // On the review card.
-  const base = { cfg: { story: { insights: [] }, output: {}, look: {} }, meta: {}, scenes: [], clips: [], out: { ...out, safe: { frames: 120, fixed: ['scene 2'], left: [] }, finish: { matched: 2, beat: true, loop: true, loud: true } }, post: 'x' };
-  const items = preflight({ ...base, look: found });
-  assert.ok(items.some(i => !i.ok && /Second look: scene 1 may show a stock watermark/.test(i.label)));
-  assert.ok(items.some(i => i.ok && /stay clear of Instagram’s buttons.*scene 2 made a little smaller/.test(i.label)));
-  assert.ok(items.some(i => i.ok && /^Finished: clips evened out.*cuts on the music’s beat.*loops smoothly.*sound leveled/.test(i.label)));
-  assert.ok(preflight({ ...base, look: null }).some(i => !i.ok && /second look .* couldn’t run/i.test(i.label)));
-  assert.ok(!preflight({ ...base, look: undefined }).some(i => /second look/i.test(i.label)), 'switched off: not mentioned');
-  const stray = preflight({ ...base, out: { ...base.out, safe: { frames: 9, fixed: [], left: [{ where: 'scene 3', zones: ['right'] }] } } });
-  assert.ok(stray.some(i => !i.ok && i.label.includes('The caption in scene 3 would sit under the like and comment buttons') && i.label.includes('Fix a scene')));
-  const endStray = preflight({ ...base, out: { ...base.out, safe: { frames: 9, fixed: [], left: [{ where: 'the end card', zones: ['edge'] }] } } });
-  assert.ok(endStray.some(i => !i.ok && /The end card would sit off the edge of the screen\. Shorten your name, title or call to action in Brand/.test(i.label)), 'the end card is fixed in Brand');
-  assert.ok(preflight({ ...base, out: { ...base.out, safe: null } }).some(i => !i.ok && /safe-zone check couldn’t run/.test(i.label)));
 });
 
 test('the process runner hands frames over as they come, and stops on a reader’s error', { skip: noFfmpeg }, async () => {

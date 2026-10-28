@@ -53,53 +53,6 @@ export async function rankClips({ clips, caption, visual, keyword, place = '', m
   }
 }
 
-// The second look (v15): a careful editor's look at frames of the finished video, one from the middle of
-// each scene, with the caption burned in. It catches what the clip check (small thumbnails, before the
-// captions go on) can miss. Only clear problems are named; each comes back with its scene, so the agent
-// can swap that clip with Fix a scene.
-export const LOOK_KINDS = {
-  sign: 'a business sign or logo in the background (another company’s, perhaps)',
-  watermark: 'a watermark or stock-site mark',
-  text: 'text in the footage fighting the caption',
-  mood: 'a face whose mood fights the line (sad on a hopeful line)',
-};
-// frames: [{ image (data URL), caption, scene (1-based) }]. Returns [{ scene, kind, note }] (empty when
-// nothing's wrong), or null when the look couldn't be taken (the review card says so).
-export async function secondLook({ frames, meter = null, place = '' }) {
-  const usable = (frames || []).filter(f => f.image);
-  if (!usable.length) return null;
-  try {
-    const content = [{ type: 'text', text: `${usable.length} frames from the finished video, in order, one from each scene. The caption on screen is burned in at the bottom; it's given with each frame so you can judge the fit.
-For each frame, name only CLEAR problems, from these kinds:
-  sign: a readable business sign, store front or company logo in the background (any company: it could be a competitor)
-  watermark: a watermark, a stock-site mark or a "preview" stamp
-  text: words in the footage itself (not the caption) that compete with the caption
-  mood: the main person's face clearly fights the caption's feeling (crying, distressed or grim on a hopeful or reassuring line; partying on a serious one)
-Small, unreadable or ordinary details are fine. Most frames have no problems: return an empty list for them.
-Return ONLY JSON: {"frames":[{"n":1,"issues":[{"kind":"sign|watermark|text|mood","note":"a few words"}]}]}` }];
-    usable.forEach((f, i) => content.push({ type: 'text', text: `Frame ${i + 1} (scene ${f.scene}). Caption: "${String(f.caption || '').slice(0, 160)}"` }, { type: 'image_url', image_url: { url: f.image, detail: 'low' } }));
-    const text = await chatJSON({
-      job: 'vision', temperature: 0, maxTokens: 80 + 50 * usable.length, meter,
-      messages: [
-        { role: 'system', content: `You take a second look at frames from a finished short Instagram video by a licensed life insurance agent${place ? ` in ${place}` : ''}, before the agent sees it. You are a careful, fair editor: you flag only what you'd really fix.` },
-        { role: 'user', content },
-      ],
-    });
-    const out = JSON.parse(text).frames;
-    if (!Array.isArray(out)) return [];
-    const found = [];
-    for (const fr of out) {
-      const f = usable[Number(fr?.n) - 1];
-      if (!f || !Array.isArray(fr.issues)) continue;
-      for (const is of fr.issues.slice(0, 2)) if (LOOK_KINDS[is?.kind]) found.push({ scene: f.scene, kind: is.kind, note: String(is.note || '').replace(/\s+/g, ' ').trim().slice(0, 90) });
-    }
-    return found;
-  } catch (e) {
-    if (e.aborted) throw e;
-    return null;
-  }
-}
-
 // Pixabay gives each video size a thumbnail image.
 export const thumbnailOf = hit => {
   const v = hit.videos || {};

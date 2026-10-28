@@ -291,16 +291,3 @@ export async function checkSafeZones({ assPath, fontDir, seconds, groups = [], f
   }, { timeoutMs: 120000 });
   return { frames: n, problems: Object.fromEntries(Object.entries(found).map(([k, v]) => [k, [...v]])) };
 }
-
-// ---------------------------------------------------------------------------------------------------
-// Frames for the second look (stages/vision.js secondLook): one still per time, small, as data URLs.
-export async function sampleFrames(file, times, dir, { width = 360 } = {}) {
-  const out = [];
-  for (const [k, t] of times.entries()) {
-    const jpg = path.join(dir, `look_${k}.jpg`);
-    const r = await runProc(ffmpeg(), ['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, t)), '-i', file, '-frames:v', '1', '-vf', `scale=${width}:-2`, '-q:v', '5', jpg], { timeoutMs: 30000 });
-    out.push(r.code === 0 && fs.existsSync(jpg) ? `data:image/jpeg;base64,${fs.readFileSync(jpg).toString('base64')}` : null);
-    fs.rmSync(jpg, { force: true });
-  }
-  return out;
-}

@@ -74,8 +74,6 @@ function openaiReply(body) {
   const sys = String(msgs[0]?.content || '');
   const last = msgs[msgs.length - 1];
   const user = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content || '');
-  // The second look (stages/vision.js): nothing found, unless a caption asks for a finding.
-  if (sys.includes('You take a second look')) return { frames: /watermark test/i.test(user) ? [{ n: 1, issues: [{ kind: 'watermark', note: 'a stock watermark in the corner' }] }] : [] };
   if (Array.isArray(last?.content)) { const n = last.content.filter(c => c.type === 'image_url').length, never = /Search used: "funeral test/.test(String(last.content[0]?.text || '')); return { clips: Array.from({ length: n }, (_, i) => ({ n: i + 1, score: never && i === 1 ? 1 : i === 0 ? 4 : 3, reason: never && i === 1 ? 'a funeral' : 'looks right' })) }; }
   if (sys.includes('You review short-form videos')) return { scores: [{ draft: 1, hook: 4, insight: 5, bridge: 4, cta: 4, flow: 4, note: 'solid' }, { draft: 2, hook: 3, insight: 4, bridge: 4, cta: 4, flow: 4, note: 'ok' }], best: 1 };
   if (user.includes('weekly check-in.')) {
