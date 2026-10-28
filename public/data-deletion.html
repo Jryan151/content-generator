@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete your data · {{PRODUCT}}</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<!-- public/data-deletion.html — public, no login. The "data deletion instructions URL" for Meta's App Review.
+     The server fills in {{PRODUCT}}, {{CONTACT}} (SUPPORT_EMAIL, else EMAIL_REPLY_TO), {{BACKUP_DAYS}} and {{AUDIT_MONTHS}}. -->
+<style>
+:root { --bg: #eceae4; --panel: #f8f7f3; --line: #cfcbc1; --fg: #1b1d22; --muted: #5c616b; --master: #b56d0c; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15171c; --panel: #1e2128; --line: #363b46; --fg: #eceae4; --muted: #a3a8b2; --master: #e0962e; color-scheme: dark; } }
+html, body { background: var(--bg); color: var(--fg); margin: 0; }
+body { font: 16px/1.55 "Helvetica Neue", Arial, sans-serif; padding: 24px 16px 48px; }
+main { max-width: 680px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+h1 { font-size: 26px; line-height: 1.2; margin: 0 0 8px; }
+h2 { font-size: 18px; margin: 28px 0 8px; }
+p, li { margin: 0 0 10px; }
+ol, ul { padding-left: 22px; margin: 0 0 10px; }
+a { color: var(--master); }
+.muted { color: var(--muted); font-size: 14px; }
+.brand { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; font-weight: 700; }
+.brand img { width: 32px; height: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><img src="/icon.svg" alt=""><span>{{PRODUCT}}</span></div>
+  <h1>How to delete your data</h1>
+  <p>{{PRODUCT}} makes short Instagram Reels for insurance agents. You can download everything we store about you, and ask for all of it to be deleted, at any time.</p>
+
+  <h2>If you have an account</h2>
+  <ol>
+    <li>Log in, then open <b>Account</b>.</li>
+    <li>Under <b>Your data</b>, tap <b>Download my data</b> if you want a copy first. It’s one file with your settings, your video list and your approval records.</li>
+    <li>Tap <b>Request deletion</b>, tick the box and confirm. We email you to say we got it.</li>
+  </ol>
+  <p>We then delete your workspace and everything in it, and email you when it’s done. You can cancel the request from <b>Account</b> until then.</p>
+
+  <h2>If you can’t log in</h2>
+  <p>Please {{CONTACT}} and ask for your data to be deleted. Write from the email address on your account so we can find it.</p>
+
+  <h2>Instagram</h2>
+  <p>If you connected Instagram, you can remove our access on your own at any time:</p>
+  <ul>
+    <li>In the app: <b>Setup → Autopilot → Instagram → Disconnect</b>. This deletes the access token we hold straight away.</li>
+    <li>In Instagram: <b>Settings → Apps and websites</b>, then remove {{PRODUCT}}.</li>
+  </ul>
+  <p>Reels you already posted belong to your Instagram account. Deleting your data here doesn’t remove them from Instagram; delete them in Instagram if you want them gone.</p>
+
+  <h2>What gets deleted</h2>
+  <ul>
+    <li>Your login and anyone else’s login in your workspace.</li>
+    <li>Your settings, facts and their saved versions.</li>
+    <li>Your videos, covers, logo and the clips you uploaded.</li>
+    <li>Your approval records, coach notes and usage counts.</li>
+    <li>Your Instagram connection.</li>
+  </ul>
+  <p>Our nightly backups still hold a copy until they’re replaced, within {{BACKUP_DAYS}} days. Our payment provider (Stripe) keeps its own records of payments, as the law requires. A security log of logins and account actions (who did what and when, with the IP address) is kept for up to {{AUDIT_MONTHS}} months to protect accounts and investigate misuse, then deleted.</p>
+  <p class="muted"><a href="/">Back to {{PRODUCT}}</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,261 @@
+{
+  "version": 5,
+  "story": {
+    "audiences": [
+      {
+        "id": "a1",
+        "text": "Seniors on a fixed income (60+)"
+      },
+      {
+        "id": "a2",
+        "text": "Adults 50 to 64 planning ahead"
+      },
+      {
+        "id": "a3",
+        "text": "Adult children of aging parents"
+      },
+      {
+        "id": "a4",
+        "text": "Grandparents helping raise their grandkids"
+      }
+    ],
+    "painPoints": [
+      {
+        "id": "p1",
+        "text": "I don’t want my kids paying for my funeral.",
+        "links": [
+          "a1",
+          "a2"
+        ],
+        "question": "how much coverage would actually cover your final expenses"
+      },
+      {
+        "id": "p2",
+        "text": "I’m on a fixed income. I can’t afford much.",
+        "links": [
+          "a1"
+        ],
+        "question": "what kind of coverage fits your monthly budget"
+      },
+      {
+        "id": "p3",
+        "text": "I have health problems. Nobody will cover me.",
+        "links": [
+          "a1",
+          "a2"
+        ],
+        "question": "which policies you could apply for with your health history"
+      },
+      {
+        "id": "p4",
+        "text": "What happens to the grandkids if something happens to me?",
+        "links": [
+          "a4"
+        ],
+        "question": "how to make sure the people raising them aren’t left with the bills"
+      },
+      {
+        "id": "p5",
+        "text": "Mom never talked about what she wants. What if we’re not ready?",
+        "links": [
+          "a3"
+        ],
+        "question": "how to start that conversation and what a plan for her could look like"
+      },
+      {
+        "id": "p6",
+        "text": "I have coverage through work. Is that enough?",
+        "links": [
+          "a2"
+        ],
+        "question": "whether your work coverage follows you into retirement"
+      }
+    ],
+    "insights": [
+      {
+        "id": "i1",
+        "text": "Final expense insurance is usually a small whole life policy meant to cover funeral and end-of-life costs.",
+        "links": [
+          "p1",
+          "p5"
+        ]
+      },
+      {
+        "id": "i2",
+        "text": "Many final expense policies ask a few health questions instead of requiring a medical exam.",
+        "links": [
+          "p3"
+        ]
+      },
+      {
+        "id": "i3",
+        "text": "Policies that accept almost anyone usually have a waiting period before the full benefit is paid.",
+        "links": [
+          "p3"
+        ]
+      },
+      {
+        "id": "i4",
+        "text": "With whole life final expense, the premium usually stays the same for life.",
+        "links": [
+          "p2"
+        ]
+      },
+      {
+        "id": "i5",
+        "text": "Final expense policies often come in smaller amounts, which can keep premiums smaller too.",
+        "links": [
+          "p2",
+          "p1"
+        ]
+      },
+      {
+        "id": "i6",
+        "text": "Life insurance through work often ends when you retire or leave that job.",
+        "links": [
+          "p6"
+        ]
+      },
+      {
+        "id": "i7",
+        "text": "A payout to a named beneficiary usually skips probate, so it can arrive faster.",
+        "links": [
+          "p4",
+          "p5"
+        ]
+      },
+      {
+        "id": "i8",
+        "text": "Applying younger usually means lower premiums.",
+        "links": [
+          "p6",
+          "p4"
+        ]
+      }
+    ],
+    "solutions": [
+      {
+        "id": "s1",
+        "text": "Final expense whole life",
+        "plain": "final expense coverage: a small whole life policy for funeral costs",
+        "links": [
+          "i1",
+          "i4",
+          "i5",
+          "i7",
+          "i8"
+        ]
+      },
+      {
+        "id": "s2",
+        "text": "Simplified issue final expense",
+        "plain": "a final expense policy with a few health questions and no exam",
+        "links": [
+          "i2",
+          "i1"
+        ]
+      },
+      {
+        "id": "s3",
+        "text": "Guaranteed acceptance final expense",
+        "plain": "a policy that accepts almost anyone, with a waiting period",
+        "links": [
+          "i3"
+        ]
+      },
+      {
+        "id": "s4",
+        "text": "Individual life policy",
+        "plain": "a policy you own yourself, so it stays with you",
+        "links": [
+          "i6",
+          "i8",
+          "i7"
+        ]
+      }
+    ],
+    "ctaAction": "Message me, your local licensed agent",
+    "defaultQuestion": "what fits your budget and your family"
+  },
+  "voice": {
+    "role": "You write short videos for Melanie Banteah, a licensed insurance agent and momtrepreneur in Gallup, New Mexico. She works for herself to support her family, and she talks to her neighbors in first person: warm, plain and honest, never salesy. Her clients are mostly older adults on modest or fixed incomes.",
+    "energy": "low",
+    "tone": "low",
+    "ttsVoice": "coral",
+    "ttsStyle": "Warm, friendly and unhurried, like a mom talking with a neighbor at the kitchen table. Clear and easy to follow for older listeners."
+  },
+  "specs": {
+    "energy": {
+      "low": {
+        "label": "Calm",
+        "rules": "Unhurried, complete sentences. Periods only, no exclamation marks.",
+        "example": "Most of us put this off. I did too, for a long time."
+      },
+      "mid": {
+        "label": "Conversational",
+        "rules": "Short, natural sentences spoken straight to \"you\", like talking across a table.",
+        "example": "Here’s the part nobody tells you."
+      },
+      "high": {
+        "label": "High",
+        "rules": "Punchy lines, often 2-6 words. Fragments are fine. At most one exclamation mark in the whole script.",
+        "example": "Same bills. Half the income."
+      }
+    },
+    "tone": {
+      "low": {
+        "label": "Relatable",
+        "rules": "Plain everyday words, like a neighbor who has been through it. Use the plain-language name for any product.",
+        "example": "I didn’t understand this either until someone sat down with me."
+      },
+      "mid": {
+        "label": "Balanced",
+        "rules": "Warm but credible. At most one industry term, explained in plain words.",
+        "example": "It’s simpler than it sounds."
+      },
+      "high": {
+        "label": "Authoritative",
+        "rules": "Speak as the expert and state facts with confidence, but keep every qualifier from the insight.",
+        "example": "Here is how this actually works."
+      }
+    }
+  },
+  "guardrails": {
+    "mustUse": [
+      "licensed agent"
+    ],
+    "neverUse": [
+      "guaranteed",
+      "everyone qualifies",
+      "no questions asked",
+      "best plan",
+      "cheapest",
+      "secret",
+      "act now"
+    ],
+    "mustDo": [
+      "Make clear that coverage depends on qualifying",
+      "Speak as Melanie, in first person"
+    ],
+    "neverDo": [
+      "Add numbers, prices or statistics that are not in the insight",
+      "Invent urgency or use fear to pressure the viewer",
+      "Give binding tax, legal or financial advice",
+      "Say or imply that the viewer will qualify",
+      "Mention Medicare, government programs or tribal benefits",
+      "Use words from any language other than English",
+      "Use emojis or hashtags"
+    ]
+  },
+  "output": {
+    "mode": "captions",
+    "scenes": 6,
+    "maxWords": 10,
+    "maxSpoken": 20,
+    "pace": 2.2,
+    "minSeconds": 3,
+    "readingLevel": "6th grade",
+    "drafts": 1,
+    "music": "off"
+  }
+}

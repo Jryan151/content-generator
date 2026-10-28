@@ -1,0 +1,16 @@
+{
+  "name": "agent-reels",
+  "version": "15.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Short, compliance-checked Instagram Reels for life insurance agents: guided setup, confirmed facts, communication coaching, review and approval records, Instagram posting, billing.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "test:full": "FULL_TEST=1 node --test \"test/*.test.js\"",
+    "test:sqlite": "STORAGE_ENGINE=sqlite node --test \"test/*.test.js\"",
+    "test:coverage": "node test/coverage.mjs",
+    "admin": "node admin.js"
+  },
+  "engines": { "node": ">=22" }
+}

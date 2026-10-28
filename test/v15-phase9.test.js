@@ -1,0 +1,570 @@
+// v15 Phase 9: the compliance reviewer (sign-off before posting), bookings traced to the video that
+// brought them, keyword replies on Instagram, and A/B tests of openings.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import http from 'http';
+import { tempEnv, startStubs, client, hasFfmpeg } from './helpers.js';
+
+tempEnv();
+// A stand-in Instagram: posting (container, status, publish) and messages (what was sent is kept).
+const igSeen = { media: [], sent: [], users: { 'igsid-1': { username: 'maria.g', name: 'Maria Garcia' } } };
+const igServer = http.createServer(async (req, res) => {
+  let raw = ''; for await (const x of req) raw += x;
+  const url = new URL(req.url, 'http://x'), p = new URLSearchParams(raw), json = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+  let m;
+  if (req.method === 'POST' && /\/media$/.test(url.pathname)) { igSeen.media.push(Object.fromEntries(p)); return json(200, { id: `c${igSeen.media.length}` }); }
+  if (req.method === 'POST' && /\/media_publish$/.test(url.pathname)) return json(200, { id: 'm1' });
+  if (req.method === 'POST' && /\/messages$/.test(url.pathname)) {
+    const body = raw.startsWith('{') ? JSON.parse(raw) : { recipient: JSON.parse(p.get('recipient') || '{}'), message: JSON.parse(p.get('message') || '{}') };
+    if (igSeen.down) return json(503, { error: { message: 'down' } });
+    igSeen.sent.push(body); return json(200, { recipient_id: body.recipient?.id || 'x', message_id: `mid.${igSeen.sent.length}` });
+  }
+  if (req.method === 'GET' && (m = /\/v[\d.]+\/(c\d+)$/.exec(url.pathname))) return json(200, { status_code: 'FINISHED' });
+  if (req.method === 'GET' && /\/v[\d.]+\/m1$/.test(url.pathname)) return json(200, { permalink: 'https://www.instagram.com/reel/m1/' });
+  if (req.method === 'GET' && (m = /\/v[\d.]+\/(igsid-\d+)$/.exec(url.pathname))) return igSeen.users[m[1]] ? json(200, igSeen.users[m[1]]) : json(404, { error: { message: 'no user' } });
+  if (req.method === 'GET' && /\/media$/.test(url.pathname)) return json(200, { data: [] });
+  json(404, { error: { message: `unknown ${req.method} ${url.pathname}` } });
+});
+await new Promise(r => igServer.listen(0, '127.0.0.1', r));
+const igBase = `http://127.0.0.1:${igServer.address().port}`;
+Object.assign(process.env, { INSTAGRAM_APP_ID: '123', INSTAGRAM_APP_SECRET: 'ig-secret', INSTAGRAM_AUTH_BASE: igBase, INSTAGRAM_OAUTH_BASE: igBase, INSTAGRAM_GRAPH_BASE: igBase, INSTAGRAM_ALLOW_HTTP: '1', INSTAGRAM_REPLIES: '1', INSTAGRAM_WEBHOOK_TOKEN: 'verify-me', PUBLIC_URL: process.env.PUBLIC_URL || 'http://127.0.0.1:9' });
+const stubs = await startStubs();
+const store = await import('../lib/store.js');
+const auth = await import('../lib/auth.js');
+const roles = await import('../lib/roles.js');
+const signoff = await import('../lib/signoff.js');
+const bookings = await import('../lib/bookings.js');
+const links = await import('../lib/links.js');
+const clientsLib = await import('../lib/clients.js');
+const crypto = await import('crypto');
+const M = await import('../mixer-core.js');
+const replies = await import('../lib/replies.js');
+const abtests = await import('../lib/abtests.js');
+const queue = await import('../lib/queue.js');
+const { starterStory } = await import('../templates.js');
+const S = await import('../server.js');
+const server = await S.start({ port: 0, scheduler: false, worker: false });
+const port = server.address().port;
+test.after(() => { server.close(); stubs.close(); igServer.close(); });
+const ig = await import('../lib/instagram.js');
+const paths = await import('../lib/paths.js');
+const path = (await import('path')).default;
+const connectIg = (w, extra = {}) => paths.writeJSON(path.join(store.wsDir(w.id), 'instagram.json'), { userId: '1789', username: 'dana.agent', token: ig.seal('tok'), expiresAt: new Date(Date.now() + 50 * 86400000).toISOString(), connectedAt: new Date().toISOString(), refreshedAt: new Date().toISOString(), problem: '', scopes: 'instagram_business_basic,instagram_business_content_publish', ...extra });
+
+const mkWs = name => {
+  const w = store.createWorkspace({ name, comped: true });
+  const c = store.loadConfig(w.id);
+  c.story = { ...c.story, ...starterStory(['final_expense']) };
+  c.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
+  c.look = { ...c.look, name: 'Dana Agent', location: 'Gallup, NM', bookingUrl: 'https://calendly.com/dana/15min' };
+  store.saveConfig(w.id, c);
+  store.updateWorkspace(w.id, { onboarded: true });
+  return w;
+};
+const login = async (email, pass) => { const c = client(port); const r = await c.post('/api/login', { email, password: pass }); assert.equal(r.status, 200, JSON.stringify(r.data)); return c; };
+const vid = (w, id, extra = {}) => {
+  fs.writeFileSync(store.videoPath(w.id, `video_${id}.mp4`), `fake video ${id}`);
+  return store.addVideo(w.id, { id, status: 'pending', file: `video_${id}.mp4`, createdAt: new Date().toISOString(), scenes: [{ text: `Who pays for your funeral, ${id}?`, keyword: 'family' }, { text: 'Second scene', keyword: 'home' }], meta: { painPoint: 'Funeral costs' }, post: 'Post text', preflight: [{ ok: true, label: 'No prices' }], version: 1, ...extra });
+};
+const CHECK = ['watched', 'footage', 'facts', 'rules'];
+
+/* ---------------- 9d: the compliance reviewer ---------------- */
+test('the reviewer role: only Sign-off; nobody else signs off, not the agent or an admin', () => {
+  const w = mkWs('Roles');
+  const r = { id: 'acc_r', role: 'agent', memberships: [{ ws: w.id, role: 'reviewer' }] };
+  assert.deepEqual(roles.capsFor(r, w), ['signoff']);
+  assert.equal(roles.portalFor(r, w), 'reviewer');
+  const owner = { id: 'acc_o', role: 'agent', workspaceId: w.id };
+  assert.ok(!roles.capsFor(owner, w).includes('signoff'));
+  assert.ok(!roles.capsFor({ id: 'acc_a', role: 'admin' }, w).includes('signoff'));
+});
+
+test('sign-off: invite a reviewer, turn it on, and nothing leaves until they sign off this version', async () => {
+  const w = mkWs('Signoff');
+  store.createAccount({ email: 'so@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('sopass123456') });
+  const a = await login('so@example.com', 'sopass123456');
+  // On needs a reviewer who has joined.
+  assert.equal((await a.post('/api/people/signoff', { on: true })).status, 409);
+  const inv = await a.post('/api/people/invite', { email: 'rita@carrier.example', role: 'reviewer' });
+  assert.equal(inv.status, 200, JSON.stringify(inv.data));
+  assert.equal(inv.data.reviewers.invites[0].email, 'rita@carrier.example');
+  assert.equal(inv.data.seats.used, 0, 'a reviewer takes no assistant seat');
+  const token = inv.data.link.split('/invite/')[1], pub = client(port);
+  assert.equal((await pub.post('/api/link/check', { kind: 'invite', token })).data.role, 'reviewer');
+  assert.equal((await pub.post('/api/link/accept', { kind: 'invite', token, name: 'Rita Review', password: 'ritapass12345' })).status, 200);
+  const rita = store.findAccountByEmail('rita@carrier.example');
+  assert.equal(roles.membership(rita, w.id).role, 'reviewer');
+  const r = await login('rita@carrier.example', 'ritapass12345');
+  assert.equal((await r.get('/api/me')).data.portal, 'reviewer');
+  assert.equal((await r.get('/api/videos')).status, 403, 'nothing but Sign-off');
+  assert.equal((await r.get('/api/clients')).status, 403);
+  assert.equal((await r.get('/api/signoff')).status, 200);
+  assert.equal((await r.get('/api/push')).status, 200, 'they can turn on notifications');
+  assert.equal((await a.get('/api/signoff')).status, 403, 'the agent can’t sign off their own');
+  // Turned on: an approved video waits.
+  let p = await a.post('/api/people/signoff', { on: true });
+  assert.equal(p.status, 200); assert.equal(p.data.reviewers.required, true);
+  assert.equal((await a.get('/api/me')).data.workspace.signoff.reviewer, 'Rita Review');
+  vid(w, 'sv1');
+  assert.equal((await a.post('/api/videos/sv1/approve', { checklist: CHECK })).status, 200);
+  assert.equal(signoff.waiting(store.getWorkspace(w.id), store.getVideo(w.id, 'sv1')), true);
+  assert.equal((await a.get('/api/videos/sv1/download')).status, 409, 'not downloaded before sign-off');
+  const posted = await a.post('/api/videos/sv1/posted', {});
+  assert.equal(posted.status, 409); assert.match(posted.data.error, /Waiting for Rita Review to sign off/);
+  let list = (await r.get('/api/signoff')).data;
+  assert.deepEqual(list.waiting.map(v => v.id), ['sv1']);
+  assert.equal(list.waiting[0].scenes[0].text, 'Who pays for your funeral, sv1?'); assert.equal(list.waiting[0].post, 'Post text');
+  // The version they watched; sent back needs a note.
+  assert.equal((await r.post('/api/signoff/sv1', { ok: true, version: 2 })).status, 409);
+  assert.equal((await r.post('/api/signoff/sv1', { ok: false, note: '' })).status, 400);
+  const back = await r.post('/api/signoff/sv1', { ok: false, note: 'Add the carrier name to scene 2.', version: 1 });
+  assert.equal(back.status, 200, JSON.stringify(back.data));
+  let v = store.getVideo(w.id, 'sv1');
+  assert.deepEqual([v.status, v.approval, v.signoff.status, v.signoff.note], ['pending', null, 'back', 'Add the carrier name to scene 2.']);
+  // Approved again: waiting again; signed off: it can go.
+  assert.equal((await a.post('/api/videos/sv1/approve', { checklist: CHECK })).status, 200);
+  assert.equal((await r.get('/api/signoff')).data.waiting.length, 1);
+  const ok = await r.post('/api/signoff/sv1', { ok: true, version: 1 });
+  assert.equal(ok.status, 200); assert.equal(ok.data.waiting.length, 0); assert.equal(ok.data.recent[0].signoff.status, 'ok');
+  assert.equal((await a.get('/api/videos/sv1/download')).status, 200);
+  assert.equal((await r.post('/api/signoff/sv1', { ok: true })).status, 409, 'once');
+  // The receipt and the records say so.
+  const rec = await fetch(`http://127.0.0.1:${port}/api/videos/sv1/receipt.html`, { headers: { cookie: a.cookie } }).then(x => x.text());
+  assert.match(rec, /Compliance sign-off<\/dt><dd>Sent back by Rita Review.*Add the carrier name.*<br>Signed off by Rita Review/s);
+  // A new version (a fixed scene) needs signing off again.
+  store.updateVideo(w.id, 'sv1', { version: 2, file: 'video_sv1-2.mp4' });
+  assert.equal(signoff.waiting(store.getWorkspace(w.id), store.getVideo(w.id, 'sv1')), true);
+  // The activity feed shows the reviewer's decisions.
+  const act = (await a.get('/api/desk/activity')).data.activity.map(x => x.what);
+  assert.ok(act.includes('signed off a video') && act.includes('sent a video back for changes'), JSON.stringify(act));
+  // The last reviewer removed: sign-off goes off, so nothing is stuck.
+  p = await a.del(`/api/people/${rita.id}`);
+  assert.equal(p.status, 200); assert.equal(p.data.reviewers.on, false);
+  assert.equal(signoff.waiting(store.getWorkspace(w.id), store.getVideo(w.id, 'sv1')), false);
+});
+
+test('sign-off: the posting plan skips a waiting video; a waiting one already scheduled is held, not failed', async () => {
+  const w = mkWs('Signoff plan');
+  const rv = store.createAccount({ email: 'rv2@example.com', name: 'Rev Two', role: 'agent', workspaceId: w.id, hash: 'x' });
+  store.setMembership(rv.id, w.id, { role: 'reviewer' });
+  signoff.setOn(w.id, true, 'test');
+  vid(w, 'pa1', { status: 'approved', approval: { at: '2026-01-01T00:00:00Z' } });
+  vid(w, 'pa2', { status: 'approved', approval: { at: '2026-01-02T00:00:00Z' } });
+  store.updateVideo(w.id, 'pa2', x => ({ signoff: { status: 'ok', version: 1, file: x.file, at: new Date().toISOString(), byName: 'Rev Two' } }));
+  const wsRec = store.getWorkspace(w.id);
+  const { planReady } = await import('../mixer-core.js');
+  const ready = store.readVideos(w.id).filter(v => planReady(v) && !signoff.waiting(wsRec, v)).map(v => v.id);
+  assert.deepEqual(ready, ['pa2'], 'the older one waits; the signed-off one is next');
+  assert.equal(signoff.gate(wsRec, store.getVideo(w.id, 'pa2')), undefined);
+  assert.throws(() => signoff.gate(wsRec, store.getVideo(w.id, 'pa1')), /Waiting for Rev Two/);
+  // Scheduled while waiting: Instagram holds it (it isn't started or failed), and it goes once signed off.
+  connectIg(w);
+  ig.schedulePost(w.id, 'pa1', 'now', 'test');
+  const before = igSeen.media.length;
+  await ig.tick();
+  assert.equal(store.getVideo(w.id, 'pa1').autopost.status, 'scheduled'); assert.equal(igSeen.media.length, before, 'not started');
+  store.updateVideo(w.id, 'pa1', x => ({ signoff: { status: 'ok', version: 1, file: x.file, at: new Date().toISOString(), byName: 'Rev Two' } }));
+  await ig.tick();
+  assert.equal(store.getVideo(w.id, 'pa1').autopost.status, 'processing'); assert.equal(igSeen.media.length, before + 1);
+});
+
+/* ---------------- 9b: bookings traced to videos ---------------- */
+const raw = (p, opts = {}) => fetch(`http://127.0.0.1:${port}${p}`, { redirect: 'manual', ...opts, headers: { 'user-agent': 'Mozilla/5.0 (iPhone) Safari', ...(opts.headers || {}) } });
+const hook = (url, body, headers = {}) => fetch(url.replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${port}`), { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+
+test('bookings: the video’s code rides to the booking page', async () => {
+  assert.equal(bookings.bookingUrlFor('https://calendly.com/dana/15min', 'abcdef0123'), 'https://calendly.com/dana/15min?utm_source=agentreels&utm_medium=video&utm_content=abcdef0123');
+  assert.match(bookings.bookingUrlFor('https://cal.com/dana?x=1', 'abcdef0123'), /x=1&utm_source=agentreels.*&metadata%5Bref%5D=abcdef0123/);
+  assert.equal(bookings.bookingUrlFor('https://calendly.com/dana', 'nope'), 'https://calendly.com/dana', 'no code, no change');
+  const w = mkWs('Book link');
+  vid(w, 'bl1', { status: 'posted' });
+  const code = links.codeFor(w.id, 'bl1');
+  const r = await raw(`/r/${code}/book`);
+  assert.equal(r.status, 302); assert.equal(r.headers.get('location'), `https://calendly.com/dana/15min?utm_source=agentreels&utm_medium=video&utm_content=${code}`);
+});
+
+test('bookings: a Calendly booking finds the lead from the video, books them, counts once; a cancel is noted', async () => {
+  const w = mkWs('Bookings');
+  store.createAccount({ email: 'bk@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bkpass123456') });
+  const a = await login('bk@example.com', 'bkpass123456');
+  vid(w, 'bk1', { status: 'posted', scenes: [{ text: 'Who pays for your funeral someday?', keyword: 'family' }] });
+  const code = links.codeFor(w.id, 'bk1');
+  const lead = clientsLib.add(w.id, { name: 'Maria', email: 'maria@example.com', stage: 'lead', videoId: 'bk1', source: 'Video: “Who pays…”' });
+  const H = (await a.get('/api/bookings/hook')).data;
+  assert.match(H.url, /\/hooks\/booking\/[\w-]{20,40}$/); assert.equal(H.hasKey, false);
+  const calendly = (event, uri = 'https://api.calendly.com/x/1') => ({ event, payload: { name: 'Maria Lopez', email: 'MARIA@example.com', uri, scheduled_event: { start_time: '2026-10-20T16:00:00.000000Z' }, tracking: { utm_content: code } } });
+  let r = await hook(H.url, calendly('invitee.created'));
+  assert.equal(r.status, 200);
+  let c = clientsLib.get(w.id, lead.id);
+  assert.equal(c.stage, 'booked'); assert.ok(c.bookedAt); assert.match(c.notes, /Booked a time for Tue, Oct 20, 10:00 AM from a video/);
+  assert.deepEqual([store.getVideo(w.id, 'bk1').bookings.total, clientsLib.list(w.id).length], [1, 1], 'the same person, not a new one');
+  // Booking tools retry: the same call is done once; a reschedule doesn't count twice.
+  await hook(H.url, calendly('invitee.created'));
+  await hook(H.url, calendly('invitee.created', 'https://api.calendly.com/x/2'));
+  assert.equal(store.getVideo(w.id, 'bk1').bookings.total, 1);
+  // Counts toward what the app learns works (a booking like three messages).
+  assert.equal(M.resultValue({ bookings: { total: 1 } }), 3);
+  // A cancel: noted, back to Talking, counted as canceled.
+  await hook(H.url, calendly('invitee.canceled'));
+  c = clientsLib.get(w.id, lead.id);
+  assert.equal(c.stage, 'talking'); assert.match(c.notes, /Canceled their booked time/);
+  assert.equal(store.getVideo(w.id, 'bk1').bookings.canceled, 1);
+  assert.ok((await a.get('/api/bookings/hook')).data.last, 'the last one received is shown');
+  // Someone new, with no code (they found the booking page another way): added, not traced.
+  await hook(H.url, { event: 'booked', id: 'z1', name: 'Al Jones', phone: '505-555-0100', start: '2026-10-21T15:00:00Z' });
+  const al = clientsLib.list(w.id).find(x => x.name === 'Al Jones');
+  assert.deepEqual([al.stage, al.source, al.videoId], ['booked', 'Booking page', '']);
+  // Not a booking at all: answered, nothing kept.
+  assert.equal((await hook(H.url, { event: 'ping' })).status, 200);
+  assert.equal((await hook(H.url, 'not json')).status, 400);
+  assert.equal((await hook(H.url.replace(/[\w-]+$/, 'x'.repeat(24)), {})).status, 404, 'an unknown address');
+});
+
+test('bookings: with a signing key every call is signed (Calendly and Cal.com); a new address retires the old', async () => {
+  const w = mkWs('Book signed');
+  store.createAccount({ email: 'bs@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bspass123456') });
+  const a = await login('bs@example.com', 'bspass123456');
+  vid(w, 'bs1', { status: 'posted' });
+  const code = links.codeFor(w.id, 'bs1');
+  const H = (await a.post('/api/bookings/hook', { key: 'whsec_test' })).data;
+  assert.equal(H.hasKey, true);
+  const body = JSON.stringify({ triggerEvent: 'BOOKING_CREATED', payload: { uid: 'cal-1', startTime: '2026-10-22T17:00:00Z', attendees: [{ name: 'Rosa Diaz', email: 'rosa@example.com' }], metadata: { ref: code } } });
+  assert.equal((await hook(H.url, body)).status, 401, 'unsigned');
+  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': 'deadbeef' })).status, 401);
+  const sig = crypto.createHmac('sha256', 'whsec_test').update(body).digest('hex');
+  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': sig })).status, 200);
+  const rosa = clientsLib.list(w.id).find(x => x.name === 'Rosa Diaz');
+  assert.deepEqual([rosa.stage, rosa.videoId], ['booked', 'bs1']); assert.match(rosa.source, /^Booking: /, 'its own label (not counted as a page lead)');
+  assert.equal(store.getVideo(w.id, 'bs1').bookings.total, 1);
+  // Calendly's signature: t=<time>,v1=<hmac of time.body>; an old one is refused.
+  const cb = JSON.stringify({ event: 'invitee.created', payload: { name: 'Lee Park', email: 'lee@example.com', uri: 'u-9', tracking: { utm_content: code } } });
+  const ts = Math.floor(Date.now() / 1000), v1 = crypto.createHmac('sha256', 'whsec_test').update(`${ts}.${cb}`).digest('hex');
+  assert.equal((await hook(H.url, cb, { 'calendly-webhook-signature': `t=${ts - 3600},v1=${crypto.createHmac('sha256', 'whsec_test').update(`${ts - 3600}.${cb}`).digest('hex')}` })).status, 401, 'too old');
+  assert.equal((await hook(H.url, cb, { 'calendly-webhook-signature': `t=${ts},v1=${v1}` })).status, 200);
+  assert.equal(store.getVideo(w.id, 'bs1').bookings.total, 2);
+  // A new address: the old one stops working.
+  const H2 = (await a.post('/api/bookings/hook', { rotate: true })).data;
+  assert.notEqual(H2.url, H.url); assert.equal(H2.hasKey, true, 'the key stays');
+  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': sig })).status, 404);
+  // The key can be removed.
+  assert.equal((await a.post('/api/bookings/hook', { key: '' })).data.hasKey, false);
+});
+
+test('bookings: a lead from a video moved to “Appointment booked” by hand counts for the video, once', async () => {
+  const w = mkWs('Book by hand');
+  store.createAccount({ email: 'bh@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bhpass123456') });
+  const a = await login('bh@example.com', 'bhpass123456');
+  vid(w, 'bh1', { status: 'posted' });
+  const lead = clientsLib.add(w.id, { name: 'Joan', phone: '505-555-0111', stage: 'lead', videoId: 'bh1' });
+  let r = await a.put(`/api/clients/${lead.id}`, { stage: 'booked', bookedAt: '2020-01-01T00:00:00.000Z' });
+  assert.equal(r.status, 200); assert.notEqual(r.data.client.bookedAt, '2020-01-01T00:00:00.000Z', 'the server sets it');
+  assert.equal(store.getVideo(w.id, 'bh1').bookings.total, 1);
+  await a.put(`/api/clients/${lead.id}`, { stage: 'talking' }); await a.put(`/api/clients/${lead.id}`, { stage: 'booked' });
+  assert.equal(store.getVideo(w.id, 'bh1').bookings.total, 1, 'once per person');
+});
+
+/* ---------------- 9c: keyword replies on Instagram ---------------- */
+const signed = body => { const raw = JSON.stringify(body); return { raw, sig: `sha256=${crypto.createHmac('sha256', 'ig-secret').update(raw).digest('hex')}` }; };
+const igHook = (body, sig) => fetch(`http://127.0.0.1:${port}/hooks/instagram`, { method: 'POST', headers: { 'content-type': 'application/json', ...(sig ? { 'x-hub-signature-256': sig } : {}) }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+const until = async (fn, ms = 3000) => { const end = Date.now() + ms; for (;;) { const v = fn(); if (v || Date.now() > end) return v; await new Promise(r => setTimeout(r, 30)); } };
+
+test('keyword replies: the wording is checked, the agent approves an assistant’s draft, and it can be tried first', async () => {
+  const w = mkWs('Replies rules');
+  store.createAccount({ email: 'rr@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('rrpass123456') });
+  const asst = store.createAccount({ email: 'rra@example.com', name: 'Sam Helper', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('rrapass12345') });
+  store.setMembership(asst.id, w.id, { role: 'assistant' });
+  store.updateWorkspace(w.id, { limits: { assistantSeats: 1 } });
+  const a = await login('rr@example.com', 'rrpass123456'), s = await login('rra@example.com', 'rrapass12345');
+  for (const [text, why] of [['Plans start at $9 a month!', /prices/], ['You will be approved, guaranteed.', /promises/], ['See https://example.com/x', /\{link\}/], ['Medicare can help.', /government/]]) {
+    const r = await a.post('/api/replies/rules', { keyword: 'plan', where: 'both', text });
+    assert.equal(r.status, 400, text); assert.match(r.data.error, why, text);
+  }
+  assert.equal((await a.post('/api/replies/rules', { keyword: 'x', where: 'both', text: 'Hi' })).status, 400, 'a real word');
+  // The assistant's draft waits; it isn't used and can't turn replies on.
+  let r = await s.post('/api/replies/rules', { keyword: 'Plan!', where: 'comment', text: 'Hi {name}! Here’s the checklist: {link}' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const rule = r.data.rules[0];
+  assert.deepEqual([rule.keyword, rule.status], ['PLAN', 'draft']);
+  assert.equal((await a.post('/api/replies/on', { on: true })).status, 409, 'approve one first');
+  assert.equal((await s.post(`/api/replies/rules/${rule.id}/approve`, {})).status, 403, 'only the agent approves');
+  assert.equal(replies.match(w.id, 'PLAN please', 'comment'), null, 'a draft isn’t used');
+  r = await a.post(`/api/replies/rules/${rule.id}/approve`, {});
+  assert.equal(r.data.rules[0].status, 'approved'); assert.equal(r.data.rules[0].approvedByName, 'Dana Agent');
+  // Edited by the assistant: a draft again. The same keyword twice is refused.
+  r = await s.post('/api/replies/rules', { id: rule.id, keyword: 'PLAN', where: 'comment', text: 'Hi {name}! Here it is: {link}' });
+  assert.equal(r.data.rules[0].status, 'draft');
+  await a.post(`/api/replies/rules/${rule.id}/approve`, {});
+  assert.equal((await a.post('/api/replies/rules', { keyword: 'plan', where: 'dm', text: 'Hello' })).status, 409);
+  // Tried first: which reply, filled in.
+  const tr = (await a.post('/api/replies/try', { text: 'plan please!!', where: 'comment' })).data;
+  assert.equal(tr.rule.keyword, 'PLAN'); assert.match(tr.text, /^Hi Maria! Here it is: http/);
+  assert.equal((await a.post('/api/replies/try', { text: 'plan please', where: 'dm' })).data.rule, null, 'comments only');
+  assert.equal((await a.post('/api/replies/try', { text: 'planning ahead', where: 'comment' })).data.rule, null, 'a whole word');
+  assert.equal((await s.del(`/api/replies/rules/${rule.id}`)).status, 404, 'an assistant can’t remove an approved one');
+  assert.equal((await a.post('/api/replies/on', { on: true })).data.on, true);
+  assert.equal(replies.fill('Hi {name}, more: {link}', {}), 'Hi there, more:');
+});
+
+test('keyword replies: a signed comment gets a private reply with the video’s page, once; the person is a lead on the Desk', async () => {
+  const w = mkWs('Replies live');
+  connectIg(w, { userId: '1790', scopes: 'instagram_business_basic,instagram_business_content_publish,instagram_business_manage_messages,instagram_business_manage_comments' });
+  vid(w, 'rl1', { status: 'posted', autopost: { status: 'posted', mediaId: 'media-77' } });
+  replies.saveRule(w.id, { keyword: 'PLAN', where: 'both', text: 'Hi {name}! Here’s the checklist: {link}' }, { by: 'x', byName: 'Dana', approve: true });
+  replies.setOn(w.id, true);
+  // Meta checks the address with the verify token.
+  const v = await fetch(`http://127.0.0.1:${port}/hooks/instagram?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=12345`);
+  assert.deepEqual([v.status, await v.text()], [200, '12345']);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/hooks/instagram?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=1`)).status, 403);
+  const comment = (id, text, from = 'igsid-1') => ({ object: 'instagram', entry: [{ id: '1790', time: 1, changes: [{ field: 'comments', value: { id, text, from: { id: from, username: 'maria.g' }, media: { id: 'media-77' } } }] }] });
+  // Unsigned or wrongly signed: refused.
+  assert.equal((await igHook(comment('cm1', 'PLAN'))).status, 401);
+  assert.equal((await igHook(comment('cm1', 'PLAN'), 'sha256=00')).status, 401);
+  const before = igSeen.sent.length;
+  let b = signed(comment('cm1', 'PLAN please 🙏'));
+  assert.equal((await igHook(b.raw, b.sig)).status, 200);
+  await until(() => igSeen.sent.length > before);
+  const msg = igSeen.sent.at(-1);
+  assert.deepEqual(msg.recipient, { comment_id: 'cm1' });
+  assert.match(msg.message.text, new RegExp(`^Hi Maria! Here’s the checklist: http.*/r/${store.getVideo(w.id, 'rl1').link}$`));
+  const lead = await until(() => clientsLib.list(w.id).find(c => c.igsid === 'igsid-1'));
+  assert.deepEqual([lead.name, lead.stage, lead.videoId, lead.source], ['Maria Garcia', 'lead', 'rl1', 'Instagram: “PLAN”']);
+  // The same comment again (Meta retries): nothing more. Another comment from her today: not answered again.
+  await igHook(b.raw, b.sig);
+  b = signed(comment('cm2', 'plan'));
+  await igHook(b.raw, b.sig);
+  await until(() => replies.log(w.id).some(x => x.why === 'Already answered today'));
+  assert.equal(igSeen.sent.length, before + 1);
+  assert.equal(clientsLib.list(w.id).filter(c => c.igsid === 'igsid-1').length, 1, 'the same person once');
+  // A message (DM) with the keyword: answered with the booking link; the agent's own messages never are.
+  const dm = (from, text, echo = false) => ({ object: 'instagram', entry: [{ id: '1790', time: 1, messaging: [{ sender: { id: from }, recipient: { id: '1790' }, timestamp: 1, message: { mid: `m-${from}`, text, ...(echo ? { is_echo: true } : {}) } }] }] });
+  b = signed(dm('igsid-2', 'Plan'));
+  await igHook(b.raw, b.sig);
+  await until(() => igSeen.sent.length > before + 1);
+  assert.deepEqual(igSeen.sent.at(-1).recipient, { id: 'igsid-2' });
+  assert.match(igSeen.sent.at(-1).message.text, /^Hi there! Here’s the checklist: https:\/\/calendly\.com\/dana\/15min$/, 'no name shared: “there”');
+  b = signed(dm('1790', 'PLAN', true)); await igHook(b.raw, b.sig);
+  b = signed(dm('igsid-3', 'Hello there, how are you?')); await igHook(b.raw, b.sig);
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(igSeen.sent.length, before + 2, 'no keyword, no echo');
+  // Instagram refusing: logged, no lead.
+  igSeen.down = true;
+  b = signed(dm('igsid-4', 'PLAN')); await igHook(b.raw, b.sig);
+  await until(() => replies.log(w.id).some(x => x.from === undefined && !x.ok && /Instagram/.test(x.why)) || replies.log(w.id).some(x => !x.ok && /Instagram/.test(x.why)));
+  igSeen.down = false;
+  assert.ok(!clientsLib.list(w.id).some(c => c.igsid === 'igsid-4'));
+  // Turned off, or switched off in Admin: nothing is sent.
+  replies.setOn(w.id, false);
+  b = signed(dm('igsid-5', 'PLAN')); await igHook(b.raw, b.sig);
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(igSeen.sent.length, before + 2);
+  assert.equal(store.getVideo(w.id, 'rl1').status, 'posted');
+  assert.equal(replies.state(w.id).rules[0].sent, 2);
+});
+
+/* ---------------- 9d: A/B tests of openings ---------------- */
+
+test('opening tests: two versions made from one draft, the same but for the opening; checked and counted like any', async () => {
+  const w = mkWs('AB make');
+  store.createAccount({ email: 'ab@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abpass123456') });
+  const a = await login('ab@example.com', 'abpass123456');
+  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
+  const r = { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, fact: U.insights.find(i => i.links.includes(p.id)) };
+  const d = (await a.post('/api/studio', { brief: { painId: r.painId, audienceId: r.audienceId, insightIds: [r.fact.id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
+  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
+  const filled = (await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] })).data.draft;
+  assert.ok(filled.check.ok, JSON.stringify(filled.check.problems));
+  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: open.text })).status, 400, 'a different opening');
+  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: 'Plans cost $30 a month, did you know?' })).status, 400, 'checked like any opening');
+  const res = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
+  assert.equal(res.status, 200, JSON.stringify(res.data));
+  const t = res.data.test;
+  assert.deepEqual([t.arms.A.hook, t.arms.B.hook, t.arms.A.style, t.arms.B.style], [open.text, 'Who pays when you’re gone?', 'question', 'question']);
+  const jobs = queue.listJobs(w.id).filter(j => j.opts?.abtest?.id === t.id);
+  assert.deepEqual(jobs.map(j => j.opts.abtest.arm).sort(), ['A', 'B']);
+  const [jA, jB] = ['A', 'B'].map(x => jobs.find(j => j.opts.abtest.arm === x));
+  assert.equal(jA.opts.scenes[0].text, open.text); assert.equal(jB.opts.scenes[0].text, 'Who pays when you’re gone?');
+  assert.deepEqual(jA.opts.scenes.slice(1).map(s => s.text), jB.opts.scenes.slice(1).map(s => s.text), 'the rest is the same');
+  assert.equal(res.data.draft.status, 'rendering');
+  assert.equal((await a.post(`/api/studio/${d.id}/abtest`, { text: 'Another?' })).status, 409, 'once');
+  // Both canceled: the test stops; Review lists it.
+  for (const j of jobs) await a.del(`/api/jobs/${j.id}`);
+  abtests.stop(w.id, t.id, 'Canceled.');
+  const list = (await a.get('/api/abtests')).data;
+  assert.equal(list.tests[0].status, 'stopped');
+});
+
+test('opening tests: decided a week after both are posted, by views; too close is a tie; what won feeds the writer', async () => {
+  const w = mkWs('AB decide');
+  const now = Date.now(), DAY = 86400000;
+  const mk = (id, hook, extra = {}) => vid(w, id, { status: 'posted', posted: { at: new Date(now - 8 * DAY).toISOString() }, scenes: [{ text: hook, keyword: 'family' }, { text: 'Second', keyword: 'x' }], ...extra });
+  // A clear winner.
+  let t = abtests.start(w.id, { draftId: 'sd1', a: 'Funeral costs add up fast.', b: 'Who pays for your funeral?', by: 'x' });
+  mk('ab1', 'Funeral costs add up fast.', { results: { views: 400 } }); mk('ab2', 'Who pays for your funeral?', { results: { views: 900 } });
+  abtests.attach(w.id, t.id, 'A', 'ab1'); abtests.attach(w.id, t.id, 'B', 'ab2');
+  // Posted only 3 days ago: not yet.
+  store.updateVideo(w.id, 'ab2', { posted: { at: new Date(now - 3 * DAY).toISOString() } });
+  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t.id).status, 'live');
+  store.updateVideo(w.id, 'ab2', { posted: { at: new Date(now - 8 * DAY).toISOString() } });
+  t = abtests.refresh(w.id, now).find(x => x.id === t.id);
+  assert.deepEqual([t.status, t.winner, t.ratio], ['decided', 'B', 2.3]); assert.match(t.why, /Version B had 2.3× the views \(900 to 400\)/);
+  assert.equal(store.getVideo(w.id, 'ab2').abtest.result, 'won'); assert.equal(store.getVideo(w.id, 'ab1').abtest.result, 'lost');
+  const winners = M.winnersFrom(store.readVideos(w.id));
+  assert.deepEqual([winners[0].hook, winners[0].tested, winners[0].beat], ['Who pays for your funeral?', true, 'Funeral costs add up fast.']);
+  const { buildHookPrompt } = await import('../lib/prompts.js');
+  const cfg = store.loadConfig(w.id), picks = M.studioPicks(cfg, { painId: M.usableRoutes(cfg).pains[0].id });
+  assert.match(buildHookPrompt(cfg, { ...picks, winners }, 8).user + buildHookPrompt(cfg, { ...picks, winners }, 8).system, /won a side-by-side test against "Funeral costs add up fast\."/);
+  // Too close (under 20% apart), and too few views: no winner.
+  let t2 = abtests.start(w.id, { draftId: 'sd2', a: 'I lost my dad last year.', b: '3 questions to ask about coverage', by: 'x' });
+  mk('ab3', 'I lost my dad last year.', { results: { views: 1000 } }); mk('ab4', '3 questions to ask about coverage', { results: { views: 900 } });
+  abtests.attach(w.id, t2.id, 'A', 'ab3'); abtests.attach(w.id, t2.id, 'B', 'ab4');
+  t2 = abtests.refresh(w.id, now).find(x => x.id === t2.id);
+  assert.deepEqual([t2.status, t2.winner], ['decided', '']); assert.match(t2.why, /Too close to call/);
+  assert.equal(store.getVideo(w.id, 'ab3').abtest.result, 'tie');
+  // One rejected: stopped. No views after three weeks: stopped.
+  const t3 = abtests.start(w.id, { draftId: 'sd3', a: 'x one', b: 'y two', by: 'x' });
+  vid(w, 'ab5', { status: 'rejected' }); mk('ab6', 'y two');
+  abtests.attach(w.id, t3.id, 'A', 'ab5'); abtests.attach(w.id, t3.id, 'B', 'ab6');
+  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t3.id).why, 'One version was rejected.');
+  // What's won, by kind of opening.
+  const L = abtests.lessons(w.id);
+  assert.deepEqual(L.find(x => x.style === 'question'), { style: 'question', label: 'A question', won: 1, lost: 0, tied: 0 });
+  assert.equal(L.find(x => x.style === 'statement').lost, 1);
+  assert.equal(abtests.styleOf('I lost my dad last year.'), 'story'); assert.equal(abtests.styleOf('3 questions to ask about coverage'), 'number');
+  assert.equal(abtests.styleOf('Most people think it costs a fortune.'), 'myth'); assert.equal(abtests.styleOf('If you have kids, listen.'), 'you');
+});
+
+const fullSkip = !process.env.FULL_TEST ? 'renders two videos; run with npm run test:full' : !hasFfmpeg() ? 'FFmpeg not installed' : false;
+test('opening tests, end to end: both versions render; A is the draft’s video, B its twin; both carry the test', { skip: fullSkip, timeout: 900000 }, async () => {
+  const w = mkWs('AB render');
+  store.createAccount({ email: 'abr@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abrpass12345') });
+  const a = await login('abr@example.com', 'abrpass12345');
+  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
+  const d = (await a.post('/api/studio', { brief: { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, insightIds: [U.insights.find(i => i.links.includes(p.id)).id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
+  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
+  await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] });
+  const r = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  queue.startWorker(async (job, log) => S.runJob(job, log));
+  try { await queue.idle(800000); } finally { queue.startWorker(null); }
+  const t = abtests.get(w.id, r.data.test.id);
+  assert.ok(t.arms.A.videoId && t.arms.B.videoId, JSON.stringify(t));
+  const [va, vb] = [store.getVideo(w.id, t.arms.A.videoId), store.getVideo(w.id, t.arms.B.videoId)];
+  assert.deepEqual([va.abtest.arm, vb.abtest.arm, va.scenes[0].text, vb.scenes[0].text], ['A', 'B', open.text, 'Who pays when you’re gone?']);
+  assert.equal(store.getVideo(w.id, t.arms.A.videoId).status, 'pending');
+  assert.equal((await a.get(`/api/studio/${d.id}`)).data.draft.videoId, va.id, 'the draft is version A’s');
+  assert.equal(abtests.refresh(w.id).find(x => x.id === t.id).status, 'review');
+});
+
+/* ---------------- Phase 9 review fixes ---------------- */
+test('review fixes: opening tests: B is spoken as its own opening; no "Needs changes" on B; 20% more means 20% more; empty views aren’t results; a version never made stops it', async () => {
+  const w = mkWs('AB fixes');
+  const c = store.loadConfig(w.id); c.output = { ...c.output, mode: 'voiceover' }; store.saveConfig(w.id, c);
+  store.createAccount({ email: 'abf@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('abfpass12345') });
+  const a = await login('abf@example.com', 'abfpass12345');
+  const U = M.usableRoutes(store.loadConfig(w.id)), p = U.pains[0];
+  const d = (await a.post('/api/studio', { brief: { painId: p.id, audienceId: U.audiences.find(x => p.links.includes(x.id)).id, insightIds: [U.insights.find(i => i.links.includes(p.id)).id], scenes: 6, format: 'question', structure: 'classic' } })).data.draft;
+  const open = { text: 'Worried your kids will pay for this?', say: 'Worried your kids will pay for this?' };
+  await a.post(`/api/studio/${d.id}/fill`, { scenes: [open, {}, {}, {}, {}, {}] });
+  const r = await a.post(`/api/studio/${d.id}/abtest`, { text: 'Who pays when you’re gone?' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const jB = queue.listJobs(w.id).find(j => j.opts?.abtest?.arm === 'B');
+  assert.equal(jB.opts.scenes[0].say, 'Who pays when you’re gone?', 'B says its own opening');
+  // A version that's never made (its job canceled) stops the test, so it doesn't hold a place.
+  await a.del(`/api/jobs/${jB.id}`);
+  assert.equal(abtests.refresh(w.id).find(x => x.id === r.data.test.id).why, 'Version B wasn’t made.');
+  // Needs changes on a version B: refused (Fix a scene instead).
+  vid(w, 'vb1', { meta: { painPoint: 'x', draftId: d.id }, abtest: { id: 't', arm: 'B' } });
+  const ch = await a.post('/api/videos/vb1/changes', { items: [], note: 'More warmth' });
+  assert.equal(ch.status, 409); assert.match(ch.data.error, /version B of an opening test.*Fix a scene/);
+  // Results: an empty views field isn't a 0.
+  vid(w, 'vr1', { status: 'posted', posted: { at: new Date().toISOString() }, results: { views: 300, messages: 0 } });
+  await a.post('/api/videos/vr1/results', { views: '', messages: 2 });
+  assert.deepEqual([store.getVideo(w.id, 'vr1').results.views, store.getVideo(w.id, 'vr1').results.messages], [300, 2]);
+  // 600 to 500 is 20% more: a winner. A missing count isn't a result yet.
+  const now = Date.now(), old = new Date(now - 8 * 864e5).toISOString();
+  const t = abtests.start(w.id, { draftId: 'x', a: 'One opening', b: 'Another opening', by: 'x' });
+  vid(w, 'w1', { status: 'posted', posted: { at: old }, results: { views: 600 } }); vid(w, 'w2', { status: 'posted', posted: { at: old }, results: { messages: 1 } });
+  abtests.attach(w.id, t.id, 'A', 'w1'); abtests.attach(w.id, t.id, 'B', 'w2');
+  assert.equal(abtests.refresh(w.id, now).find(x => x.id === t.id).status, 'live', 'B has no views yet');
+  store.updateVideo(w.id, 'w2', { results: { views: 500, messages: 1 } });
+  const done = abtests.refresh(w.id, now).find(x => x.id === t.id);
+  assert.deepEqual([done.status, done.winner], ['decided', 'A']);
+});
+
+test('review fixes: keyword replies: limits counted apart from the log; the wording re-checked as it’s sent; bare links and quiet edits caught', async () => {
+  const w = mkWs('Replies fixes');
+  connectIg(w, { userId: '1791', scopes: 'instagram_business_basic,instagram_business_content_publish,instagram_business_manage_messages,instagram_business_manage_comments' });
+  const rule = replies.saveRule(w.id, { keyword: 'GUIDE', where: 'dm', text: 'Hi {name}! Here it is: {link}' }, { by: 'x', byName: 'Dana', approve: true });
+  replies.setOn(w.id, true);
+  const sent = [], send = async (ws, to, text) => { sent.push({ to, text }); };
+  const wsRec = store.getWorkspace(w.id), ev = from => ({ igId: '1791', where: 'dm', from, text: 'GUIDE', mid: `m-${from}` });
+  // The daily cap holds even when the log is full of refusals.
+  paths.writeJSON(path.join(store.wsDir(w.id), 'replies-count.json'), { sends: Array.from({ length: replies.MAX_PER_DAY }, () => Date.now() - 1000) });
+  for (let k = 0; k < 400; k++) paths.updateJSON(path.join(store.wsDir(w.id), 'replies-log.json'), [], l => [{ at: new Date().toISOString(), ok: false, why: 'x', from: `f${k}` }, ...l].slice(0, 300));
+  assert.match((await replies.handle(wsRec, ev('igsid-50'), { send })).why, /100-a-day limit/);
+  assert.equal(sent.length, 0);
+  paths.writeJSON(path.join(store.wsDir(w.id), 'replies-count.json'), {});
+  await replies.handle(wsRec, ev('igsid-50'), { send });
+  assert.equal(sent.length, 1);
+  assert.equal((await replies.handle(wsRec, ev('igsid-50'), { send })).why, 'Already answered today');
+  // A never-use word added after approval: not sent, back to waiting for approval.
+  const c = store.loadConfig(w.id); c.guardrails = { ...c.guardrails, neverUse: [...c.guardrails.neverUse, 'guide'] }; store.saveConfig(w.id, c);
+  const r2 = replies.saveRule(w.id, { id: rule.id, keyword: 'GUIDE', where: 'dm', text: 'Hi {name}! Here is the checklist: {link}' }, { by: 'x', byName: 'Dana', approve: true });
+  const c2 = store.loadConfig(w.id); c2.guardrails = { ...c2.guardrails, neverUse: [...c2.guardrails.neverUse, 'checklist'] }; store.saveConfig(w.id, c2);
+  const out = await replies.handle(wsRec, ev('igsid-51'), { send });
+  assert.match(out.why, /needs approving again/); assert.equal(sent.length, 1);
+  assert.equal(replies.state(w.id).rules.find(x => x.id === r2.id).status, 'draft');
+  // Links without https:// count; the booking link may be written out.
+  const cfg = store.loadConfig(w.id);
+  assert.ok(replies.problems('More at bit.ly/xyz', cfg).length); assert.ok(replies.problems('See example.com/page', cfg).length);
+  assert.deepEqual(replies.problems('Pick a time: https://calendly.com/dana/15min', cfg), []);
+  assert.ok(replies.problems('https://calendly.com/dana-other', cfg).length);
+  // An assistant changing only the keyword: approved again by the agent.
+  const r3 = replies.saveRule(w.id, { keyword: 'PLAN', where: 'dm', text: 'Hi {name}: {link}' }, { by: 'x', byName: 'Dana', approve: true });
+  assert.equal(replies.saveRule(w.id, { id: r3.id, keyword: 'PLANS', where: 'dm', text: 'Hi {name}: {link}' }, { by: 'y', byName: 'Sam' }).status, 'draft');
+});
+
+test('review fixes: bookings: reschedules aren’t cancels, a cancel counts once, new people are capped, an address has an hourly limit', async () => {
+  const w = mkWs('Book fixes');
+  store.createAccount({ email: 'bf@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bfpass123456') });
+  const a = await login('bf@example.com', 'bfpass123456');
+  vid(w, 'bf1', { status: 'posted' });
+  const code = links.codeFor(w.id, 'bf1'), H = (await a.get('/api/bookings/hook')).data;
+  const cal = (event, extra = {}, uri = 'u1') => ({ event, payload: { name: 'Ann Lee', email: 'ann@example.com', uri, tracking: { utm_content: code }, ...extra } });
+  await hook(H.url, cal('invitee.created'));
+  await hook(H.url, cal('invitee.canceled', { rescheduled: true }, 'u1'));
+  assert.equal(store.getVideo(w.id, 'bf1').bookings.canceled, 0, 'a reschedule isn’t a cancel');
+  assert.equal(clientsLib.list(w.id).find(x => x.name === 'Ann Lee').stage, 'booked');
+  await hook(H.url, cal('invitee.canceled', {}, 'u2')); await hook(H.url, cal('invitee.canceled', {}, 'u3'));
+  assert.equal(store.getVideo(w.id, 'bf1').bookings.canceled, 1, 'counted once');
+  // New people: at most PER_DAY a day this way.
+  for (let k = 0; k < bookings.PER_DAY; k++) bookings.receive(w.id, { event: 'booked', id: `n${k}`, name: `P${k}`, email: `p${k}@example.com` });
+  const over = bookings.receive(w.id, { event: 'booked', id: 'nx', name: 'One more', email: 'more@example.com' });
+  assert.equal(over.full, true); assert.ok(!clientsLib.list(w.id).some(x => x.name === 'One more'));
+  // An hour's calls per address.
+  for (let k = 0; k < bookings.PER_HOUR; k++) bookings.allow('tok-test');
+  assert.equal(bookings.allow('tok-test'), false);
+});
+
+test('review fixes: the export holds keyword replies and opening tests; reviewers aren’t on the Desk’s people; the week counts waiting videos as in review', async () => {
+  const w = mkWs('Fix misc');
+  store.createAccount({ email: 'fm@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('fmpass123456') });
+  const rv = store.createAccount({ email: 'fmr@example.com', name: 'Rev', role: 'agent', workspaceId: w.id, hash: 'x' });
+  store.setMembership(rv.id, w.id, { role: 'reviewer' });
+  const a = await login('fm@example.com', 'fmpass123456');
+  replies.saveRule(w.id, { keyword: 'PLAN', where: 'both', text: 'Hi {name}: {link}' }, { by: 'x', byName: 'Dana', approve: true });
+  abtests.start(w.id, { draftId: 'x', a: 'One', b: 'Two', by: 'x' });
+  const { exportWorkspace, exportCounts } = await import('../lib/data.js');
+  const ex = exportWorkspace(w.id);
+  assert.equal(ex.keywordReplies.rules[0].keyword, 'PLAN'); assert.equal(ex.openingTests.length, 1);
+  assert.deepEqual([exportCounts(ex).keywordReplies, exportCounts(ex).openingTests], [1, 1]);
+  assert.ok(!(await a.get('/api/desk')).data.people.some(p => p.id === rv.id), 'not someone to hand work to');
+  // With sign-off on, an approved video waiting for it isn't "ready" in the week ahead.
+  signoff.setOn(w.id, true, 'x');
+  vid(w, 'wk1', { status: 'approved', approval: { at: new Date().toISOString() } });
+  const c = store.loadConfig(w.id); c.schedule = { ...c.schedule, autopost: { ...c.schedule.autopost, on: true, days: [0, 1, 2, 3, 4, 5, 6], time: '23:59' } }; store.saveConfig(w.id, c);
+  const week = (await a.get('/api/today')).data.week;
+  assert.equal(week.ready, 0); assert.ok(week.review >= 1);
+  assert.equal(signoff.tellReviewers(w.id), 1, 'turning it on tells the reviewer what’s already waiting');
+});

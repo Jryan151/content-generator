@@ -1,0 +1,14 @@
+# Never in git: your data, keys and media. update.sh never touches these either.
+/data/
+/videos/
+/backups/
+/fonts/*.ttf
+/music/*
+!/music/.gitkeep
+/node_modules/
+/.env
+/.app-key
+*.tmp
+*.part
+/work/
+*.mp4
