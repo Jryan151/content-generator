@@ -22,7 +22,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Review Agent', comped: true });
 const cfg0 = store.loadConfig(ws.id);
-cfg0.story = { ...cfg0.story, ...starterStory(['final_expense']) };
+cfg0.story = { ...cfg0.story, ...starterStory() };
 cfg0.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
 cfg0.look = { ...cfg0.look, name: 'Dana Agent', location: 'Gallup, NM' };
 store.saveConfig(ws.id, cfg0);
@@ -34,7 +34,7 @@ const login = async (email, pass) => { const c = client(port); const r = await c
 const agent = await login('dana@example.com', 'danapass1234');
 const asst = await login('sam@example.com', 'sampass12345');
 const FACT = cfg0.story.insights[0];
-const brief = { painId: 'fe_p1', audienceId: 'fe_a1', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
+const brief = { painId: 't_funeral', audienceId: 'aud', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
 const sc = (text, accent) => ({ text, accent, keyword: 'older woman kitchen', say: '' });
 const board = () => [sc('Who pays for your funeral someday?', 'funeral'), sc('Final expense insurance is usually a small policy', 'small'), sc('It is meant to cover funeral and end-of-life costs', 'funeral'),
   sc('Ask me about a simple plan for this', 'simple'), sc('What fits you depends on your family.', 'family'), sc(`${cfg0.story.ctaAction || 'Message me'} and we can talk it through`, 'talk')];

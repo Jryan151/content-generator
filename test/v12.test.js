@@ -23,7 +23,7 @@ test.after(() => server.close());
 async function agent(email, { comped = true } = {}) {
   const ws = store.createWorkspace({ name: email, comped });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look.name = 'Jane Smith';
   store.saveConfig(ws.id, cfg);
@@ -36,7 +36,7 @@ async function agent(email, { comped = true } = {}) {
 function fakeVideo(ws, status = 'pending', extra = {}) {
   const id = store.validWs(ws) ? `${Date.now()}${Math.random().toString(36).slice(2, 6)}` : '';
   fs.writeFileSync(store.videoPath(ws, `video_${id}.mp4`), Buffer.from('fake mp4 ' + id));
-  return store.addVideo(ws, { id, file: `video_${id}.mp4`, cover: '', status, createdAt: new Date().toISOString(), meta: { painPoint: 'Worry', insight: 'Fact', painId: 'fe_p1', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Post', clips: [], preflight: [], ...extra });
+  return store.addVideo(ws, { id, file: `video_${id}.mp4`, cover: '', status, createdAt: new Date().toISOString(), meta: { painPoint: 'Worry', insight: 'Fact', painId: 't_funeral', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Post', clips: [], preflight: [], ...extra });
 }
 
 /* ---------------- Step 1: "compliance-checked", never "compliant" ---------------- */
@@ -113,7 +113,7 @@ test('terms: off without URLs, required at invite-accept, setup and when the ver
     process.env.TERMS_VERSION = '2027-02';
     const d = await n.post('/api/setup/draft', { answers: { name: 'New Agent', products: ['final_expense'] } });
     assert.equal(d.status, 200, 'setup stays open before accepting');
-    d.data.config.story.insights[0].confirmed = true;
+    d.data.config.topics[0].confirmed = true;
     assert.equal((await n.post('/api/setup/finish', { config: d.data.config, accept: true })).status, 400);
     assert.equal((await n.post('/api/setup/finish', { config: d.data.config, accept: true, acceptTerms: true })).status, 200);
     assert.equal(store.findAccountByEmail('newbie@example.com').termsVersion, '2027-02');
@@ -143,7 +143,7 @@ test('voiceover posts say the voice is AI (Brand toggle), and the note passes th
   const core = await import('../mixer-core.js');
   const { writePost } = await import('../stages/script.js');
   const cfg = core.migrate(core.DEFAULT_CONFIG);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.look.name = 'Jane Smith';
   assert.equal(cfg.voice.aiNote, 'on', 'on by default');
   assert.equal(core.migrate({ ...cfg, voice: { ...cfg.voice, aiNote: 'maybe' } }).voice.aiNote, 'on');

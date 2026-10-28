@@ -3,10 +3,15 @@
 // this file, so the checks an agent sees are exactly the checks a script must pass. The prompts
 // themselves are built in lib/prompts.js, which only the server loads (it's never sent to browsers).
 //
-// Foundation: one audience, one worry, one confirmed fact (insight), then an open question
-// only the agent can answer, so the viewer reaches out to get it.
+// Foundation: one topic per video. A topic is the agent's worry-fact pair: the worry in the client's
+// words, the one confirmed fact it teaches, the question only the agent can answer (so the viewer
+// reaches out), and how the offer is named. The parts of a topic always go together, so a video never
+// mixes a worry with a fact or product from somewhere else.
 //
-//   Audience → Pain point → Insight → Solution → Bridge (open question) → CTA
+//   Topic (worry → fact → offer) → Bridge (open question) → CTA
+//
+// The checks and the writer read cfg.story (audiences, painPoints, insights, solutions), which is
+// built from cfg.topics by storyFrom(): one worry, one fact and one solution per topic.
 //
 // Rules run in PRIORITY ORDER. When two conflict, the higher one wins:
 //   1 Compliance  2 Accuracy  3 Structure  4 Persuasion  5 Style
@@ -18,7 +23,6 @@ export { nicheOf, NICHES, DEFAULT_NICHE };
 
 /* ---------------- Platform constants ---------------- */
 export const CONFIG_VERSION = 13;
-export const FACT_REVIEW_DAYS = 180;          // a confirmed fact must be re-confirmed after this
 export const END_CARD_SECONDS = 2.5;
 
 // Niche-specific content (products, the compliance floor, government-sounding words, eligibility
@@ -38,16 +42,24 @@ export const DEFAULT_CONFIG = {
   profile: {
     states: [],                    // where the agent is licensed, e.g. ['New Mexico']
     timezone: 'America/Denver',
-    products: [],                  // PRODUCT_LINES ids
     about: '',                     // how they describe themselves, e.g. "a mom running my own business"
     clients: '',                   // who their clients usually are, e.g. "older adults on fixed incomes"
     daysOff: [],                   // weekdays off (0 = Sunday): no nudges, notifications or streak breaks
   },
+  // What videos teach: { id, worry, fact, question, offer, mention, who, confirmed, confirmedAt, confirmedBy, ai }
+  //   worry     the client's worry in their own words (the hook)
+  //   fact      the one fact the video teaches; used only once `confirmed`
+  //   question  the personal question only the agent can answer (the open loop at the end)
+  //   offer     how the agent's product is named in plain words; `mention`: a phrase always said with it
+  //   who       who appears in the footage for this topic (empty: the audience's)
+  topics: [],
+  // Who the clients are (the text is profile.clients): who appears in the footage, how they like to be
+  // spoken to (DISC, e.g. "SC"), and footage searches that worked.
+  audience: { visual: '', style: '', searches: [] },
   story: {
-    // audiences: { id, text, visual, style }    visual = who appears in the footage; style = DISC lean, e.g. "SC"
-    // painPoints: { id, text, links:[audience], question }   question = the curiosity gap
-    // insights:  { id, text, links:[pain], confirmed, confirmedAt, source, ai }
-    // solutions: { id, text, plain, links:[insight], mustMention }
+    // Built from the topics on every load (storyFrom), never edited directly:
+    // audiences: { id, text, visual, style, searches }   painPoints: { id, text, links:[audience], question }
+    // insights:  { id, text, links:[pain], confirmed, confirmedAt }   solutions: { id, text, plain, links:[insight], mustMention }
     audiences: [], painPoints: [], insights: [], solutions: [],
     ctaAction: 'Message me',
     defaultQuestion: LI.defaults.defaultQuestion,
@@ -55,7 +67,7 @@ export const DEFAULT_CONFIG = {
   // The Mindset tab's parts that shape videos (the rest, like habits and notes, lives in lib/mindset.js).
   mindset: {
     why: { why: '', how: '', what: '', show: 'off' },        // Start With Why: shapes the tone of the bridge and CTA; one hook angle opens from it
-    hedgehog: { love: '', best: '', pays: '', products: [], audiences: [] },   // Good to Great: their sweet spot comes up more often
+    hedgehog: { love: '', best: '', pays: '' },   // Good to Great: their sweet spot, said in their own words
     objections: [],          // The Art of War: { id, text, answer, links:[pain], topic } — topic: true = a "question I get asked" video topic
     persuasion: 'on',        // Influence: score which honest principles each script uses (badges in Review)
     giveAsk: 'on',           // The Infinite Game: lean toward teaching when recent videos asked a lot
@@ -294,12 +306,9 @@ export function guardrailsFor(cfg) {
 }
 
 /* ---------------- Facts: confirmed, unconfirmed or due for review ---------------- */
-export function insightStatus(x, now = Date.now()) {
-  if (!x || !x.confirmed || !x.confirmedAt) return 'unconfirmed';
-  const age = (now - Date.parse(x.confirmedAt)) / 86400000;
-  return age > FACT_REVIEW_DAYS ? 'stale' : 'confirmed';
-}
-export const isUsable = (x, now) => insightStatus(x, now) === 'confirmed';
+// A fact is used once the agent has confirmed it (the server stamps when).
+export const insightStatus = x => (x && x.confirmed && x.confirmedAt ? 'confirmed' : 'unconfirmed');
+const isUsable = x => insightStatus(x) === 'confirmed';
 
 /* ---------------- Scene plan and timing ---------------- */
 // The scene plan for a format. `count` = how many facts a list uses.
@@ -344,54 +353,36 @@ export function migrate(c) {
   const d = clone(DEFAULT_CONFIG), x = clone(c);
   const out = { ...d, ...x };
   ['profile', 'story', 'voice', 'guardrails', 'output', 'look', 'schedule'].forEach(k => { out[k] = { ...d[k], ...(x[k] || {}) }; });
+  delete out.profile.products;
   out.specs = { energy: { ...d.specs.energy, ...(x.specs?.energy || {}) }, tone: { ...d.specs.tone, ...(x.specs?.tone || {}) } };
   const s = out.story;
-  ['audiences', 'painPoints', 'insights', 'solutions'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
-  // Ids are short word characters only (they end up in page markup and file lookups).
   const okId = id => typeof id === 'string' && /^[\w-]{1,40}$/.test(id);
-  ['audiences', 'painPoints', 'insights', 'solutions'].forEach(k => {
-    s[k] = s[k].filter(x => x && typeof x === 'object').map(x => ({ ...x, id: okId(x.id) ? x.id : uid(k[0]), text: String(x.text ?? ''), ...(Array.isArray(x.links) ? { links: x.links.filter(okId) } : {}) }));
+  const line = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  // Content from before topics (v14), with worries, facts, audiences and solutions linked by hand,
+  // becomes topics once (legacyTopics).
+  const old = !(Array.isArray(x.topics) && x.topics.length) && Array.isArray(s.insights) && s.insights.length ? legacyTopics(s) : null;
+  const A = old?.audience || (x.audience && typeof x.audience === 'object' ? x.audience : {});
+  out.audience = { visual: line(A.visual, 100), style: normStyle(A.style), searches: uniq((Array.isArray(A.searches) ? A.searches : []).map(q => line(q, 60)).filter(Boolean)).slice(0, 8) };
+  const seen = new Set();
+  out.topics = (old?.topics || (Array.isArray(x.topics) ? x.topics : [])).filter(t => t && typeof t === 'object').slice(0, MAX_TOPICS).map(t => {
+    const id = okId(t.id) && t.id.length <= 36 && t.id !== 'aud' && !seen.has(t.id) ? t.id : uid('t');
+    seen.add(id);
+    const confirmed = !!t.confirmed;
+    return { id, worry: line(t.worry, 160), fact: line(t.fact, 300), question: line(t.question, 160).replace(/[.?]$/, ''), offer: line(t.offer, 120), mention: line(t.mention, 40), who: line(t.who, 100),
+      confirmed, confirmedAt: confirmed ? String(t.confirmedAt || '').slice(0, 30) : '', confirmedBy: confirmed ? String(t.confirmedBy || '').slice(0, 40) : '', ai: !!t.ai };
   });
-  s.painPoints = s.painPoints.map(p => {
-    const months = [...new Set((Array.isArray(p.months) ? p.months : []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 12))].sort((a, b) => a - b);
-    const { months: _drop, ...rest } = p;
-    return { question: '', ...rest, links: p.links || [], ...(months.length ? { months } : {}) };
-  });
-  // Footage searches that scored well for an audience (saved from Test footage).
-  s.audiences = s.audiences.map(a => ({ visual: '', ...a, style: normStyle(a.style), searches: uniq((Array.isArray(a.searches) ? a.searches : []).map(q => String(q ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)).filter(Boolean)).slice(0, 8) }));
-  // Facts from before v8 were never formally confirmed: the agent confirms each one once.
-  s.insights = s.insights.map(i => ({ confirmed: false, confirmedAt: '', source: '', ai: false, ...i, links: i.links || [] }));
-  s.solutions = s.solutions.map(x2 => ({ ...x2, links: x2.links || [], mustMention: x2.mustMention ?? (/waiting period/i.test(x2.plain || '') ? 'waiting period' : '') }));
-  if (c.version < 6) {
-    const OLD = {
-      'a final expense policy with a few health questions and no exam': 'a final expense policy that may skip the medical exam',
-      'a policy that accepts almost anyone, with a waiting period': 'a final expense policy built for tougher health histories, with a waiting period',
-      'a policy you own yourself, so it stays with you': 'a policy you own yourself, separate from your job',
-    };
-    s.solutions = s.solutions.map(x2 => ({ ...x2, plain: OLD[x2.plain] || x2.plain }));
-  }
   if (!s.ctaAction) s.ctaAction = d.story.ctaAction;
-  // Link verdicts (story.fit) and product-line tags: kept only in the shapes the checks expect.
-  const ids = new Set(['audiences', 'painPoints', 'insights', 'solutions'].flatMap(k => s[k].map(x => x.id)));
-  // Only links that exist now keep a verdict (so old ones never pile up).
-  const linked = new Set(LINK_KINDS.flatMap(([c]) => s[c].flatMap(x => (x.links || []).map(p => `${x.id}>${p}`))));
-  s.fit = Object.fromEntries(Object.entries(s.fit && typeof s.fit === 'object' ? s.fit : {}).filter(([k, v]) => {
-    const [a, b] = k.split('>');
-    return /^[\w-]{1,40}>[\w-]{1,40}$/.test(k) && ids.has(a) && ids.has(b) && linked.has(k) && v && typeof v === 'object';
-  }).slice(0, 3000).map(([k, v]) => [k, { s: Math.min(5, Math.max(1, Math.round(Number(v.s) || 3))), r: String(v.r ?? '').slice(0, 160), k: String(v.k ?? '').slice(0, 16), ...(v.g ? { g: String(v.g).slice(0, 24) } : {}), ...(v.u ? { u: 1 } : {}), ...(v.o ? { o: String(v.o).slice(0, 200), oAt: String(v.oAt || '').slice(0, 30) } : {}) }]));
-  const lines = new Set(PRODUCT_LINES.map(p => p.id));
-  ['audiences', 'painPoints', 'insights', 'solutions'].forEach(k => { s[k] = s[k].map(x => { if (x.product && !lines.has(x.product)) { const { product, ...rest } = x; return rest; } return x; }); });
+  Object.assign(s, storyFrom(out));
+  delete s.fit;
   const b = x.bank && typeof x.bank === 'object' ? x.bank : {};
   const items = (arr, prefix, n, len, extra) => (Array.isArray(arr) ? arr : []).filter(o => o && typeof o === 'object')
     .map(o => ({ id: okId(o.id) ? o.id : uid(prefix), text: String(o.text ?? '').slice(0, len), links: (Array.isArray(o.links) ? o.links : []).filter(okId), ...extra(o) })).slice(0, n);
   const mi = x.mindset && typeof x.mindset === 'object' ? x.mindset : {}, dm = d.mindset;
   const txt = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
-  const audIds = new Set(s.audiences.map(a => a.id)), painIds = new Set(s.painPoints.map(p => p.id));
+  const painIds = new Set(s.painPoints.map(p => p.id));
   out.mindset = {
     why: { why: txt(mi.why?.why, 200), how: txt(mi.why?.how, 200), what: txt(mi.why?.what, 200), show: mi.why?.show === 'on' ? 'on' : 'off' },
-    hedgehog: { love: txt(mi.hedgehog?.love, 300), best: txt(mi.hedgehog?.best, 300), pays: txt(mi.hedgehog?.pays, 300),
-      products: uniq(Array.isArray(mi.hedgehog?.products) ? mi.hedgehog.products : []).filter(p => PRODUCT_LINES.some(x => x.id === p)),
-      audiences: uniq(Array.isArray(mi.hedgehog?.audiences) ? mi.hedgehog.audiences : []).filter(a => audIds.has(a)) },
+    hedgehog: { love: txt(mi.hedgehog?.love, 300), best: txt(mi.hedgehog?.best, 300), pays: txt(mi.hedgehog?.pays, 300) },
     objections: (Array.isArray(mi.objections) ? mi.objections : []).filter(o => o && typeof o === 'object' && txt(o.text, 200)).slice(0, 40)
       .map(o => ({ id: okId(o.id) ? o.id : uid('ob'), text: txt(o.text, 200), answer: txt(o.answer, 600), links: (Array.isArray(o.links) ? o.links : []).filter(id => painIds.has(id)), topic: !!o.topic })),
     persuasion: mi.persuasion === 'off' ? 'off' : dm.persuasion,
@@ -441,13 +432,54 @@ export function migrate(c) {
   // What a video's tracking link opens (v15): the agent's own page ('page'), or the booking page directly.
   if (!['page', 'direct'].includes(out.look.landing)) out.look.landing = 'page';
   if (!Array.isArray(out.profile.states)) out.profile.states = [];
-  if (!Array.isArray(out.profile.products)) out.profile.products = [];
   out.profile.daysOff = [...new Set((Array.isArray(out.profile.daysOff) ? out.profile.daysOff : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))].sort().slice(0, 6);
   out.voice.say = (Array.isArray(out.voice.say) ? out.voice.say : []).map(x => ({ word: String(x?.word || '').replace(/\s+/g, ' ').trim().slice(0, 40), say: String(x?.say || '').replace(/\s+/g, ' ').trim().slice(0, 60) }))
     .filter((x, i, a) => x.word && x.say && a.findIndex(y => y.word.toLowerCase() === x.word.toLowerCase()) === i && !sayProblems(x.say, out).length).slice(0, 50);
   delete out.output.secondsPerScene;
   out.version = CONFIG_VERSION;
   return out;
+}
+
+/* ---------------- Topics → the story the checks and the writer read ---------------- */
+export const MAX_TOPICS = 60;
+// One worry, one fact and one solution per topic, linked only to each other; one audience (the
+// agent's clients), or the topic's own when it says who is in the footage. A topic without a fact is
+// a worry waiting for one: it's listed, never used.
+export function storyFrom(cfg) {
+  const A = cfg.audience || {}, clients = String(cfg.profile?.clients || '').replace(/\s+/g, ' ').trim();
+  const base = { id: 'aud', text: clients.slice(0, 80) || 'Your clients', visual: A.visual || '', style: A.style || '', searches: A.searches || [] };
+  const plain0 = `${String(nicheOf(cfg).defaultProduct || 'life insurance').toLowerCase()} coverage`;
+  const audiences = [base], painPoints = [], insights = [], solutions = [];
+  for (const t of cfg.topics || []) {
+    if (!t.worry && !t.fact) continue;
+    let aud = 'aud';
+    if (t.who && t.who !== base.visual) { aud = `${t.id}_a`; audiences.push({ ...base, id: aud, visual: t.who, searches: [] }); }
+    painPoints.push({ id: t.id, text: t.worry || t.fact, question: t.question || '', links: [aud] });
+    if (!t.fact) continue;
+    insights.push({ id: `${t.id}_f`, text: t.fact, links: [t.id], confirmed: !!t.confirmed, confirmedAt: t.confirmedAt || '', confirmedBy: t.confirmedBy || '', source: '', ai: !!t.ai });
+    solutions.push({ id: `${t.id}_s`, text: t.offer || plain0, plain: t.offer || plain0, links: [`${t.id}_f`], mustMention: t.mention || '' });
+  }
+  return { audiences, painPoints, insights, solutions };
+}
+// The topic an id from the story belongs to (a worry's id is its topic's; a fact's or solution's adds
+// _f or _s; a topic's own audience adds _a).
+export const topicOf = (cfg, id) => (cfg.topics || []).find(t => t.id === id || `${t.id}_f` === id || `${t.id}_s` === id || `${t.id}_a` === id) || null;
+// Content from before topics: each fact with text becomes a topic, with the first worry it answered,
+// that worry's audience (who's in the footage) and the first solution that followed from it.
+function legacyTopics(s) {
+  const arr = k => (Array.isArray(s[k]) ? s[k] : []).filter(o => o && typeof o === 'object');
+  const pains = arr('painPoints'), auds = arr('audiences'), sols = arr('solutions'), first = auds[0] || {};
+  const topics = arr('insights').filter(i => String(i.text || '').trim()).map(i => {
+    const links = Array.isArray(i.links) ? i.links : [];
+    const p = pains.find(q => links.includes(q.id)) || null;
+    const a = p ? auds.find(q => (p.links || []).includes(q.id)) : null;
+    const sol = sols.find(q => (q.links || []).includes(i.id)) || null;
+    // A story built from topics (storyFrom) comes back as the same topics, with the same ids.
+    const id = /_f$/.test(i.id) && p?.id === i.id.slice(0, -2) ? p.id : i.id;
+    return { id, worry: p?.text || '', question: p?.question || '', fact: i.text, offer: sol?.plain || sol?.text || '', mention: sol?.mustMention || (/waiting period/i.test(sol?.plain || '') ? 'waiting period' : ''),
+      who: a?.visual && a.visual !== first.visual ? a.visual : '', confirmed: !!i.confirmed && !!i.confirmedAt, confirmedAt: i.confirmedAt || '', confirmedBy: i.confirmedBy || '', ai: !!i.ai };
+  });
+  return { topics, audience: { visual: first.visual || '', style: first.style || '', searches: first.searches || [] } };
 }
 
 /* ---------------- Roll: follow the routing, upstream first ---------------- */
@@ -462,52 +494,13 @@ function pickFresh(arr, rng, recentIds, keep = 0.2, boost = {}) {
 }
 const shuffle = (arr, rng) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
-// Which routes can make a video right now: only confirmed facts count.
-/* ---------------- Link checks: does each link make sense? ---------------- */
-// Every link (worry → audience, fact → worry, solution → fact) can carry a verdict in story.fit,
-// keyed "childId>parentId": { s: 1-5 fit score from the AI, r: one-line reason, k: textKey of the two
-// texts it judged (a changed text makes the verdict stale), o: the agent's override reason }.
-// A fact or solution tagged with one product line linked to one tagged with another is a mismatch
-// without any AI. Mismatches are left out of videos until fixed or overridden; weak links only warn.
-export const FIT_WEAK = 3, FIT_BAD = 2;
-export const textKey = (a, b) => { let h = 5381; for (const ch of `${a}\u0000${b}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return h.toString(36); };
-export const linkKey = (childId, parentId) => `${childId}>${parentId}`;
-const LINK_KINDS = [['painPoints', 'audiences', 'worry-audience'], ['insights', 'painPoints', 'fact-worry'], ['solutions', 'insights', 'solution-fact']];
-// Every link in the content, with its state: ok | weak | blocked | unchecked (and why).
-export function linkChecks(cfg) {
-  const s = cfg.story, fit = s.fit || {}, out = [];
-  for (const [childList, parentList, kind] of LINK_KINDS) {
-    for (const child of s[childList] || []) for (const pid of child.links || []) {
-      const parent = (s[parentList] || []).find(x => x.id === pid);
-      if (!parent) continue;
-      const key = linkKey(child.id, pid), v = fit[key] || null;
-      // `u`: not a verdict the server made (only an override rides on it), so it counts as unchecked.
-      const fresh = v && !v.u && v.k === textKey(child.text, parent.text) ? v : null;
-      const productClash = kind !== 'worry-audience' && child.product && parent.product && child.product !== parent.product;
-      let state = 'unchecked', reason = '';
-      if (productClash) { state = 'blocked'; reason = `Different product lines (${productLabel(child.product)} and ${productLabel(parent.product)}).`; }
-      else if (fresh && fresh.s <= FIT_BAD) { state = 'blocked'; reason = fresh.r || 'These don’t fit together.'; }
-      else if (fresh && fresh.s <= FIT_WEAK) { state = 'weak'; reason = fresh.r || 'Only loosely related.'; }
-      else if (fresh) { state = 'ok'; reason = fresh.r || ''; }
-      out.push({ key, kind, childList, parentList, child, parent, state, reason, score: fresh?.s ?? null, override: v?.o || '', product: !!productClash });
-    }
-  }
-  return out;
-}
-const productLabel = id => PRODUCT_LINES.find(p => p.id === id)?.label || id;
-// Links videos never use: blocked, and not overridden by the agent.
-export const blockedLinks = cfg => new Set(linkChecks(cfg).filter(l => l.state === 'blocked' && !l.override).map(l => l.key));
-
-export function usableRoutes(cfg, now = Date.now()) {
+// What can make a video right now: the topics with a confirmed fact.
+export function usableRoutes(cfg) {
   const s = cfg.story;
-  // With blocked links, items are copies with those links left out (the content itself is unchanged).
-  const B = s.fit || s.insights.some(i => i.product) ? blockedLinks(cfg) : new Set();
-  const cut = x => (B.size && (x.links || []).some(id => B.has(linkKey(x.id, id))) ? { ...x, links: x.links.filter(id => !B.has(linkKey(x.id, id))) } : x);
-  const insights = s.insights.filter(i => isUsable(i, now)).map(cut);
-  const pains = s.painPoints.map(cut).filter(p => insights.some(i => i.links.includes(p.id)));
+  const insights = s.insights.filter(isUsable);
+  const pains = s.painPoints.filter(p => insights.some(i => i.links.includes(p.id)));
   const audiences = s.audiences.filter(a => pains.some(p => p.links.includes(a.id)));
-  const solutions = B.size ? s.solutions.map(cut) : s.solutions;
-  return { insights, pains, audiences, solutions, blocked: B };
+  return { insights, pains, audiences, solutions: s.solutions };
 }
 
 // Posted videos with results → small boosts for the topics and formats that bring messages.
@@ -524,30 +517,6 @@ export function boostsFrom(videos = []) {
   return out;
 }
 
-/* ---------------- Seasons ---------------- */
-// A worry tagged with months (painPoints[].months: 1–12) comes up about 3× as often in those months,
-// in the agent's time zone. Untagged worries are unchanged.
-export const SEASON_BOOST = 3;
-export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-export function monthIn(tz, now = Date.now()) {
-  try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/Denver', month: 'numeric' }).format(new Date(now))); }
-  catch { return new Date(now).getUTCMonth() + 1; }
-}
-// Worries that fit this month's calendar moment (the niche's season `match` words, in the worry or
-// its audiences) come up about twice as often on their own; ones the agent tagged, three times.
-export const SEASON_AUTO = 2;
-export function seasonBoosts(cfg, now = Date.now()) {
-  const m = monthIn(cfg.profile?.timezone, now), out = {}, s = cfg.story || {};
-  const moments = (nicheOf(cfg).seasons || []).filter(x => x.months.includes(m) && x.match).map(x => new RegExp(`\\b(${x.match})s?\\b`, 'i'));
-  (s.painPoints || []).forEach(p => {
-    if ((p.months || []).includes(m)) out[p.id] = SEASON_BOOST;
-    else if (moments.length && !(p.months || []).length) {
-      const text = [p.text, ...(s.audiences || []).filter(a => p.links.includes(a.id)).map(a => a.text)].join(' ');
-      if (moments.some(re => re.test(text))) out[p.id] = SEASON_AUTO;
-    }
-  });
-  return out;
-}
 // Memory seats: what the agent approves and rejects teaches which formats they like, without asking.
 // From the last 90 days of decisions per format (3 or more): mostly approved → up to 1.3×, mostly
 // rejected → down to 0.5×. Results (boostsFrom) still count on top.
@@ -561,8 +530,6 @@ export function tasteFrom(videos = [], now = Date.now()) {
   });
   return Object.fromEntries(Object.entries(m).filter(([, x]) => x.yes + x.no >= 3).map(([k, x]) => [k, Math.round(Math.min(1.3, Math.max(0.5, 0.5 + (x.yes / (x.yes + x.no)) * 0.8)) * 100) / 100]));
 }
-// The niche's calendar moments for this month (shown as ideas in Content).
-export const seasonsNow = (cfg, now = Date.now()) => { const m = monthIn(cfg.profile?.timezone, now); return (nicheOf(cfg).seasons || []).filter(x => x.months.includes(m)); };
 
 /* ---------------- Shot plan: what kind of shot each scene's footage is ---------------- */
 // Automatic videos get a plan before the script is written, so footage varies: faces, details,
@@ -632,35 +599,19 @@ export function roll(cfg, rng = Math.random, recent = [], force = {}, now = Date
   const s = cfg.story, bank = cfg.bank || {}, breaks = [], perf = force.perf || {};
   const last = (k, n) => recent.slice(0, n).map(r => r[k]).filter(Boolean);
   const U = usableRoutes(cfg, now);
-  if (!U.insights.length) breaks.push('No confirmed facts yet. Confirm at least one insight in Content before making videos.');
+  if (!U.insights.length) breaks.push('No confirmed topics yet. Tick at least one topic’s fact as checked in Content → Topics before making videos.');
 
-  // Hedgehog (Mindset): the audiences and product lines in the agent's sweet spot come up more often.
-  const hh = cfg.mindset?.hedgehog || {}, hhA = hh.audiences || [], hhP = hh.products || [];
-  const audBoost = hhA.length ? Object.fromEntries(hhA.map(id => [id, 1.5])) : {};
+  // A topic is picked first (fresh ones more likely, results boost), then its own audience and fact.
   let painPoint = force.painId ? U.pains.find(p => p.id === force.painId) : null;
   if (force.painId && !painPoint) breaks.push('That topic has no confirmed facts yet, so a different one was picked.');
-  let audience;
-  if (painPoint) audience = (force.audienceId && U.audiences.find(a => a.id === force.audienceId && painPoint.links.includes(a.id))) || pickFresh(U.audiences.filter(a => painPoint.links.includes(a.id)), rng, last('audienceId', 2), 0.4, audBoost);
-  else {
-    audience = pickFresh(U.audiences, rng, last('audienceId', 2), 0.4, audBoost);
-    const season = seasonBoosts(cfg, now);
-    const sweet = p => (hhP.length && p.product && hhP.includes(p.product) ? 1.5 : 1);
-    const boost = Object.keys(season).length || hhP.length ? Object.fromEntries(U.pains.map(p => [p.id, (perf.pains?.[p.id] || 1) * (season[p.id] || 1) * sweet(p)])) : perf.pains;
-    painPoint = pickFresh(U.pains.filter(p => audience && p.links.includes(audience.id)), rng, last('painId', 3), 0.3, boost);
-  }
+  painPoint ||= pickFresh(U.pains, rng, last('painId', 3), 0.3, perf.pains);
+  const audience = painPoint ? U.audiences.find(a => painPoint.links.includes(a.id)) || null : null;
   const insightPool = U.insights.filter(i => painPoint && i.links.includes(painPoint.id));
   const insight = (force.insightId && insightPool.find(i => i.id === force.insightId)) || pickFresh(insightPool, rng, last('insightId', 8), 0.15);
   const extra = insightPool.filter(i => insight && i.id !== insight.id);
 
   const solutionFor = i => { const sols = routedFrom(U.solutions, i); return sols.length ? sols[Math.floor(rng() * sols.length)] : null; };
-  let solution = solutionFor(insight);
-  if (insight && !solution && U.solutions.length) {
-    breaks.push(`No solution is routed from the insight "${insight.text}", so one was picked at random.`);
-    solution = U.solutions[Math.floor(rng() * U.solutions.length)];
-    // Never one blocked for this fact, or for a different product line.
-    const fits = x => !U.blocked.has(linkKey(x.id, insight.id)) && !(insight.product && x.product && x.product !== insight.product);
-    if (!fits(solution)) solution = U.solutions.find(fits) || null;
-  }
+  const solution = solutionFor(insight);
 
   const fits = x => !x.links?.length || (painPoint && x.links.includes(painPoint.id));
   const stories = (bank.stories || []).filter(x => x.confirmed && x.text.trim() && fits(x));
@@ -1006,8 +957,7 @@ export function validateScript(raw, cfg, picks = null) {
   });
 
   // A line about another product line than the video's (a term policy in a final expense video).
-  const prodId = picks?.painPoint?.product || picks?.audience?.product || '';
-  const lines = N.productLines || [], mine = lines.find(l => l.id === prodId);
+  const lines = N.productLines || [], mine = lines[0];
   if (mine) heard.forEach((h, i) => {
     const other = lines.find(l => l.id !== mine.id && l.words?.test(h) && !mine.words?.test(h));
     if (other) add('product', `Scene ${i + 1} sounds like ${other.label.toLowerCase()} (“${h.match(other.words)[0]}”), but this video is about ${mine.label.toLowerCase()}.`, i, rewriteFix(i, `Rewrite it for ${mine.label.toLowerCase()}`));
@@ -1179,7 +1129,7 @@ export function studioPicks(cfg, brief = {}, now = Date.now()) {
     story: format === 'story' ? story : null, askQuestion: format === 'asked' ? askQuestion : null,
     ...(series ? { series: { id: series.id, label: series.label, part: series.parts.indexOf(part) + 1, of: series.parts.length, title: part.title, format } } : {}),
     // Told to the writer for Studio's helpers (v15), so filled-in lines stay on the video's product.
-    productLine: (() => { const l = (nicheOf(cfg).productLines || []).find(x => x.id === (painPoint?.product || audience?.product)); return l ? `${l.label} (${l.note})` : ''; })(),
+    productLine: (() => { const l = (nicheOf(cfg).productLines || [])[0]; return l ? `${l.label} (${l.note})` : ''; })(),
     noFact, recent: [], breaks: [], problems,
   };
 }
@@ -1302,21 +1252,13 @@ const NOT_A_NUMBER = /\b(?:the two of (?:you|us|them)|you two|one or two|a coupl
 
 /* ---------------- Proactive: what to make next, before anyone asks ---------------- */
 const DAY_MS = 86400000;
-export const EXPIRY_WARN_DAYS = 7;
 // Gaps worth filling, most useful first, each with the one tap that fills it:
 //   { kind, text, act: { make: { painId?, format?, count? } } | { tab } }
-// season: a tagged worry whose season starts within 2 weeks · expiring: facts due for review within a
-// week · stale: a worry with no video in 30 days · untried: a format on but unused in 60 days ·
-// stuck: an audience with no confirmed facts.
+// stale: a topic with no video in 30 days · untried: a format on but unused in 60 days ·
+// unconfirmed: topics waiting for their fact to be checked.
 export function gaps(cfg, videos = [], now = Date.now()) {
-  const s = cfg.story, U = usableRoutes(cfg, now), out = [];
+  const U = usableRoutes(cfg), out = [];
   const made = (pred, days) => videos.some(v => pred(v) && now - Date.parse(v.createdAt || 0) < days * DAY_MS);
-  // Season soon: tagged for next month, not this one, and this month ends within 14 days.
-  const m = monthIn(cfg.profile?.timezone, now), next = (m % 12) + 1, soon = monthIn(cfg.profile?.timezone, now + 14 * DAY_MS) === next;
-  if (soon) U.pains.filter(p => (p.months || []).includes(next) && !(p.months || []).includes(m)).slice(0, 2)
-    .forEach(p => out.push({ kind: 'season', text: `“${p.text}” comes into season in ${MONTHS[next - 1]}. Have a few ready before it starts.`, act: { make: { painId: p.id, count: 3 } } }));
-  const expiring = s.insights.filter(i => insightStatus(i, now) === 'confirmed' && (now - Date.parse(i.confirmedAt)) / DAY_MS > FACT_REVIEW_DAYS - EXPIRY_WARN_DAYS);
-  if (expiring.length) out.push({ kind: 'expiring', text: `${expiring.length} fact${expiring.length > 1 ? 's are' : ' is'} due for review within a week. Re-confirm ${expiring.length > 1 ? 'them' : 'it'} so videos don’t stop.`, act: { tab: 'insights' } });
   if (videos.length) {
     U.pains.filter(p => !made(v => v.meta?.painId === p.id, 30)).slice(0, 3)
       .forEach(p => out.push({ kind: 'stale', text: `No video on “${p.text}” in a month.`, act: { make: { painId: p.id } } }));
@@ -1324,12 +1266,8 @@ export function gaps(cfg, videos = [], now = Date.now()) {
     (cfg.output.formats || []).filter(f => FORMATS[f] && fits(f) && !made(v => v.meta?.format === f, 60)).slice(0, 2)
       .forEach(f => out.push({ kind: 'untried', text: `You haven’t tried the ${FORMATS[f].label} format lately.`, act: { make: { format: f } } }));
   }
-  s.audiences.filter(a => s.painPoints.some(p => p.links.includes(a.id)) && !U.audiences.some(x => x.id === a.id)).slice(0, 2)
-    .forEach(a => {
-      // Facts that would reach this audience, but only through links that don't fit, explain themselves.
-      const viaBlocked = s.painPoints.some(p => p.links.includes(a.id) && (U.blocked?.has(linkKey(p.id, a.id)) || s.insights.some(i => i.links.includes(p.id) && U.blocked?.has(linkKey(i.id, p.id)))));
-      out.push(viaBlocked ? { kind: 'stuck', text: `“${a.text}” only reaches its facts through links that don’t fit, so no videos are made for them.`, act: { tab: 'routes' } } : { kind: 'stuck', text: `“${a.text}” has no confirmed facts yet, so no videos are made for them.`, act: { tab: 'insights' } });
-    });
+  const waiting = (cfg.topics || []).filter(t => t.fact && !t.confirmed).length;
+  if (waiting) out.push({ kind: 'unconfirmed', text: `${waiting} topic${waiting > 1 ? 's are' : ' is'} waiting for you to check the fact. Videos only use checked facts.`, act: { tab: 'topics' } });
   return out;
 }
 
@@ -1452,104 +1390,81 @@ export const CONFIG_SUGGESTIONS = ['add_fact', 'edit_fact', 'link_fact', 'add_wo
 // saved and to what's on screen, gives both the same item.
 export function applySuggestionTo(cfg0, sg) {
   const c = migrate(cfg0), s = c.story;
-  const find = (list, id) => list.find(x => x.id === id);
   const uid = p => (sg.newId ||= newUid(p));
+  // Suggestions name items of the story (built from the topics); each lands on its topic.
+  const T = id => topicOf(c, id);
+  const fresh = (base, extra) => { c.topics.unshift({ id: uid('t'), worry: base?.worry || '', question: base?.question || '', fact: '', offer: base?.offer || '', mention: base?.mention || '', who: base?.who || '', confirmed: false, confirmedAt: '', confirmedBy: '', ai: true, ...extra }); };
+  const unconfirm = t => Object.assign(t, { confirmed: false, confirmedAt: '', confirmedBy: '' });
   switch (sg.type) {
-    case 'add_fact': s.insights.unshift({ id: uid('i'), text: sg.text, links: sg.painIds || [], confirmed: false, confirmedAt: '', source: '', ai: true }); break;
-    case 'edit_fact': { const f = find(s.insights, sg.id); if (f && sg.text && f.text !== sg.text) Object.assign(f, { text: sg.text, confirmed: false, confirmedAt: '', confirmedBy: '' }); break; }
-    case 'link_fact': { const f = find(s.insights, sg.id); if (f) f.links = uniq([...f.links, ...(sg.painIds || [])]); break; }
-    case 'add_worry': s.painPoints.unshift({ id: uid('p'), text: sg.text, question: sg.question || '', links: sg.audienceIds || [] }); break;
-    case 'edit_worry': { const p = find(s.painPoints, sg.id); if (p) { if (sg.text) p.text = sg.text; if (sg.question) p.question = sg.question; } break; }
-    case 'add_audience': s.audiences.unshift({ id: uid('a'), text: sg.text, visual: sg.visual || '', searches: [] }); break;
-    case 'edit_audience': { const a = find(s.audiences, sg.id); if (a) { if (sg.text) a.text = sg.text; if (sg.visual) a.visual = sg.visual; } break; }
+    case 'add_fact': { const t = T((sg.painIds || [])[0]); if (t && !t.fact) Object.assign(unconfirm(t), { fact: sg.text, ai: true }); else fresh(t, { fact: sg.text }); break; }
+    case 'edit_fact': { const t = T(sg.id); if (t && sg.text && t.fact !== sg.text) Object.assign(unconfirm(t), { fact: sg.text }); break; }
+    // A fact for another worry: a new topic with that worry and this fact (checked again, as a new pair).
+    case 'link_fact': { const f = T(sg.id); (sg.painIds || []).map(T).filter(t => t && f && t.id !== f.id).forEach(t => fresh(t, { fact: f.fact })); break; }
+    case 'add_worry': fresh(null, { worry: sg.text, question: sg.question || '' }); break;
+    case 'edit_worry': { const t = T(sg.id); if (t) { if (sg.text) t.worry = sg.text; if (sg.question) t.question = sg.question; } break; }
+    case 'add_audience': case 'edit_audience': {
+      const t = sg.id && sg.id !== 'aud' ? T(sg.id) : null;
+      if (sg.text) c.profile.clients = sg.text;
+      if (sg.visual) { if (t) t.who = sg.visual; else c.audience.visual = sg.visual; }
+      break;
+    }
     case 'add_question': c.bank.questions.unshift({ id: uid('q'), text: sg.text, links: sg.painIds || [] }); break;
     case 'add_rule': if (!c.guardrails[sg.list].includes(sg.text)) c.guardrails[sg.list].push(sg.text); break;
     case 'set_voice': if (sg.energy) c.voice.energy = sg.energy; if (sg.tone) c.voice.tone = sg.tone; break;
     case 'set_formats': c.output.formats = sg.formats.slice(); break;
     case 'set_cta': s.ctaAction = sg.text; break;
     case 'set_output': ['scenes', 'maxWords', 'drafts'].forEach(k => { if (sg[k]) c.output[k] = sg[k]; }); break;
-    case 'add_search': { const a = find(s.audiences, sg.audienceId); if (a && !a.searches.includes(sg.text)) a.searches = [sg.text, ...a.searches].slice(0, 8); break; }
-    case 'set_style': { const a = find(s.audiences, sg.audienceId); if (a) a.style = normStyle(sg.style); break; }
+    case 'add_search': if (!c.audience.searches.includes(sg.text)) c.audience.searches = [sg.text, ...c.audience.searches].slice(0, 8); break;
+    case 'set_style': c.audience.style = normStyle(sg.style); break;
     default: throw new Error('That suggestion can’t be applied.');
   }
   return migrate(c);
 }
 
 /* ---------------- Analyze: problems an agent can fix before generating ---------------- */
-export function analyze(cfg, now = Date.now()) {
-  const s = cfg.story, o = cfg.output, voice = isVoice(cfg), warnings = [], N = nicheOf(cfg);
+export function analyze(cfg) {
+  const s = cfg.story, o = cfg.output, voice = isVoice(cfg), warnings = [];
   const w = (msg, kind = 'route', bus = 'story') => warnings.push({ kind, bus, msg });
   const insightScenes = Math.max(1, o.scenes - 4);
   const perScene = voice ? o.maxSpoken : o.maxWords;
-  const U = usableRoutes(cfg, now);
+  const U = usableRoutes(cfg), topics = cfg.topics || [];
 
-  const unconfirmed = s.insights.filter(x => insightStatus(x, now) === 'unconfirmed').length;
-  const stale = s.insights.filter(x => insightStatus(x, now) === 'stale').length;
-  if (!U.insights.length) w('No confirmed facts yet. Videos can only use facts you have confirmed.', 'facts');
-  else if (unconfirmed) w(`${unconfirmed} fact${unconfirmed > 1 ? 's are' : ' is'} waiting for your confirmation and won't be used until then.`, 'facts');
-  const promises = s.insights.filter(x => x.text.trim() && factNotes(x.text).length).length;
-  if (promises) w(`${promises} fact${promises > 1 ? 's read' : ' reads'} as true for everyone. Adding “usually”, “often”, “many” or “may” keeps ${promises > 1 ? 'them' : 'it'} accurate.`, 'facts');
-  const soon = s.insights.filter(x => insightStatus(x, now) === 'confirmed' && (now - Date.parse(x.confirmedAt)) / 86400000 > FACT_REVIEW_DAYS - EXPIRY_WARN_DAYS).length;
-  if (soon) w(`${soon} fact${soon > 1 ? 's are' : ' is'} due for review within ${EXPIRY_WARN_DAYS} days. Re-confirm ${soon > 1 ? 'them' : 'it'} now so videos don’t stop.`, 'facts');
-  if (stale) w(`${stale} fact${stale > 1 ? 's were' : ' was'} confirmed over ${FACT_REVIEW_DAYS} days ago. Re-confirm ${stale > 1 ? 'them' : 'it'} to keep using ${stale > 1 ? 'them' : 'it'}.`, 'facts');
-
-  s.audiences.forEach(a => {
-    if (!s.painPoints.some(p => p.links.includes(a.id))) w(`Audience "${a.text}" has no worries linked to it.`);
-    if (!a.visual) w(`Audience "${a.text}" has no footage description, so clips may show the wrong age group.`, 'fit');
+  const unconfirmed = topics.filter(t => t.fact && !t.confirmed).length;
+  if (!U.insights.length) w('No checked topics yet. Videos only use a topic once you’ve ticked that its fact is true.', 'facts');
+  else if (unconfirmed) w(`${unconfirmed} topic${unconfirmed > 1 ? 's are' : ' is'} waiting for you to check the fact, and won’t be used until then.`, 'facts');
+  else if (U.insights.length < 4) w(`Only ${U.insights.length} checked topic${U.insights.length > 1 ? 's' : ''}. Four or more keeps videos from repeating.`, 'value');
+  topics.forEach(t => {
+    const name = `“${(t.worry || t.fact).slice(0, 60)}”`;
+    if (!t.fact) { w(`Topic ${name} has no fact yet, so it’s not used.`, 'value'); return; }
+    if (!t.worry) w(`Topic ${name} has no worry: the hook is weaker without the client’s own words.`, 'value');
+    if (factNotes(t.fact).length) w(`Topic ${name}: the fact reads as true for everyone. “Usually”, “often”, “many” or “may” keeps it accurate.`, 'facts');
+    if (countWords(t.fact) > perScene * insightScenes) w(`Topic ${name}: the fact is ${countWords(t.fact)} words, more than ${insightScenes} fact scene${insightScenes > 1 ? 's' : ''} can hold. Shorten it or add a scene.`, 'fit');
+    const bad = checkInsightText(t.fact);
+    if (bad.length) w(`Topic ${name}: ${bad[0]}`, 'clash');
+    nicheOf(cfg).absolutes.forEach(([re, label]) => { if (re.test(t.offer || '')) w(`Topic ${name}: the offer makes an absolute claim ("${label}"). Name it without promises.`, 'clash'); });
   });
-  s.painPoints.forEach(p => {
-    if (!p.links.length) w(`Worry "${p.text}" isn’t linked to any audience, so it’s never used.`);
-    const n = s.insights.filter(x => x.links.includes(p.id)).length;
-    if (!n) w(`Worry "${p.text}" has no confirmed facts answering it, so it’s not used yet.`, 'value');
-    else if (n < 2) w(`Worry "${p.text}" has only one fact. Add another so videos don’t repeat.`, 'value');
-  });
-  s.insights.forEach(x => {
-    if (!x.links.length) w(`Fact "${x.text}" isn’t linked to any worry, so it’s never used.`);
-    if (!s.solutions.some(sol => sol.links.includes(x.id))) w(`Fact "${x.text}" has no solution linked to it.`);
-    if (countWords(x.text) > perScene * insightScenes) w(`Fact "${x.text}" is ${countWords(x.text)} words, more than ${insightScenes} fact scene${insightScenes > 1 ? 's' : ''} can hold. Shorten it or add a scene.`, 'fit');
-    const bad = checkInsightText(x.text);
-    if (bad.length) w(`Fact "${x.text}": ${bad[0]}`, 'clash');
-  });
-  s.solutions.forEach(x => {
-    if (!x.links.length) w(`Solution "${x.text}" isn’t linked to any fact, so it’s never used.`);
-    if (!x.plain && cfg.voice.tone !== 'high') w(`Solution "${x.text}" has no plain-language name. ${cfg.specs.tone[cfg.voice.tone].label} tone needs one.`, 'clash');
-    N.absolutes.forEach(([re, label]) => { if (re.test(x.plain || '')) w(`Solution "${x.text}" is named with an absolute claim ("${label}"). Name it without promises.`, 'clash'); });
-  });
-  const links = linkChecks(cfg), blocked = links.filter(l => l.state === 'blocked' && !l.override), weak = links.filter(l => l.state === 'weak');
-  if (blocked.length) w(`${blocked.length} link${blocked.length > 1 ? 's don’t' : ' doesn’t'} fit (like “${blocked[0].child.text.slice(0, 40)}” → “${blocked[0].parent.text.slice(0, 40)}”: ${blocked[0].reason}) and ${blocked.length > 1 ? 'aren’t' : 'isn’t'} used in videos until fixed.`, 'clash');
-  if (weak.length) w(`${weak.length} link${weak.length > 1 ? 's are' : ' is'} only loosely related. Videos still use ${weak.length > 1 ? 'them' : 'it'}; check ${weak.length > 1 ? 'they make' : 'it makes'} sense.`, 'value');
+  if (!cfg.audience?.visual) w('Who appears in your footage isn’t set (Content → Topics → Your clients), so clips may show the wrong age group.', 'fit');
   if (!s.ctaAction) w('The call to action is empty.', 'route');
   else if (countWords(s.ctaAction) > o.maxWords - 3) w(`The call to action is ${countWords(s.ctaAction)} words, leaving no room to point to the open question in a ${o.maxWords}-word caption. Shorten it or raise max words.`, 'fit');
   if (cfg.voice.energy === 'high' && o.maxWords > 12) w('High energy reads best in short captions. Consider 12 words or fewer.', 'clash', 'voice');
   if (!cfg.look?.name) w('Your name is missing from Brand, so the end card and scripts can’t introduce you.', 'route', 'brand');
   const fm = cfg.output.formats || [], bank = cfg.bank || {};
   if (fm.includes('story') && !(bank.stories || []).some(x => x.confirmed)) w('The Mini-story format is on, but there are no confirmed stories yet. Add one in Content → Your voice.', 'value', 'voice');
-  if ((fm.includes('list') || fm.includes('compare')) && !U.pains.some(p => U.insights.filter(i => i.links.includes(p.id)).length >= 2)) w('“Things to know” and “This or that” need a worry with 2 or more confirmed facts.', 'value');
   if (!(bank.samples || []).length) w('Add something you’ve written in Content → Your voice, so scripts sound like you.', 'value', 'voice');
-  const noStyle = U.audiences.filter(a => !a.style).length;
-  if (noStyle) w(`${noStyle} audience${noStyle > 1 ? 's have' : ' has'} no communication style yet. Set ${noStyle > 1 ? 'them' : 'it'} in Communicate, so scripts speak the way ${noStyle > 1 ? 'they listen' : 'it listens'}.`, 'value', 'voice');
+  if (!cfg.audience?.style) w('Your clients have no communication style yet. Set it in Communicate, so scripts speak the way they listen.', 'value', 'voice');
   return { warnings };
 }
 
 /* ---------------- How many distinct videos the routing allows (confirmed facts only) ---------------- */
-export function countMixes(cfg, now = Date.now()) {
-  const s = cfg.story, U = usableRoutes(cfg, now);
-  let n = 0;
-  U.audiences.forEach(a => U.pains.filter(p => p.links.includes(a.id)).forEach(p => U.insights.filter(i => i.links.includes(p.id)).forEach(i => {
-    n += Math.max(1, routedFrom(U.solutions, i).length);
-  })));
-  return n;
-}
+export const countMixes = cfg => usableRoutes(cfg).insights.length;
 
 // Why no video can be made yet, in plain words, with the Content tab that fixes it. null when videos can be made.
-export function whyNoVideos(cfg, now = Date.now()) {
-  if (countMixes(cfg, now)) return null;
-  const s = cfg.story, U = usableRoutes(cfg, now);
-  if (!U.insights.length) return { tab: 'insights', msg: s.insights.length ? 'None of your facts are confirmed yet. Confirm at least one in Content → Facts.' : 'Add and confirm at least one fact in Content → Facts.' };
-  if (!s.painPoints.length) return { tab: 'painPoints', msg: 'Add at least one worry in Content → Worries.' };
-  if (U.blocked?.size && (!U.pains.length || !U.audiences.length)) return { tab: 'routes', msg: 'The links between your content don’t fit, so no video can be made. Content → Routes shows which, and why.' };
-  if (!U.pains.length) return { tab: 'insights', msg: 'Your confirmed facts aren’t linked to a worry yet. In Content → Facts, open “Answers 0 worries” under a fact and tap the worries it answers.' };
-  return { tab: 'painPoints', msg: 'Your worries aren’t linked to an audience yet. In Content → Worries, open each worry and tap who it’s for.' };
+export function whyNoVideos(cfg) {
+  if (countMixes(cfg)) return null;
+  const topics = cfg.topics || [];
+  if (!topics.length) return { tab: 'topics', msg: 'Add a topic in Content → Topics: a worry your clients have and the fact that answers it.' };
+  if (!topics.some(t => t.fact)) return { tab: 'topics', msg: 'Your topics have no facts yet. Add the fact each one teaches in Content → Topics.' };
+  return { tab: 'topics', msg: 'None of your topics are checked yet. In Content → Topics, tick that a topic’s fact is true for what you sell.' };
 }
 
 /* ---------------- Instagram post text (the caption under the Reel) ---------------- */

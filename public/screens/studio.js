@@ -118,9 +118,8 @@ const renderLabel = c => { const n = c.findings.filter(f => f.kind === 'warn').l
 function drawStudio() {
   const st = S.st, d = st.d, cfg = S.cfg, p = stPicks(), voice = cfg.output.mode === 'voiceover', U = usableRoutes(cfg);
   const series = (S.studioList?.series || []), ser = series.find(x => x.id === d.brief.seriesId);
-  const audiences = U.audiences, pains = U.pains.filter(x => !p.audience || x.links.includes(p.audience.id));
+  const pains = U.pains;
   const facts = U.insights.filter(i => p.painPoint && i.links.includes(p.painPoint.id));
-  const unconfirmed = cfg.story.insights.filter(i => p.painPoint && i.links.includes(p.painPoint.id) && !facts.some(f => f.id === i.id));
   const filled = d.scenes.filter(x => x.text.trim()).length, opened = !!d.scenes[0]?.text.trim();
   const fillWhy = p.problems.length ? p.problems[0] : d.status === 'rendering' ? 'This video is rendering.' : st.busy && st.busy !== 'fill' ? 'Wait for the other helper to finish.' : '';
   const multi = ['list', 'compare'].includes(p.format);
@@ -138,15 +137,13 @@ function drawStudio() {
       <div class="fields">
         ${series.length ? `<label class="field"><span>Series (optional)</span><select class="ctl" data-stb="seriesId">${opt('', 'None', d.brief.seriesId)}${series.map(x => opt(x.id, x.label, d.brief.seriesId)).join('')}</select></label>` : ''}
         ${ser ? `<label class="field"><span>Part</span><select class="ctl" data-stb="part">${ser.parts.map((x, k) => opt(String(k), `${k + 1}. ${x.title}`, String(d.brief.part))).join('')}</select></label>` : ''}
-        <label class="field"><span>Audience</span><select class="ctl" data-stb="audienceId">${audiences.map(a => opt(a.id, short(a.text), p.audience?.id)).join('') || '<option>No audience has a confirmed fact yet</option>'}</select>${audiences.length ? '' : '<small><a href="#/content" data-act="goto-tab" data-v="insights">Confirm a fact in Setup → Library</a> to start.</small>'}</label>
-        <label class="field"><span>Their worry</span><select class="ctl" data-stb="painId">${opt('', 'Pick a worry', p.painPoint?.id || '')}${pains.map(x => opt(x.id, short(x.text), p.painPoint?.id)).join('')}</select>${st.briefNote ? `<small class="warn-text">${esc(st.briefNote)}</small>` : ''}</label>
-        <label class="field"><span>Format</span><select class="ctl" data-stb="format"${p.series ? ' disabled aria-describedby="stSeriesFmt"' : ''}>${Object.entries(FORMATS).map(([k, f]) => opt(k, f.label, p.format)).join('')}</select>${p.series ? `<small id="stSeriesFmt">Set by the series part (${esc(`Part ${p.series.part}: ${p.series.title}`)}). Pick another part, or <button class="linkish" data-act="st-leave-series">leave the series</button> to choose the format.</small>` : ''}</label>
+        <label class="field"><span>Topic</span><select class="ctl" data-stb="painId">${opt('', 'Pick a topic', p.painPoint?.id || '')}${pains.map(x => opt(x.id, short(x.text), p.painPoint?.id)).join('')}</select>${st.briefNote ? `<small class="warn-text">${esc(st.briefNote)}</small>` : ''}</label>
+        <label class="field"><span>Format</span><select class="ctl" data-stb="format"${p.series ? ' disabled aria-describedby="stSeriesFmt"' : ''}>${Object.entries(FORMATS).filter(([k, f]) => !f.needs?.facts || k === p.format).map(([k, f]) => opt(k, f.label, p.format)).join('')}</select>${p.series ? `<small id="stSeriesFmt">Set by the series part (${esc(`Part ${p.series.part}: ${p.series.title}`)}). Pick another part, or <button class="linkish" data-act="st-leave-series">leave the series</button> to choose the format.</small>` : ''}</label>
         <label class="field"><span>Structure</span><select class="ctl" data-stb="structure">${Object.entries(STRUCTURES).filter(([k]) => structureFits(k, p.scenes, p.format)).map(([k, x]) => opt(k, x.label, p.structure)).join('')}</select></label>
         <label class="field"><span>Scenes</span><select class="ctl" data-stb="scenes">${Array.from({ length: LIMITS.scenes[1] - LIMITS.scenes[0] + 1 }, (_, k) => LIMITS.scenes[0] + k).map(n => opt(String(n), String(n), String(p.scenes))).join('')}</select></label>
       </div>
       ${p.painPoint && !p.noFact ? `<div class="field"><span>${multi ? `Facts to teach (pick ${FORMATS[p.format].needs?.facts || 2})` : 'The fact to teach'}</span>${facts.map(f => `<label class="check"><input type="${multi ? 'checkbox' : 'radio'}" name="stfact" data-stfact="${esc(f.id)}" ${p.insights.some(x => x.id === f.id) ? 'checked' : ''}> <span class="small">${esc(f.text)}</span></label>`).join('')}</div>` : ''}
       ${multi ? '' : `<label class="check"><input type="checkbox" data-stnofact ${p.noFact ? 'checked' : ''}> <span class="small">This video doesn’t teach a specific fact${p.noFact ? ' (so no numbers or prices can be in it)' : ''}</span></label>`}
-      ${p.painPoint && unconfirmed.length ? `<p class="small muted" style="margin:0">${plural(unconfirmed.length, 'more fact')} for this worry ${unconfirmed.length > 1 ? 'aren’t' : 'isn’t'} confirmed yet. <a href="#/content" data-act="goto-facts">Confirm in Setup → Library</a> (with a source) to teach ${unconfirmed.length > 1 ? 'them' : 'it'}.</p>` : ''}
       ${p.problems.length ? `<div class="note warn small">${p.problems.map(esc).join(' ')}</div>` : ''}
       ${p.question ? `<p class="small muted" style="margin:0">Their open question: “${esc(p.question)}”</p>` : ''}</section>` : stStartHTML(p, U)}
     <section class="panel voice"><div class="head"><h2><span class="dot"></span>2. The opening</h2><p>The first line decides whether the right person keeps watching. Get eight written and scored, or write your own in scene 1.</p></div>
@@ -190,7 +187,7 @@ function stStartHTML(p, U) {
   if (!p.painPoint) {
     return `<section class="panel story"><div class="head"><h2><span class="dot"></span>1. What’s this video about?</h2><p>Pick what it’s about. We’ll set up the rest.</p></div>
       ${pains.length ? `<div class="cards worry-cards">${pains.map(x => `<button class="box worry-card" data-act="st-worry" data-id="${esc(x.id)}"><b>${esc(x.text)}</b>${x.question ? `<span class="small muted">${esc(ask(x))}</span>` : ''}</button>`).join('')}</div>`
-        : `<p class="empty">${noFact ? 'Add a worry in Setup → Library first.' : 'No worry has a confirmed fact yet. <a href="#/content" data-act="goto-facts">Confirm one in Setup → Library</a>, or make a video that doesn’t teach a fact.'}</p>`}
+        : `<p class="empty">${noFact ? 'Add a worry in Content → Topics first.' : 'No worry has a confirmed fact yet. <a href="#/content" data-act="goto-facts">Confirm one in Content → Topics</a>, or make a video that doesn’t teach a fact.'}</p>`}
       <div class="row">${pains.length ? '<button class="btn primary" data-act="st-surprise">Surprise me</button>' : ''}<button class="btn ghost sm" data-act="st-nofact-start" aria-pressed="${noFact}">${noFact ? 'Teach a confirmed fact instead' : 'Make one that doesn’t teach a fact'}</button><button class="btn ghost sm" data-act="st-more">More options</button></div></section>`;
   }
   const fmt = FORMATS[p.format]?.label || p.format, aud = p.audience ? short(p.audience.text).replace(/[.]$/, '') : 'your audience';

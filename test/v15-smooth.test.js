@@ -69,7 +69,7 @@ test('in a real browser: no jumping, the next video preloaded, the exact video o
   const base = `http://127.0.0.1:${server.address().port}`;
   const ws = store.createWorkspace({ name: 'Smooth Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   store.saveConfig(ws.id, cfg);
   store.updateWorkspace(ws.id, { onboarded: true });

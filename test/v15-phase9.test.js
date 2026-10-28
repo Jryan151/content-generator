@@ -51,7 +51,7 @@ const connectIg = (w, extra = {}) => paths.writeJSON(path.join(store.wsDir(w.id)
 const mkWs = name => {
   const w = store.createWorkspace({ name, comped: true });
   const c = store.loadConfig(w.id);
-  c.story = { ...c.story, ...starterStory(['final_expense']) };
+  c.story = { ...c.story, ...starterStory() };
   c.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   c.look = { ...c.look, name: 'Dana Agent', location: 'Gallup, NM', bookingUrl: 'https://calendly.com/dana/15min' };
   store.saveConfig(w.id, c);

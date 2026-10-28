@@ -25,7 +25,7 @@ test.after(() => { server.close(); stubs.close(); });
 const seeded = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 function setup(scenes = 7, style = '') {
   const cfg = M.migrate(M.DEFAULT_CONFIG);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.story.audiences.forEach(a => { a.style = style; });
   cfg.look.name = 'Jane Smith'; cfg.output.scenes = scenes;
@@ -169,7 +169,7 @@ test('DISC: real messages calibrate an audience’s style once there are enough'
 test('DISC: the reply helper logs which style each audience writes in', async () => {
   const ws = store.createWorkspace({ name: 'Calibrate', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look.name = 'Jane Smith';
   store.saveConfig(ws.id, cfg); store.updateWorkspace(ws.id, { onboarded: true });

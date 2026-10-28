@@ -38,7 +38,7 @@ function keysPanel(o, cfg, canMake) {
   const first = String(cfg.look?.name || S.me.account.name || '').trim().split(/\s+/)[0];
   const U = usableRoutes(cfg), worries = U.pains.length, facts = cfg.story.insights.filter(i => i.confirmed).length, city = String(cfg.look?.location || '').split(',')[0].trim();
   const making = o.jobs.some(j => ['queued', 'running'].includes(j.status)), ready = o.workspace.pending > 0;
-  const note = `Every video starts from what you told it: ${plural(worries, 'worry', 'worries')} your clients${city ? ` in ${esc(city)}` : ''} bring you, ${plural(facts, 'fact')} you confirmed, and the way you like to say things. Nothing goes out until you’ve watched it and said yes.`;
+  const note = `Every video starts from what you told it: ${plural(worries, 'topic')} your clients${city ? ` in ${esc(city)}` : ''} bring you, each with a fact you checked, and the way you like to say things. Nothing goes out until you’ve watched it and said yes.`;
   return `<section class="panel keys-panel"><div class="row between"><h2>It’s yours${first ? `, ${esc(first)}` : ''}.</h2><button class="x" data-act="keys-close" aria-label="Close">×</button></div>
     <p style="margin:0">${note}</p>
     ${ready ? '<div class="row"><a class="btn primary" href="#/review" data-act="keys-close">Watch your first video</a></div>'
@@ -49,21 +49,20 @@ function drawCreate() {
   const o = S.overview, ws = o.workspace, a = ws.access, cfg = S.cfg;
   const pct = ws.limit ? Math.min(100, Math.round((ws.used / ws.limit) * 100)) : 0;
   const U = usableRoutes(cfg);
-  const byAud = cfg.story.audiences.map(au => [au, U.pains.filter(p => p.links.includes(au.id))]).filter(([, ps]) => ps.length);
   const left = Math.max(0, ws.limit - ws.used);
   const why = whyNoVideos(cfg);
   const sp = ws.spend || {};
   const can = a.allowed && left > 0 && !why && !sp.over;
   main.innerHTML = `<div class="head"><h1>Create</h1><p class="lede">Videos are made one at a time in the background, about two minutes each. You can close this page.</p></div>
     ${keysPanel(o, cfg, can)}
-    ${!a.allowed ? `<div class="note err">${esc(a.reason)}</div>` : a.warning ? `<div class="note warn">${esc(a.warning)} <a href="#/billing">Billing</a></div>` : ''}
-    ${why ? `<div class="note warn">${esc(why.msg)} <a href="#/content" data-act="goto-tab" data-v="${why.tab}">Fix it in Setup → Library</a></div>` : ''}
+    ${!a.allowed ? `<div class="note err">${esc(a.reason)}</div>` : ''}
+    ${why ? `<div class="note warn">${esc(why.msg)} <a href="#/content" data-act="goto-tab" data-v="${why.tab}">Fix it in Setup → Topics</a></div>` : ''}
     ${spendNote(sp)}
     <section class="panel"><div class="row between"><h2>This month</h2><span class="mono small">${a.allowed ? `${ws.used} of ${ws.limit} videos` : 'No plan yet'}</span></div>
       <div class="meter" role="img" aria-label="${ws.used} of ${ws.limit} videos used"><i style="width:${pct}%"></i></div>
       <div class="row"><button class="btn primary big" data-act="make" data-n="1" ${can ? '' : 'disabled'}>Make a video</button><button class="btn big" data-act="make" data-n="3" ${can && left >= 2 ? '' : 'disabled'}>Make ${Math.min(3, left) || 3}</button></div>
-      ${byAud.length ? `<div class="field"><span>Or choose the topic and format</span><div class="fields">
-        <select class="ctl" id="topicSel" aria-label="Topic"><option value="">Any topic</option>${byAud.map(([au, ps]) => `<optgroup label="${esc(au.text)}">${ps.map(p => `<option value="${p.id}"${S.pick?.painId === p.id ? ' selected' : ''}>${esc(p.text)}</option>`).join('')}</optgroup>`).join('')}</select>
+      ${U.pains.length ? `<div class="field"><span>Or choose the topic and format</span><div class="fields">
+        <select class="ctl" id="topicSel" aria-label="Topic"><option value="">Any topic</option>${U.pains.map(p => `<option value="${p.id}"${S.pick?.painId === p.id ? ' selected' : ''}>${esc(p.text)}</option>`).join('')}</select>
         <select class="ctl" id="formatSel" aria-label="Format"><option value="">Any format</option>${cfg.output.formats.map(k => `<option value="${k}"${S.pick?.format === k ? ' selected' : ''}>${esc(FORMATS[k].label)}</option>`).join('')}</select></div>
         <div class="row"><button class="btn" data-act="make-topic" ${can ? '' : 'disabled'}>Make one</button><span class="small muted">Test a script below uses these choices too.</span></div></div>` : ''}
       <div class="status" data-st="make"></div></section>
@@ -81,7 +80,7 @@ function drawCreate() {
     <section class="panel"><div class="head"><h2>Test footage</h2><p>See the clips a search finds and how the AI clip check scores them (5 = great fit, 3 = fine, 1 = never use). Use it to find searches that work, then put them in Fix a scene.</p></div>
       <form class="stack" data-form="footage"><div class="fields">
         <label class="field"><span>Footage search</span><input class="ctl" name="keyword" placeholder="e.g. older woman kitchen table" required></label>
-        <label class="field"><span>Audience</span><select class="ctl" name="audienceId">${cfg.story.audiences.map(a => `<option value="${a.id}">${esc(a.text)}</option>`).join('')}</select></label>
+        <label class="field"><span>Audience</span><select class="ctl" name="audienceId">${cfg.story.audiences.filter((a, i, all) => all.findIndex(b => b.visual === a.visual) === i).map(a => `<option value="${a.id}">${esc(a.visual || a.text)}</option>`).join('')}</select></label>
         <label class="field"><span>Caption (optional)</span><input class="ctl" name="caption" placeholder="the line shown over the clip"></label></div>
         <div class="row"><button class="btn">Test this search</button><span class="status" data-st></span></div></form>
       <div id="footageOut">${S.footage ? footageHTML(S.footage) : ''}</div></section>

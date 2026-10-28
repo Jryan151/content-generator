@@ -55,7 +55,7 @@ test.after(() => { server.close(); stubs.close(); igServer.close(); });
 
 const ws = store.createWorkspace({ name: 'Melanie', comped: true });
 const cfg = store.loadConfig(ws.id);
-cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+cfg.story = { ...cfg.story, ...starterStory() };
 cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 cfg.look.name = 'Melanie Banteah';
 store.saveConfig(ws.id, cfg);
@@ -70,7 +70,7 @@ function fakeVideo(status = 'approved', extra = {}) {
   const id = String(Date.now()) + Math.random().toString(36).slice(2, 6);
   fs.writeFileSync(store.videoPath(ws.id, `video_${id}.mp4`), Buffer.from('fake mp4 bytes ' + id));
   fs.writeFileSync(store.videoPath(ws.id, `cover_${id}.jpg`), Buffer.from('fake jpg'));
-  return store.addVideo(ws.id, { id, file: `video_${id}.mp4`, cover: `cover_${id}.jpg`, status, createdAt: new Date().toISOString(), meta: { painPoint: 'Funeral costs', painId: 'fe_p1', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Planning ahead helps. Message me.', clips: [], preflight: [], ...(status === 'approved' ? { approval: { at: new Date().toISOString() } } : {}), ...extra });
+  return store.addVideo(ws.id, { id, file: `video_${id}.mp4`, cover: `cover_${id}.jpg`, status, createdAt: new Date().toISOString(), meta: { painPoint: 'Funeral costs', painId: 't_funeral', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Planning ahead helps. Message me.', clips: [], preflight: [], ...(status === 'approved' ? { approval: { at: new Date().toISOString() } } : {}), ...extra });
 }
 
 /* ---------------- Communication styles ---------------- */
@@ -89,10 +89,10 @@ test('an audience’s style reaches the script and hook prompts, and is applied 
   const c0 = core.migrate(cfg);
   assert.equal(c0.story.audiences[0].style, '', 'no style by default');
   assert.equal(core.migrate({ ...c0, story: { ...c0.story, audiences: [{ ...c0.story.audiences[0], style: 'zz' }] } }).story.audiences[0].style, '');
-  const styled = core.applySuggestionTo(c0, { type: 'set_style', audienceId: 'fe_a1', style: 'sc' });
-  assert.equal(styled.story.audiences.find(a => a.id === 'fe_a1').style, 'SC');
-  const picks = core.roll(styled, Math.random, [], { painId: 'fe_p2', audienceId: 'fe_a1' });
-  assert.equal(picks.audience.id, 'fe_a1');
+  const styled = core.applySuggestionTo(c0, { type: 'set_style', audienceId: 'aud', style: 'sc' });
+  assert.equal(styled.story.audiences.find(a => a.id === 'aud').style, 'SC');
+  const picks = core.roll(styled, Math.random, [], { painId: 't_budget', audienceId: 'aud' });
+  assert.equal(picks.audience.id, 'aud');
   assert.match(core.buildPrompt(styled, picks).user, /How this audience likes to be spoken to \(Steady \+ Careful\): Steady: gentle/);
   assert.match(core.buildHookPrompt(styled, picks).user, /leans Steady \+ Careful/);
   assert.doesNotMatch(core.buildPrompt(c0, { ...picks, audience: c0.story.audiences[0] }).user, /likes to be spoken to/);
@@ -122,7 +122,7 @@ test('word-by-word captions hide each word until its turn; colors convert to ASS
 
 /* ---------------- The communication coach and workshop ---------------- */
 test('the communication coach suggests audience styles, and only valid ones get through', async () => {
-  const r = await c.post('/api/coach', { mode: 'comms', messages: [{ role: 'user', content: 'How does my senior audience like to be spoken to?' }], focus: { audienceId: 'fe_a1' } });
+  const r = await c.post('/api/coach', { mode: 'comms', messages: [{ role: 'user', content: 'How does my senior audience like to be spoken to?' }], focus: { audienceId: 'aud' } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.match(r.data.reply, /Steady/);
   assert.deepEqual(r.data.suggestions.map(s => s.type), ['set_style', 'edit_worry']);
@@ -131,17 +131,17 @@ test('the communication coach suggests audience styles, and only valid ones get 
 });
 
 test('the workshop scores an input and only returns rewrites that pass the checks', async () => {
-  const w = await c.post('/api/comms/workshop', { kind: 'worry', text: 'I worry about funeral costs', audienceId: 'fe_a1', style: 'S' });
+  const w = await c.post('/api/comms/workshop', { kind: 'worry', text: 'I worry about funeral costs', audienceId: 'aud', style: 'S' });
   assert.equal(w.status, 200, JSON.stringify(w.data));
   assert.deepEqual(w.data.scores, { specific: 4, theirWords: 5, feeling: 2, oneIdea: 1, styleFit: 1 }, 'scores clamped to 1-5');
   assert.equal(w.data.read.style, 'C');
   assert.equal(w.data.versions.length, 2, 'the banned and duplicate versions are dropped');
   assert.ok(w.data.dropped >= 1);
   assert.equal(w.data.versions[0].apply.type, 'add_worry');
-  assert.deepEqual(w.data.versions[0].apply.audienceIds, ['fe_a1']);
-  const e = await c.post('/api/comms/workshop', { kind: 'worry', text: 'old words', itemId: 'fe_p1' });
+  assert.deepEqual(w.data.versions[0].apply.audienceIds, ['aud']);
+  const e = await c.post('/api/comms/workshop', { kind: 'worry', text: 'old words', itemId: 't_funeral' });
   assert.equal(e.data.versions[0].apply.type, 'edit_worry');
-  const f = await c.post('/api/comms/workshop', { kind: 'fact', text: 'Final expense helps.', painId: 'fe_p3' });
+  const f = await c.post('/api/comms/workshop', { kind: 'fact', text: 'Final expense helps.', painId: 't_health' });
   assert.deepEqual(f.data.versions.map(v => v.apply.type), ['add_fact', 'add_fact'], 'facts with absolute claims are dropped');
   const h = await c.post('/api/comms/workshop', { kind: 'hook', text: 'Have you thought about this?' });
   assert.equal(h.data.versions.length, 2);

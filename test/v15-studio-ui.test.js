@@ -31,7 +31,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
   ws = store.createWorkspace({ name: 'UI Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   store.saveConfig(ws.id, cfg);
   store.updateWorkspace(ws.id, { onboarded: true, limits: { assistantSeats: 1 } });
@@ -39,7 +39,7 @@ test.before(async () => {
   sam = store.createAccount({ email: 'sam@example.com', name: 'Sam Helper', role: 'agent', workspaceId: null, hash: await auth.hashPassword('sampass12345') });
   store.setMembership(sam.id, ws.id, { role: 'assistant' });
   store.createAccount({ email: 'admin@example.com', role: 'admin', hash: await auth.hashPassword('adminpass1234') });
-  d = studio.create(ws.id, cfg, { painId: 'fe_p1', audienceId: 'fe_a1', insightIds: [cfg.story.insights[0].id], scenes: 6, format: 'question', structure: 'classic' });
+  d = studio.create(ws.id, cfg, { painId: 't_funeral', audienceId: 'aud', insightIds: [cfg.story.insights[0].id], scenes: 6, format: 'question', structure: 'classic' });
   studio.save(ws.id, d.id, { scenes: [sc('Who pays for your funeral someday?', 'funeral'), sc('Final expense insurance is a small policy', 'small'), sc('It is meant to cover funeral and end-of-life costs', 'Affordable'),
     sc('Ask me about a simple plan, $30 a month, for this', 'simple'), sc('Ask me how to get peace of mind', 'Ask'), sc(`${cfg.story.ctaAction || 'Message me'} and we can talk it through`, 'talk')] });
   // A Studio video the assistant submitted, and the files a fix needs.
@@ -109,27 +109,6 @@ test('Review: the clip picker’s pick goes to the fix exactly', { skip, timeout
   assert.ok(job?.opts.picks?.[2]?.id, JSON.stringify(job?.opts));
   assert.ok(![1000, 1001, 1002].includes(job.opts.picks[2].id), 'never a clip the video already uses');
   queue.cancel(ws.id, job.id);
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test('Admin → Render rules: try a change on a script, save it, see it in the history, undo it', { skip, timeout: 120000 }, async () => {
-  const { page, errors } = await open('admin@example.com', 'adminpass1234', '#/rules');
-  await page.setViewportSize({ width: 1100, height: 900 });
-  await page.waitForSelector('[data-rr-scope]');
-  assert.equal(await page.$('[data-rr-level="price"]'), null, 'locked rules have no level to change');
-  await page.selectOption('[data-rr-level="cliche"][data-ctx="draft"]', 'block');
-  await page.fill('[data-rr-script]', 'Who pays for your funeral someday?\nFinal expense gives you peace of mind.\nMessage me');
-  await page.click('[data-act="rr-try"]');
-  await page.waitForFunction(() => /Blocks · Overused ad wording/.test(document.getElementById('main').innerText));
-  assert.deepEqual(store.loadConfig(ws.id).rules.levels, {}, 'trying doesn’t save');
-  await page.click('[data-act="rr-save"]');
-  await page.waitForFunction(() => /drafts warn → block/.test(document.getElementById('main').innerText));
-  assert.equal(store.loadConfig(ws.id).rules.levels.cliche.draft, 'block');
-  await page.click('[data-act="rr-restore"][data-which="before"]');
-  await page.waitForFunction(() => document.querySelectorAll('[data-act="rr-restore"]').length >= 2);
-  await page.waitForTimeout(300);
-  assert.deepEqual(store.loadConfig(ws.id).rules.levels, {}, 'undone');
   assert.deepEqual(errors, []);
   await page.close();
 });

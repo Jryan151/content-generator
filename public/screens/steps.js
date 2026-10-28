@@ -1,5 +1,5 @@
 // public/screens/steps.js — Setup (v15 Phase 10): everything an agent sets once and tunes now and then,
-// as one guided path in the order a video is built: who you are (Profile), what you teach (Library),
+// as one guided path in the order a video is built: who you are (Profile), what you teach (Topics),
 // how it sounds and what it never says (Voice and rules), how it looks (Look), what runs by itself
 // (Autopilot), and who signs off (Reviewer). Each step shows the same panels the Content, Brand and Settings
 // pages always had (those pages still open from older links), so every control works exactly as before.
@@ -13,7 +13,7 @@ import { loadIg } from './review.js';
 // The steps, in order: [view, label, what it's for, can this person see it?]
 const STEPS = [
   ['profile', 'Profile', 'Who you are: your name, end card and booking link, and who you serve.', () => can('settings')],
-  ['library', 'Library', 'What you teach: audiences, worries, confirmed facts, solutions and your call to action, and your own clips.', () => can('settings')],
+  ['library', 'Topics', 'What you teach: your topics (a worry, its fact and your question), your clients, the call to action, and your own clips.', () => can('settings')],
   ['voice', 'Voice and rules', 'How you sound, your own words and stories, and what a video must always or never say.', () => can('settings')],
   ['look', 'Look', 'How a video looks and is built: captions, colors, footage, length and formats.', () => can('settings')],
   ['autopilot', 'Autopilot', 'What runs by itself: Instagram and its keyword replies, Facebook, and the posting plan.', () => can('settings') || can('connect')],
@@ -52,7 +52,7 @@ async function viewStep({ arg, q } = {}) {
   if (v === 'autopilot') socialReturn(q, 'autopilot');
   drawStep();
 }
-// Library's tabs: everything Content had, except "Your voice" (it's in Voice and rules). (Asked for
+// The Topics step's tabs: everything Content has, except "Your voice" (it's in Voice and rules). (Asked for
 // when drawn: the screens load each other, so nothing of another screen is used while loading.)
 const libraryTabs = () => CONTENT_TABS.filter(([k]) => k !== 'voice');
 const PARTS = {

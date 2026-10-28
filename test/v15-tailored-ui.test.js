@@ -27,7 +27,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
   ws = store.createWorkspace({ name: 'Fit Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   cfg.look = { ...cfg.look, name: 'Dana Agent', title: 'Licensed Agent', location: 'Gallup, NM', bookingUrl: 'https://calendly.com/dana' };
   cfg.schedule = { ...cfg.schedule, keepReady: 2, autopost: { ...cfg.schedule.autopost, on: false, days: [1, 2, 3, 4, 5], time: '09:00' } };
@@ -70,9 +70,9 @@ test('Studio starts simply: a worry, one sentence of choices, the full panel a t
   await page.click('.worry-card');
   await page.waitForSelector('.st-summary');
   assert.ok(await page.$('.panel.story [data-act="st-surprise"]'), 'Surprise me is offered');
-  assert.equal(await page.$('[data-stb="audienceId"]'), null, 'the full panel stays out of the way');
+  assert.equal(await page.$('[data-stb="painId"]'), null, 'the full panel stays out of the way');
   await page.click('.panel.story [data-act="st-more"]');
-  await page.waitForSelector('[data-stb="audienceId"]');
+  await page.waitForSelector('[data-stb="painId"]');
   await page.click('[data-act="st-less"]');
   await page.waitForSelector('.st-summary');
   assert.deepEqual(errors, []);

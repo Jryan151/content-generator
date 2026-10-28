@@ -61,7 +61,7 @@ test.after(() => { server.close(); stubs.close(); fbServer.close(); });
 
 const ws = store.createWorkspace({ name: 'Melanie', comped: true });
 const cfg = store.loadConfig(ws.id);
-cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+cfg.story = { ...cfg.story, ...starterStory() };
 cfg.look = { ...cfg.look, name: 'Melanie Banteah', disclaimer: 'Lic. #12345' };
 store.saveConfig(ws.id, cfg);
 store.updateWorkspace(ws.id, { onboarded: true });
@@ -76,7 +76,7 @@ function fakeVideo(status = 'approved', extra = {}) {
   const id = String(Date.now()) + Math.random().toString(36).slice(2, 6);
   fs.writeFileSync(store.videoPath(ws.id, `video_${id}.mp4`), Buffer.from('fake mp4 bytes ' + id));
   fs.writeFileSync(store.videoPath(ws.id, `cover_${id}.jpg`), Buffer.from('fake jpg'));
-  return store.addVideo(ws.id, { id, file: `video_${id}.mp4`, cover: `cover_${id}.jpg`, status, createdAt: new Date().toISOString(), meta: { painPoint: 'Funeral costs', painId: 'fe_p1', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Planning ahead helps. Message me.\nLic. #12345', clips: [], preflight: [], ...(status === 'approved' ? { approval: { at: new Date().toISOString() } } : {}), ...extra });
+  return store.addVideo(ws.id, { id, file: `video_${id}.mp4`, cover: `cover_${id}.jpg`, status, createdAt: new Date().toISOString(), meta: { painPoint: 'Funeral costs', painId: 't_funeral', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Planning ahead helps. Message me.\nLic. #12345', clips: [], preflight: [], ...(status === 'approved' ? { approval: { at: new Date().toISOString() } } : {}), ...extra });
 }
 const loggedIn = cl => ({ redirect: 'manual', headers: { cookie: cl.cookie } });
 const hit = (code, { ua = 'Mozilla/5.0 (iPhone) Instagram 300', ip = '203.0.113.5', method = 'GET' } = {}) => fetch(`${process.env.PUBLIC_URL}/r/${code}`, { method, redirect: 'manual', headers: { 'user-agent': ua, 'x-forwarded-for': ip } });

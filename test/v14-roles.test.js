@@ -18,7 +18,7 @@ const port = server.address().port;
 const mkWs = (name, extra = {}) => {
   const ws = store.createWorkspace({ name });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   store.saveConfig(ws.id, cfg);
   store.updateWorkspace(ws.id, { onboarded: true, ...extra });

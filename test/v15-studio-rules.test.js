@@ -19,7 +19,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Rules Test', comped: true });
 const cfg0 = store.loadConfig(ws.id);
-cfg0.story = { ...cfg0.story, ...starterStory(['final_expense']) };
+cfg0.story = { ...cfg0.story, ...starterStory() };
 cfg0.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
 cfg0.look = { ...cfg0.look, name: 'Jane Smith', location: 'Gallup, NM' };
 store.saveConfig(ws.id, cfg0);
@@ -28,8 +28,8 @@ store.createAccount({ email: 'rules@example.com', role: 'agent', workspaceId: ws
 const c = client(server.address().port);
 await c.post('/api/login', { email: 'rules@example.com', password: 'rulespass1234' });
 const cfg = () => store.loadConfig(ws.id);
-const FACT = cfg0.story.insights[0];   // "Final expense insurance is usually a small whole life policy…" (fe_p1)
-const brief = { painId: 'fe_p1', audienceId: 'fe_a1', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
+const FACT = cfg0.story.insights[0];   // "Final expense insurance is usually a small whole life policy…" (t_funeral)
+const brief = { painId: 't_funeral', audienceId: 'aud', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
 const picks = () => M.studioPicks(cfg(), brief);
 const scene = (text, extra = {}) => ({ text, accent: '', keyword: 'older woman kitchen', ...extra });
 // A board that passes everything: the fact in the teaching scenes, with its "usually" on screen.

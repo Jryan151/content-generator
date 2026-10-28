@@ -18,7 +18,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Tailored', comped: true });
 const cfg0 = store.loadConfig(ws.id);
-cfg0.story = { ...cfg0.story, ...starterStory(['final_expense']) };
+cfg0.story = { ...cfg0.story, ...starterStory() };
 cfg0.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
 store.saveConfig(ws.id, cfg0);
 store.updateWorkspace(ws.id, { onboarded: true });
@@ -73,7 +73,7 @@ const TZ = 'America/Denver';
 const mkWs = name => {
   const w = store.createWorkspace({ name, comped: true });
   const c = store.loadConfig(w.id);
-  c.story = { ...c.story, ...starterStory(['final_expense']) };
+  c.story = { ...c.story, ...starterStory() };
   c.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   c.profile = { ...c.profile, timezone: TZ };
   store.saveConfig(w.id, c);

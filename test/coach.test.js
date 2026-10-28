@@ -14,7 +14,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Coach Test', comped: true });
 const cfg = store.loadConfig(ws.id);
-cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+cfg.story = { ...cfg.story, ...starterStory() };
 cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 cfg.look.name = 'Jane Smith';
 store.saveConfig(ws.id, cfg);
@@ -32,18 +32,12 @@ test('scripts open with the best hook from the hook step', async () => {
   assert.equal(r.data.scenes[0].text, r.data.drafts.find(d => d.n === r.data.chosen).hook);
 });
 
-test('list videos teach two facts', async () => {
-  const r = await c.post('/api/script', { format: 'list', painId: 'fe_p3' });
-  assert.equal(r.status, 200, JSON.stringify(r.data).slice(0, 300));
-  assert.equal(r.data.meta.facts.length, 2);
-});
-
 test('the coach answers, and only safe, valid suggestions get through', async () => {
   const r = await c.post('/api/coach', { messages: [{ role: 'user', content: 'Help me with hooks' }], view: 'create' });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.match(r.data.reply, /moment the worry/);
   assert.deepEqual(r.data.suggestions.map(s => s.type), ['add_worry', 'set_voice', 'add_note']);
-  assert.deepEqual(r.data.suggestions[0].audienceIds, ['fe_a1'], 'unknown ids are dropped');
+  assert.deepEqual(r.data.suggestions[0].audienceIds, ['aud'], 'unknown ids are dropped');
   assert.equal(r.data.suggestions[1].energy, 'mid');
   assert.equal(r.data.suggestions[1].tone, undefined, 'invalid values are dropped');
   assert.equal(r.data.suggestions[1].tryable, true);
@@ -75,13 +69,6 @@ test('rewrites of one caption only include versions that pass the checks', async
   assert.ok(r.data.options.length >= 1);
   assert.ok(!r.data.options.some(o => /guaranteed/i.test(o.text)), 'rule-breaking versions are dropped');
   assert.ok(r.data.dropped >= 1);
-});
-
-test('suggests worries for a fact, keeping only real ids', async () => {
-  const r = await c.post('/api/coach/links', { text: 'Final expense is usually a small whole life policy.' });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.painIds.length, 1);
-  assert.ok(store.loadConfig(ws.id).story.painPoints.some(p => p.id === r.data.painIds[0]));
 });
 
 test('coach notes can be added, listed and removed', async () => {

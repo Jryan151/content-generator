@@ -20,7 +20,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Studio Test', comped: true });
 const cfg0 = store.loadConfig(ws.id);
-cfg0.story = { ...cfg0.story, ...starterStory(['final_expense']) };
+cfg0.story = { ...cfg0.story, ...starterStory() };
 cfg0.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 cfg0.look = { ...cfg0.look, name: 'Jane Smith', location: 'Gallup, NM', ...(font ? { font } : {}) };
 store.saveConfig(ws.id, cfg0);

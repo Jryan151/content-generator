@@ -19,7 +19,7 @@ test.after(() => { server.close(); stubs.close(); });
 const mk = name => {
   const ws = store.createWorkspace({ name, comped: true });
   const c = store.loadConfig(ws.id);
-  c.story = { ...c.story, ...starterStory(['final_expense']) };
+  c.story = { ...c.story, ...starterStory() };
   c.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   store.saveConfig(ws.id, c);
   store.updateWorkspace(ws.id, { onboarded: true });

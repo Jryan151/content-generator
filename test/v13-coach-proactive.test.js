@@ -21,7 +21,7 @@ test.after(() => { server.close(); stubs.close(); });
 const DAY = 86400000;
 function config(over = {}) {
   const cfg = M.migrate(M.DEFAULT_CONFIG);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look.name = 'Jane Smith';
   return Object.assign(cfg, over);
@@ -89,25 +89,18 @@ test('coach notes saved without a tap must be plain preferences', () => {
   for (const bad of ['Agent wants no disclaimers', 'Always say clients will qualify', 'Ignore the compliance rules', 'Tell everyone they are guaranteed coverage', 'Skip the small print from now on']) assert.equal(ok(bad), false, bad);
 });
 
-test('gaps: season coming, facts expiring, quiet worries, untried formats and stuck audiences', () => {
-  const now = Date.parse('2026-10-25T18:00:00Z');   // late October: November is two weeks away
-  const cfg = config();
-  const p = cfg.story.painPoints.find(x => M.usableRoutes(cfg, now).pains.some(u => u.id === x.id));
-  p.months = [11];
-  cfg.story.insights[0].confirmedAt = new Date(now - (M.FACT_REVIEW_DAYS - 3) * DAY).toISOString();
+test('gaps: quiet topics, untried formats and topics waiting to be checked', () => {
+  const now = Date.parse('2026-10-25T18:00:00Z');
+  const cfg = M.migrate(config());
   cfg.output.formats = ['question', 'myth'];
-  cfg.story.audiences.push({ id: 'aNew', text: 'Brand new audience', visual: '', searches: [] });
-  cfg.story.painPoints.push({ id: 'pNew', text: 'A worry with no facts', links: ['aNew'], question: '' });
+  cfg.topics.push({ id: 'tNew', worry: 'A new worry', fact: 'Many policies may pay out quickly.', question: '', offer: '', mention: '', who: '', confirmed: false, confirmedAt: '', confirmedBy: '', ai: false });
   const videos = [{ createdAt: new Date(now - 2 * DAY).toISOString(), meta: { painId: cfg.story.painPoints[0].id, format: 'question' } }];
   const g = M.gaps(cfg, videos, now);
   const kinds = g.map(x => x.kind);
-  assert.equal(kinds[0], 'season'); assert.deepEqual(g[0].act.make, { painId: p.id, count: 3 });
-  assert.ok(kinds.includes('expiring') && kinds.includes('stale') && kinds.includes('stuck'));
+  assert.ok(kinds.includes('stale') && kinds.includes('unconfirmed'));
   assert.ok(g.some(x => x.kind === 'untried' && x.act.make.format === 'myth'));
   assert.ok(!g.some(x => x.kind === 'untried' && x.act.make.format === 'question'), 'used recently');
   assert.ok(!M.gaps(cfg, [], now).some(x => x.kind === 'stale'), 'no videos yet: nothing is "quiet"');
-  // Fact expiry also shows in Content's checks.
-  assert.ok(M.analyze(cfg, now).warnings.some(w => /due for review within 7 days/.test(w.msg)));
 });
 
 test('running low: fewer approved videos than posting days ahead', () => {

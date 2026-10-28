@@ -48,7 +48,7 @@ import { markRunning } from './lib/storage.js';
 // Is the website process running (its pid file names a live process)?
 import { answersFrom, draftConfig, personalize, stampFacts, confirmedCount } from './lib/onboarding.js';
 import { buildPrompt } from './lib/prompts.js';
-import { migrate, whyNoVideos, PRODUCT_LINES, FORMATS, boostsFrom, tasteFrom, AI_VOICE_NOTE, DEFAULT_CONFIG, winnersFrom, rejectionSummary, needsResults, roll, applySuggestionTo, usableRoutes, insightStatus, checkInsightText, styleCalibration, gaps, runningLow, bestPostingHour, weekdayIn, studioPicks, studioChecks, suggestAccent, nicheOf, okBookingUrl, shortReason, hiddenNote, beatPlan, lineProblems, linkChecks, linkKey, textKey, localDates, weekdayOfDate } from './mixer-core.js';
+import { migrate, whyNoVideos, FORMATS, boostsFrom, tasteFrom, AI_VOICE_NOTE, DEFAULT_CONFIG, winnersFrom, rejectionSummary, needsResults, roll, applySuggestionTo, usableRoutes, insightStatus, checkInsightText, styleCalibration, gaps, runningLow, bestPostingHour, weekdayIn, studioPicks, studioChecks, suggestAccent, nicheOf, okBookingUrl, shortReason, hiddenNote, beatPlan, lineProblems, localDates, weekdayOfDate } from './mixer-core.js';
 // The routes, by area (routes/*.js): mounted at the end of this file, once everything they use exists.
 import mount_public from './routes/public.js';
 import mount_account from './routes/account.js';
@@ -422,26 +422,6 @@ const workingConfig = (wsId, body, me) => (body.config ? stampFacts(store.loadCo
 /* ----- Mindset: the agent working on themselves, and the parts that shape their videos ----- */
 const mindset = () => import('./lib/mindset.js');
 const todayFor = cfg => mc.dayKey(Date.now(), cfg.profile?.timezone || 'America/Denver');
-/* ----- Smart Content: automatic links, a fit check on every link, ✦ Generate ----- */
-const content = () => import('./lib/content.js');
-// Verdicts the server made are signed, so one edited in the browser (to unblock a link without an
-// override) is recognized. An unsigned one only carries an override, and its score isn't trusted.
-const fitSig = (key, v) => secrets.sign(`${key}|${v.s}|${v.k}`, 'fit');
-// Merges the verdicts a save brings with the saved ones: per link, the server's own verdict for the
-// current texts wins over a different or unsigned one; the agent's override (o) always comes from the save.
-function mergeFit(prev = {}, next = {}, cfg) {
-  const out = {};
-  const current = new Map(linkChecks(cfg).map(l => [l.key, textKey(l.child.text, l.parent.text)]));
-  for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
-    const a = prev[key], b = next[key], cur = current.get(key);
-    const good = v => v && !v.u && v.g && secrets.signedBy(`${key}|${v.s}|${v.k}`, v.g, 'fit');
-    const pick = [b, a].find(v => good(v) && v.k === cur) || [b, a].find(good) || null;
-    const o = b ? (b.o ? { o: b.o, oAt: b.oAt } : {}) : (a?.o ? { o: a.o, oAt: a.oAt } : {});
-    if (pick) out[key] = { s: pick.s, r: pick.r, k: pick.k, g: pick.g, ...o };
-    else if (o.o) out[key] = { s: 3, r: String(b?.r || a?.r || ''), k: cur || '', u: 1, ...o };
-  }
-  return out;
-}
 // A draft's picks, with the agent's recent videos so the "too close to a recent opening" check runs (not
 // counting the draft's own video: a new version isn't too close to the one it replaces).
 const draftPicks = (wsId, cfg, d) => ({ ...studioPicks(cfg, d.brief), recent: store.readRecent(wsId).filter(r => !d.videoId || r.videoId !== d.videoId) });
@@ -465,14 +445,13 @@ const ownersOf = wsId => store.listAccounts().filter(a => !a.disabled && roles.m
 // means any one of those will do (a reviewer turning on notifications).
 const ROUTE_CAPS = {
   'GET /api/data/export': 'data', 'POST /api/data/delete-request': 'data', 'DELETE /api/data/delete-request': 'data',
-  'PUT /api/config': 'settings', 'GET /api/history/:name': 'settings', 'POST /api/prompt-preview': 'settings', 'POST /api/coach/links': 'settings',
+  'PUT /api/config': 'settings', 'GET /api/history/:name': 'settings', 'POST /api/prompt-preview': 'settings',
   'GET /api/setup': 'setup', 'POST /api/setup/draft': 'setup', 'POST /api/setup/finish': 'setup',
   'POST /api/script': 'make', 'POST /api/footage-test': 'make', 'POST /api/coach/rewrite': 'make',
   'POST /api/coach': 'coach', 'POST /api/comms/workshop': 'coach', 'POST /api/coach/try': 'coach', 'GET /api/coach/notes': 'coach', 'POST /api/coach/notes': 'coach', 'DELETE /api/coach/notes/:id': 'coach', 'POST /api/coach/weekly': 'coach',
   'POST /api/coach/plan/skip': 'make', 'POST /api/coach/plan': 'make',
   'POST /api/coach/reply': 'replies', 'GET /api/comms/calibration': 'replies',
   'GET /api/mindset': 'mindset', 'PUT /api/mindset': 'mindset', 'POST /api/mindset/check': 'mindset', 'POST /api/mindset/principle': 'mindset', 'POST /api/mindset/practice': 'mindset', 'DELETE /api/mindset/practice/:id': 'mindset', 'POST /api/mindset/audit': 'mindset', 'POST /api/mindset/audit/advice': 'mindset', 'POST /api/mindset/reflection': 'mindset', 'POST /api/mindset/lens': 'mindset',
-  'POST /api/content/autolink': 'settings', 'POST /api/content/relevance': 'settings', 'POST /api/content/link-all': 'settings', 'POST /api/content/generate': 'settings',
   'GET /api/studio': 'make', 'GET /api/studio/:id': 'make', 'POST /api/studio': 'make', 'PUT /api/studio/:id': 'make', 'DELETE /api/studio/:id': 'make', 'POST /api/studio/:id/hooks': 'make', 'POST /api/studio/:id/fill': 'make', 'POST /api/studio/:id/rewrite': 'make', 'POST /api/studio/:id/ideas': 'make', 'POST /api/studio/:id/footage': 'make', 'POST /api/studio/:id/voice': 'make', 'POST /api/studio/:id/render': 'make', 'POST /api/spell': 'make',
   'POST /api/jobs': 'make', 'DELETE /api/jobs/:id': 'make', 'POST /api/videos/:id/fix': 'make', 'POST /api/videos/:id/clips': 'make', 'POST /api/videos/:id/cover': 'make',
   'POST /api/videos/:id/approve': 'approve', 'POST /api/videos/:id/reject': 'approve', 'POST /api/videos/:id/reopen': 'approve', 'DELETE /api/videos/:id': 'approve',
@@ -991,7 +970,7 @@ export function main() {
 /* ---------------- The routes, by area (routes/*.js) ---------------- */
 // Mounted last, in the order they were written (the first route that matches a request answers it),
 // with the helpers they share with the rest of the server.
-const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
+const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, main, media, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
 for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
 
 // On restart (pm2 sends SIGINT), main() hands running videos back and writes what's waiting, then exits.

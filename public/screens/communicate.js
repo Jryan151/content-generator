@@ -35,7 +35,8 @@ function drawCommunicate() {
   const cfg = S.cfg, s = cfg.story;
   S.comm ||= { open: 'S' };
   const open = STYLES[S.comm.open];
-  const styled = s.audiences.filter(a => a.style).length;
+  // One audience: the agent's clients (Content → Your clients). Topics' own footage people share its style.
+  const auds = s.audiences.filter(a => a.id === 'aud'), styled = auds.filter(a => a.style).length;
   main.innerHTML = `<div class="head"><h1>Communicate</h1><p class="lede">Speak the way your viewer listens. Learn the four communication styles, set how each audience likes to be spoken to, and practice writing inputs that land. Better inputs make better videos.</p></div>
     ${growTabs()}
     <section class="panel story"><div class="head"><h2><span class="dot"></span>The four styles</h2><p>DISC is a simple model of how people take in information and make decisions. Everyone is a blend, and nobody is just one letter. Read the person in front of you, never their age, culture or background.</p></div>
@@ -49,13 +50,13 @@ function drawCommunicate() {
         <div class="box"><h3>Sounds like</h3><dl class="meta wide"><dt>Worry</dt><dd>“${esc(open.example.worry)}”</dd><dt>Hook</dt><dd>“${esc(open.example.hook)}”</dd><dt>Call to action</dt><dd>“${esc(open.example.cta)}”</dd></dl></div>
         <p class="small" style="margin:0"><b>In a conversation:</b> ${esc(open.talk)}</p>
       </div></section>
-    <section class="panel story"><div class="head"><h2><span class="dot"></span>How your audiences like to be spoken to</h2><p>Pick one or two styles for each audience, main one first. Every script for that audience is written to fit. It’s a working guess: check it against which videos bring messages.</p></div>
-      ${s.audiences.length ? `<div class="stack">${s.audiences.map(a => `<div class="item"><div class="row between"><b>${esc(a.text)}</b><span class="row" style="gap:4px">${styleBadges(a.style) || '<span class="small muted">No style yet</span>'}</span></div>
+    <section class="panel story"><div class="head"><h2><span class="dot"></span>How your clients like to be spoken to</h2><p>Pick one or two styles, main one first. Every script is written to fit. It’s a working guess: check it against which videos bring messages.</p></div>
+      ${auds.length ? `<div class="stack">${auds.map(a => `<div class="item"><div class="row between"><b>${esc(a.text)}</b><span class="row" style="gap:4px">${styleBadges(a.style) || '<span class="small muted">No style yet</span>'}</span></div>
         <div class="row">${STYLE_KEYS.map(k => `<button class="toggle sty-${k}" data-act="aud-style" data-id="${a.id}" data-k="${k}" aria-pressed="${(a.style || '').includes(k)}">${k} · ${esc(STYLES[k].name)}</button>`).join('')}</div>
         ${a.style ? `<small class="muted">${esc(styleLabel(a.style))}. Pairs well with ${pairsWith(a.style)}.</small>` : ''}
         ${calibrationHTML(a)}
-        <div class="row"><button class="btn sm ghost" data-act="aud-coach" data-id="${a.id}">✦ Ask the coach about this audience</button></div></div>`).join('')}</div>` : '<p class="empty">No audiences yet. <a href="#/content" data-act="goto-tab" data-v="audiences">Add one in Setup → Library</a>.</p>'}
-      ${s.audiences.length && styled < s.audiences.length ? `<p class="small muted" style="margin:0">${plural(s.audiences.length - styled, 'audience')} still without a style.</p>` : ''}</section>
+        <div class="row"><button class="btn sm ghost" data-act="aud-coach" data-id="${a.id}">✦ Ask the coach about your clients</button></div></div>`).join('')}</div>` : ''}
+      ${auds.length && styled < auds.length ? `<p class="small muted" style="margin:0">${plural(auds.length - styled, 'audience')} still without a style.</p>` : ''}</section>
     ${workshopPanel()}
     ${drillPanel()}
     <section class="panel"><div class="head"><h2>How people take in a message</h2><p>The few ideas behind almost every message that works.</p></div>
@@ -69,7 +70,7 @@ function drawCommunicate() {
 }
 
 // The input workshop: score one input, then three rewrites for different styles.
-const wsItems = (cfg, kind) => ({ worry: cfg.story.painPoints, question: cfg.story.painPoints, fact: cfg.story.insights, audience: cfg.story.audiences }[kind] || []);
+const wsItems = (cfg, kind) => ({ worry: cfg.story.painPoints, question: cfg.story.painPoints, fact: cfg.story.insights, audience: cfg.story.audiences.filter(a => a.id === 'aud') }[kind] || []);
 function workshopPanel() {
   const cfg = S.cfg, W = S.workshop ||= { kind: 'worry', itemId: '', audienceId: '', painId: '', style: '', text: '', busy: false, out: null };
   const K = WORKSHOP_KINDS[W.kind], items = wsItems(cfg, W.kind);
@@ -79,7 +80,7 @@ function workshopPanel() {
     <div class="fields">
       ${items.length ? `<label class="field"><span>Start from</span><select class="ctl" data-wsf="itemId"><option value="">${W.kind === 'question' ? 'Pick a worry' : 'Something new'}</option>${items.map(x => `<option value="${x.id}"${W.itemId === x.id ? ' selected' : ''}>${esc(label(x))}</option>`).join('')}</select></label>` : ''}
       ${W.kind === 'fact' && !W.itemId ? `<label class="field"><span>Answers which worry?</span><select class="ctl" data-wsf="painId"><option value="">Choose later</option>${cfg.story.painPoints.map(p => `<option value="${p.id}"${W.painId === p.id ? ' selected' : ''}>${esc(short(p.text))}</option>`).join('')}</select></label>` : ''}
-      <label class="field"><span>For which audience?</span><select class="ctl" data-wsf="audienceId"><option value="">Any</option>${cfg.story.audiences.map(a => `<option value="${a.id}"${W.audienceId === a.id ? ' selected' : ''}>${esc(short(a.text))}${a.style ? ` (${a.style})` : ''}</option>`).join('')}</select></label>
+      <label class="field"><span>For which audience?</span><select class="ctl" data-wsf="audienceId"><option value="">Any</option>${cfg.story.audiences.filter(a => a.id === 'aud').map(a => `<option value="${a.id}"${W.audienceId === a.id ? ' selected' : ''}>${esc(short(a.text))}${a.style ? ` (${a.style})` : ''}</option>`).join('')}</select></label>
       <div class="field"><span>Speak to</span><div class="seg">${[['', 'Auto'], ...STYLE_KEYS.map(k => [k, k])].map(([v, l]) => `<button data-act="ws-style" data-v="${v}" aria-pressed="${W.style === v}" title="${v ? esc(STYLES[v].name) : 'The audience’s own style'}">${l}</button>`).join('')}</div></div>
     </div>
     <label class="field"><span>Your words</span><textarea class="ctl" data-wsf="text" rows="2" maxlength="400" placeholder="e.g. ${esc(K.example)}">${esc(W.text)}</textarea></label>

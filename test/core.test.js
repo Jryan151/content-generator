@@ -2,11 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_CONFIG, PLATFORM_GUARDRAILS, QUALIFIER_GROUPS, FACT_REVIEW_DAYS, migrate, roll, validateScript, validatePost,
+  DEFAULT_CONFIG, PLATFORM_GUARDRAILS, QUALIFIER_GROUPS, migrate, roll, validateScript, validatePost,
   checkInsightText, insightStatus, countMixes, guardrailsFor, roleFor, analyze,
 } from '../mixer-core.js';
 import { buildPrompt } from '../lib/prompts.js';
-import { TEMPLATES, starterStory } from '../templates.js';
+import { STARTER_TOPICS, starterStory } from '../templates.js';
 
 const now = new Date().toISOString();
 function cfgWith(products = ['final_expense'], confirm = true) {
@@ -21,7 +21,7 @@ const picksFor = (c, insightId) => {
   const solution = c.story.solutions.find(s => s.links.includes(insightId));
   return { insight, solution, recent: [] };
 };
-// A script that passes every rule for fe_i2 ("Many final expense policies ask a few health questions…").
+// A script that passes every rule for t_health_f ("Many final expense policies ask a few health questions…").
 const good = () => ({ scenes: [
   { text: 'Worried your health will get you turned down?', accent: 'health', keyword: 'older woman kitchen table' },
   { text: 'Many final expense policies ask a few health questions', accent: 'health questions', keyword: 'senior man reading letter' },
@@ -33,13 +33,13 @@ const good = () => ({ scenes: [
 
 test('a clean script passes', () => {
   const c = cfgWith();
-  const r = validateScript(good(), c, picksFor(c, 'fe_i2'));
+  const r = validateScript(good(), c, picksFor(c, 't_health_f'));
   assert.deepEqual(r.problems, []);
   assert.equal(r.ok, true);
 });
 
 test('scripts are blocked for compliance problems', () => {
-  const c = cfgWith(), p = picksFor(c, 'fe_i2');
+  const c = cfgWith(), p = picksFor(c, 't_health_f');
   const cases = [
     [2, 'Everyone qualifies with no medical exam.', /banned phrase "everyone qualifies"|absolute claim/],
     [2, 'It works with your Medicare benefits.', /government-backed/],
@@ -57,14 +57,14 @@ test('scripts are blocked for compliance problems', () => {
 });
 
 test('the insight’s qualifier must stay, on screen', () => {
-  const c = cfgWith(), p = picksFor(c, 'fe_i2');
+  const c = cfgWith(), p = picksFor(c, 't_health_f');
   const s = good();
   s.scenes[1] = { ...s.scenes[1], text: 'Final expense policies ask a few health questions', accent: 'health questions' };
   assert.match(validateScript(s, c, p).problems.join(' '), /qualifier/);
 });
 
 test('a required disclosure must be said (waiting period)', () => {
-  const c = cfgWith(), p = picksFor(c, 'fe_i3');
+  const c = cfgWith(), p = picksFor(c, 't_turned_f');
   assert.equal(p.solution.mustMention, 'waiting period');
   const s = good();
   s.scenes[1] = { text: 'Policies that accept almost anyone usually', accent: 'almost anyone', keyword: 'older man at home' };
@@ -77,43 +77,38 @@ test('a required disclosure must be said (waiting period)', () => {
 test('questions only in the hook and the bridge', () => {
   const c = cfgWith(), s = good();
   s.scenes[3] = { ...s.scenes[3], text: 'Is a smaller policy the answer?', accent: 'smaller' };
-  assert.match(validateScript(s, c, picksFor(c, 'fe_i2')).problems.join(' '), /Scene 4 is a question/);
+  assert.match(validateScript(s, c, picksFor(c, 't_health_f')).problems.join(' '), /Scene 4 is a question/);
 });
 
-test('every template fact passes the platform rules and has one qualifier group', () => {
-  for (const [k, t] of Object.entries(TEMPLATES)) {
-    for (const i of t.insights) {
-      assert.deepEqual(checkInsightText(i.text), [], `${k} ${i.id}`);
-      const words = i.text.toLowerCase().match(/[a-z’']+/g);
-      assert.equal(QUALIFIER_GROUPS.filter(g => g.some(q => words.includes(q))).length, 1, `${k} ${i.id} qualifier`);
-      assert.equal(i.confirmed, false, 'templates start unconfirmed');
-    }
-    const ids = new Set(t.insights.map(i => i.id)), pains = new Set(t.painPoints.map(p => p.id)), auds = new Set(t.audiences.map(a => a.id));
-    t.solutions.forEach(s => s.links.forEach(l => assert.ok(ids.has(l), `${s.id} → ${l}`)));
-    t.insights.forEach(i => i.links.forEach(l => assert.ok(pains.has(l), `${i.id} → ${l}`)));
-    t.painPoints.forEach(p => p.links.forEach(l => assert.ok(auds.has(l), `${p.id} → ${l}`)));
+test('every starter topic passes the platform rules and has one qualifier group', () => {
+  for (const t of STARTER_TOPICS) {
+    assert.deepEqual(checkInsightText(t.fact), [], t.id);
+    const words = t.fact.toLowerCase().match(/[a-z’']+/g);
+    assert.equal(QUALIFIER_GROUPS.filter(g => g.some(q => words.includes(q))).length, 1, `${t.id} qualifier`);
+    assert.equal(t.confirmed, false, 'starter topics start unchecked');
+    assert.ok(t.worry && t.question && t.offer, t.id);
   }
-  const all = cfgWith(['final_expense', 'mortgage', 'family']);
-  assert.ok(countMixes(all) > 50);
+  const all = cfgWith();
+  assert.equal(countMixes(all), STARTER_TOPICS.length);
   assert.deepEqual(analyze(all).warnings.filter(w => ['route', 'clash'].includes(w.kind)), []);
 });
 
-test('only confirmed, current facts reach a video', () => {
+test('only confirmed facts reach a video', () => {
   const c = cfgWith(['final_expense'], false);
   assert.equal(countMixes(c), 0);
   assert.ok(!roll(c).insight);
-  assert.match(roll(c).breaks.join(' '), /No confirmed facts/);
-  const one = c.story.insights.find(i => i.id === 'fe_i4');
+  assert.match(roll(c).breaks.join(' '), /No confirmed topics/);
+  const one = c.story.insights.find(i => i.id === 't_same_f');
   one.confirmed = true; one.confirmedAt = now;
-  for (let k = 0; k < 20; k++) assert.equal(roll(c).insight.id, 'fe_i4');
-  one.confirmedAt = new Date(Date.now() - (FACT_REVIEW_DAYS + 1) * 86400000).toISOString();
-  assert.equal(insightStatus(one), 'stale');
+  for (let k = 0; k < 20; k++) assert.equal(roll(c).insight.id, 't_same_f');
+  one.confirmedAt = '';
+  assert.equal(insightStatus(one), 'unconfirmed', 'ticked but not saved yet');
   assert.equal(countMixes(c), 0);
 });
 
 test('a chosen topic is honored', () => {
   const c = cfgWith();
-  for (let k = 0; k < 10; k++) assert.equal(roll(c, Math.random, [], { painId: 'fe_p3' }).painPoint.id, 'fe_p3');
+  for (let k = 0; k < 10; k++) assert.equal(roll(c, Math.random, [], { painId: 't_health' }).painPoint.id, 't_health');
 });
 
 test('the local format needs a city', () => {
@@ -148,7 +143,7 @@ test('the role line reads well with and without details', () => {
 
 test('post text: first line length, banned words, disclaimer', () => {
   const c = cfgWith();
-  const p = picksFor(c, 'fe_i2');
+  const p = picksFor(c, 't_health_f');
   assert.equal(validatePost(JSON.stringify({ caption: 'Health questions instead of an exam?\nMany policies work this way. Message me.\n#GallupNM #LifeInsurance' }), c, p).ok, true);
   assert.match(validatePost(JSON.stringify({ caption: 'x'.repeat(130) + '\nMore.' }), c, p).problems.join(' '), /first line/);
   assert.match(validatePost(JSON.stringify({ caption: 'A state-approved burial benefit.' }), c, p).problems.join(' '), /government-backed/);
@@ -166,15 +161,8 @@ test('platform rules are in every prompt', () => {
 
 test('formats pick the facts and material they need', () => {
   const c = cfgWith();
-  for (let k = 0; k < 30; k++) {
-    const list = roll(c, Math.random, [], { format: 'list', painId: 'fe_p3' });
-    assert.equal(list.format, 'list'); assert.equal(list.insights.length, 2);
-    const cmp = roll(c, Math.random, [], { format: 'compare', painId: 'fe_p3' });
-    assert.equal(cmp.insights.length, 2); assert.notEqual(cmp.insights[0].id, cmp.insights[1].id);
-  }
-  // A worry with one fact can't make a list; no confirmed story, no mini-story.
-  const one = cfgWith(); const second = one.story.insights.filter(i => i.links.includes('fe_p6'))[1]; second.confirmed = false;
-  assert.notEqual(roll(one, Math.random, [], { format: 'list', painId: 'fe_p6' }).format, 'list');
+  // A topic teaches one fact, so formats that need two facts aren't picked; no confirmed story, no mini-story.
+  for (let k = 0; k < 10; k++) assert.notEqual(roll(c, Math.random, [], { format: 'list', painId: 't_work' }).format, 'list');
   assert.notEqual(roll(c, Math.random, [], { format: 'story' }).format, 'story');
   c.bank.stories = [{ id: 'st1', text: 'When my dad passed, we had no plan for the funeral.', confirmed: false, links: [] }];
   assert.notEqual(roll(c, Math.random, [], { format: 'story' }).format, 'story', 'unconfirmed stories are never used');
@@ -186,7 +174,7 @@ test('formats pick the facts and material they need', () => {
 
 test('hooks and scripts are checked for overused wording and the chosen opening', async () => {
   const { validateHook, clicheHits } = await import('../mixer-core.js');
-  const c = cfgWith(), p = picksFor(c, 'fe_i2');
+  const c = cfgWith(), p = picksFor(c, 't_health_f');
   assert.deepEqual(clicheHits('Get peace of mind and don’t wait'), ['peace of mind', "don't wait"]);
   assert.deepEqual(validateHook({ text: 'Worried your health will get you turned down?' }, c, p), []);
   assert.ok(validateHook({ text: 'Everyone qualifies with no exam' }, c, p).length);
@@ -218,11 +206,8 @@ test('says exactly why no video can be made yet', async () => {
   const { whyNoVideos } = await import('../mixer-core.js');
   const c = cfgWith();
   assert.equal(whyNoVideos(c), null);
-  c.story.insights.forEach(i => { i.links = []; });
-  assert.match(whyNoVideos(c).msg, /aren’t linked to a worry/);
-  const d = cfgWith(); d.story.painPoints.forEach(p => { p.links = []; });
-  assert.match(whyNoVideos(d).msg, /linked to an audience/);
-  assert.match(whyNoVideos(cfgWith(['final_expense'], false)).msg, /None of your facts are confirmed/);
+  assert.match(whyNoVideos(migrate(cfgWith([], false))).msg, /None of your topics are checked/);
+  assert.match(whyNoVideos(migrate(DEFAULT_CONFIG)).msg, /Add a topic/);
 });
 
 test('facts that read as promises get a gentle note, not a block', async () => {
@@ -239,11 +224,12 @@ test('applying coach suggestions changes a copy of the config', async () => {
   const e = applySuggestionTo(c, { type: 'edit_fact', id: f.id, text: f.text + ' Many people find this helps.' });
   assert.equal(c.story.insights[0].confirmed, true, 'the input is untouched');
   assert.equal(e.story.insights[0].confirmed, false, 'reworded facts need confirming again');
-  const l = applySuggestionTo(c, { type: 'link_fact', id: f.id, painIds: ['fe_p6'] });
-  assert.ok(l.story.insights[0].links.includes('fe_p6'));
+  // A fact for another worry is a new topic: that worry with this fact, to check again.
+  const l = applySuggestionTo(c, { type: 'link_fact', id: f.id, painIds: ['t_work'] });
+  assert.equal(l.topics[0].fact, f.text); assert.equal(l.topics[0].worry, c.story.painPoints.find(p => p.id === 't_work').text); assert.equal(l.topics[0].confirmed, false);
   const s = applySuggestionTo(c, { type: 'add_search', audienceId: c.story.audiences[0].id, text: 'older woman garden' });
   assert.deepEqual(s.story.audiences[0].searches, ['older woman garden']);
-  assert.match(buildPrompt(s, { ...picksFor(s, 'fe_i2'), audience: s.story.audiences[0] }).user, /older woman garden/);
+  assert.match(buildPrompt(s, { ...picksFor(s, 't_health_f'), audience: s.story.audiences[0] }).user, /older woman garden/);
   assert.throws(() => applySuggestionTo(c, { type: 'nope' }));
 });
 
@@ -258,5 +244,5 @@ test('openings that brought messages guide new hooks', async () => {
   const w = winnersFrom(vids);
   assert.deepEqual(w.map(x => x.hook), ['Mom never talked about it.']);
   const c = cfgWith();
-  assert.match(buildHookPrompt(c, { ...picksFor(c, 'fe_i2'), winners: w }).user, /OPENINGS THAT WORKED FOR JANE: THEY BROUGHT MESSAGES OR WON A TEST[\s\S]*Mom never talked about it\."\s\(3 messages\)/);
+  assert.match(buildHookPrompt(c, { ...picksFor(c, 't_health_f'), winners: w }).user, /OPENINGS THAT WORKED FOR JANE: THEY BROUGHT MESSAGES OR WON A TEST[\s\S]*Mom never talked about it\."\s\(3 messages\)/);
 });

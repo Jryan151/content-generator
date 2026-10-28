@@ -11,24 +11,19 @@ import { buildPrompt } from '../lib/prompts.js';
 import { migrate, DEFAULT_CONFIG, roll } from '../mixer-core.js';
 
 export default function mount(ctx) {
-const { TERMS_TEXT, api, bad, clip, content, draftLimit, mergeFit, mindset, needsTerms, nowIso, overCap, route, termsStamp, who, wsSummary } = ctx;
+const { TERMS_TEXT, api, bad, clip, draftLimit, mindset, needsTerms, nowIso, overCap, route, termsStamp, who, wsSummary } = ctx;
 /* ----- Config and setup ----- */
 // The agent's Mindset profile (their why, objections) is theirs: others get the config without it.
 const forViewer = (cfg, caps) => (caps.includes('mindset') ? cfg : { ...cfg, mindset: { ...DEFAULT_CONFIG.mindset } });
 route('GET', '/api/config', 'ws', ({ wsId, caps }) => ({ config: forViewer(store.loadConfig(wsId), caps), versions: store.listHistory(wsId) }));
 route('PUT', '/api/config', 'ws', ({ wsId, body, me, caps }) => {
-  if (!body.config || !body.config.story) bad(400, 'Send { config } with a story section.');
+  if (!body.config || typeof body.config !== 'object') bad(400, 'Send { config }.');
   const prev = store.loadConfig(wsId);
   const next = stampFacts(prev, migrate(body.config), me.account.id);
   // The Mindset tab saves its own part straight away; a config save never overwrites it.
   next.mindset = prev.mindset;
   // Someone who can't post (an assistant allowed to edit content) can't change the posting plan either.
   if (!caps.includes('post')) next.schedule = { ...next.schedule, autopost: prev.schedule.autopost };
-  // Link verdicts made since the portal loaded (the fit check runs in the background) are kept, and
-  // a verdict changed in the browser isn't trusted.
-  next.story.fit = migrate({ ...next, story: { ...next.story, fit: mergeFit(prev.story.fit, next.story.fit, next) } }).story.fit;
-  // Overriding a blocked link is the agent's call, and it's recorded.
-  Object.entries(next.story.fit).filter(([k, v]) => v.o && !prev.story.fit?.[k]?.o).forEach(([k, v]) => audit.record({ action: 'facts.override', who: me.account, ws: wsId, target: k, detail: clip(v.o, 200) }));
   return { config: store.saveConfig(wsId, next), versions: store.listHistory(wsId) };
 });
 route('GET', '/api/history/:name', 'ws', ({ wsId, params, caps }) => {
@@ -37,7 +32,7 @@ route('GET', '/api/history/:name', 'ws', ({ wsId, params, caps }) => {
 
 route('GET', '/api/setup', 'ws', ({ wsId, ws }) => {
   const cfg = store.loadConfig(wsId);
-  return { answers: answersFrom(cfg), hasContent: cfg.story.insights.length > 0, onboarded: ws.onboarded };
+  return { answers: answersFrom(cfg), hasContent: cfg.topics.length > 0, onboarded: ws.onboarded };
 });
 route('POST', '/api/setup/draft', 'ws', async ({ wsId, ws, body }) => {
   if (ws.onboarded) bad(409, 'Setup is already finished.');
@@ -62,7 +57,7 @@ route('POST', '/api/setup/finish', 'ws', ({ wsId, ws, body, me }) => {
   const next = stampFacts(prev, migrate(body.config || prev), me.account.id);
   next.mindset = prev.mindset;
   if (!next.look.name) bad(400, 'Add your name.');
-  if (!confirmedCount(next)) bad(400, 'Confirm at least one fact to finish.');
+  if (!confirmedCount(next)) bad(400, 'Check at least one topic’s fact to finish.');
   const saved = store.saveConfig(wsId, next);
   if (askTerms) store.updateAccount(me.account.id, termsStamp());
   store.updateWorkspace(wsId, { onboarded: true, acceptedAt: nowIso(), acceptedBy: me.account.id, ...(/@|^New workspace$/.test(ws.name) ? { name: next.look.name } : {}) });

@@ -29,7 +29,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Moments Test', comped: true });
 const base = store.loadConfig(ws.id);
-base.story = { ...base.story, ...starterStory(['final_expense']) };
+base.story = { ...base.story, ...starterStory() };
 base.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 base.look.name = 'Rosa Diaz';
 store.saveConfig(ws.id, base);

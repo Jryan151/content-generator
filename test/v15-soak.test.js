@@ -53,7 +53,7 @@ test(`five years of data for ${AGENTS} agents`, { timeout: 600000 }, async t => 
     const ws = store.createWorkspace({ name: `Soak Agent ${a + 1}`, comped: true });
     store.updateWorkspace(ws.id, { onboarded: true, createdAt: iso(now - YEARS * 365 * DAY) });
     const cfg = store.loadConfig(ws.id);
-    cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+    cfg.story = { ...cfg.story, ...starterStory() };
     cfg.story.insights.forEach(x => { x.confirmed = true; x.confirmedAt = iso(now - 30 * DAY); });
     cfg.schedule = { ...(cfg.schedule || {}), keepReady: 3, autopost: { on: true, days: [1, 3, 5], time: '09:00', platforms: ['instagram'] } };
     store.saveConfig(ws.id, cfg);

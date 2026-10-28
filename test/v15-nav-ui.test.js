@@ -27,7 +27,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
   ws = store.createWorkspace({ name: 'Ten Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   cfg.look = { ...cfg.look, name: 'Dana Agent', location: 'Gallup, NM' };
   store.saveConfig(ws.id, cfg);
@@ -100,9 +100,9 @@ test('Setup’s six steps: each shows its panels, in order, with the way on; a c
     await goto(page, `#/${step}`, '.steps');
     const h = await headings(page);
     for (const x of want) assert.ok(h.includes(x), `${step}: ${x} in ${JSON.stringify(h)}`);
-    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Library', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'Reviewer' }[step]);
+    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Topics', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'Reviewer' }[step]);
   }
-  // Library leaves "Your voice" to Voice and rules.
+  // Topics leaves "Your voice" to Voice and rules.
   await goto(page, '#/library', '.steps');
   assert.ok(!(await page.$$eval('[data-act="content-tab"]', b => b.map(x => x.dataset.v))).includes('voice'));
   // A change on a step: the save bar, then saved.
@@ -120,18 +120,21 @@ test('Setup’s six steps: each shows its panels, in order, with the way on; a c
   await page.close();
 });
 
-test('the steps behave like their old pages: autolink, save redraws, one Never use, the connect return, the menu, phone strips', { skip, timeout: 240000 }, async () => {
+test('the steps behave like their old pages: a topic added and checked, save redraws, one Never use, the connect return, the menu, phone strips', { skip, timeout: 240000 }, async () => {
   const { page, errors } = await open('ten@example.com', 'tenpass12345');
-  // Library: adding a worry links it automatically and shows what it did (not a spinner left turning).
-  const aud = store.loadConfig(ws.id).story.audiences[0].id;
-  await page.route('**/api/content/autolink', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ parents: [aud], children: [], fit: {} }) }));
-  await goto(page, '#/library/painPoints', '.steps');
-  await page.fill('[data-form="add"][data-list="painPoints"] input[name=text]', 'Worried the kids would have to pay for the funeral');
-  await page.click('[data-form="add"][data-list="painPoints"] button');
-  await page.waitForFunction(() => /Linked automatically/.test(document.getElementById('main').innerText));
-  assert.ok(!(await page.$eval('main', m => m.innerText)).includes('Linking it to what it fits'));
-  await page.click('[data-act="discard"]').catch(() => {});
-  await page.unroute('**/api/content/autolink');
+  // Topics: a new topic is added, its fact ticked as true, and saved; the checks read it.
+  await goto(page, '#/library/topics', '.steps');
+  await page.fill('[data-form="topic-add"] input[name=worry]', 'Worried the kids would have to pay for the funeral');
+  await page.fill('[data-form="topic-add"] textarea[name=fact]', 'Many families usually plan for funeral costs ahead of time.');
+  await page.click('[data-form="topic-add"] button');
+  await page.waitForSelector('[data-topic-item] [data-topic-ok]:not([disabled])');
+  const id = await page.$eval('[data-topic-item]', e => e.dataset.topicItem);
+  await page.check(`[data-topic-ok="${id}"]`);
+  await page.click('#savebar [data-act="save"]');
+  await page.waitForFunction(() => document.getElementById('savebar').hidden);
+  const saved = store.loadConfig(ws.id);
+  assert.equal(saved.topics[0].id, id); assert.equal(saved.topics[0].confirmed, true); assert.ok(saved.topics[0].confirmedAt);
+  assert.ok(saved.story.insights.some(i => i.id === `${id}_f` && i.confirmed), 'the story the checks read has it');
   // Look: a save shows the new saved version straight away.
   await goto(page, '#/look', '.steps');
   const before = await page.$$eval('#versionSel option', o => o.length).catch(() => 0);

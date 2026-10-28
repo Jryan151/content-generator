@@ -15,7 +15,6 @@ import * as audit from '../lib/audit.js';
 import * as monitor from '../lib/monitor.js';
 import * as roles from '../lib/roles.js';
 import * as signoff from '../lib/signoff.js';
-import { PRODUCT_LINES } from '../mixer-core.js';
 
 export default function mount(ctx) {
 const { isStarting, APPROVAL_NOTE, CHECKLIST, REJECT_REASONS, SECURE, TERMS_TEXT, VERSION, api, bad, baseUrl, clientIp, clip, emailLimit, ipLimit, linkError, needsTerms, newTicket, noticesFor, nowIso, orphanInvite, route, send, startSession, supportEmail, terms, termsStamp, tickets, twofaLimit, validTz, who, wsSummary } = ctx;
@@ -32,7 +31,7 @@ route('GET', '/api/health', 'public', ({ res, url }) => {
 
 route('GET', '/api/me', 'public', ({ me }) => {
   const t = terms();
-  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), instagram: ig.igOn(), facebook: fb.fbOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, products: PRODUCT_LINES, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
+  const base = { product: PRODUCT_NAME, version: VERSION, support: supportEmail(), instagram: ig.igOn(), facebook: fb.fbOn(), checklist: CHECKLIST, approvalNote: APPROVAL_NOTE, rejectReasons: REJECT_REASONS, terms: { on: t.on, version: t.version, termsUrl: t.termsUrl, privacyUrl: t.privacyUrl } };
   if (!me) return { ...base, account: null };
   const admin = me.account.role === 'admin', ws = me.wsId ? store.getWorkspace(me.wsId) : null;
   // What this person can do here, which portal they see, and the other workspaces they belong to.

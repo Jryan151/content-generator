@@ -4,9 +4,9 @@
 // It imports the same engine as the server (mixer-core.js), so previews and checks match exactly.
 // The prompt text itself is built only on the server (lib/prompts.js); admins can preview it in Setup → Look.
 import {
-  DEFAULT_CONFIG, LEVELS, LIMITS, VOICES, FONTS, FORMATS, PLATFORM_GUARDRAILS, GOV_TERMS, FACT_REVIEW_DAYS,
+  DEFAULT_CONFIG, LEVELS, LIMITS, VOICES, FONTS, FORMATS, PLATFORM_GUARDRAILS, GOV_TERMS,
   uid, migrate, roll, analyze, countMixes, beatPlan, estimateSeconds, insightStatus, usableRoutes,
-  checkInsightText, checkStoryText, roleText, cityOf, whyNoVideos, applySuggestionTo, factNotes, ACCENT_COLORS, accentHex, sayProblems, AI_VOICE_NOTE, MONTHS, seasonsNow, STRUCTURES, shotList, studioPicks, studioChecks, studioFormatFor, structureFits, validateHook, suggestAccent, okBookingUrl, PLATFORMS, nicheOf, SHOT_TYPES, FOOTAGE_MIX, linkChecks, textKey, linkKey, PRODUCT_LINES,
+  checkInsightText, checkStoryText, roleText, cityOf, whyNoVideos, applySuggestionTo, factNotes, ACCENT_COLORS, accentHex, sayProblems, AI_VOICE_NOTE, STRUCTURES, shotList, studioPicks, studioChecks, studioFormatFor, structureFits, validateHook, suggestAccent, okBookingUrl, PLATFORMS, nicheOf, SHOT_TYPES, FOOTAGE_MIX,
 } from './mixer-core.js';
 import { STYLES, STYLE_KEYS, normStyle, styleLabel, PRINCIPLES, SALES, DRILL, WORKSHOP_KINDS, RUBRIC } from './comms-core.js';
 import { BOOKS, SKILLS, PERSUASION, AUTO_HABITS } from './mindset-core.js';
@@ -16,7 +16,7 @@ import { drawSetup, viewSetup } from './screens/setup.js';
 import { drawReview, focusKey, haptic2, loadIg, loadVideos, loadWeekly, player, sub, viewReview } from './screens/review.js';
 import { drawCreate, footageHTML, loadOverview, testHTML, viewCreate } from './screens/create.js';
 import { drawStudio, loadStudioList, pollStudio, stBrief, stPicks, stRefreshChecks, stSave, stSetScene, stSpell, viewStudio } from './screens/studio.js';
-import { autoLinkItem, drawContent, factActions, fnotesHTML, viewContent } from './screens/content.js';
+import { addTopic, contentActions, drawContent, onTopicInput, restory, viewContent } from './screens/content.js';
 import { drawMindset, habitRows, haptic, loadMind, mindForm, mindSave, viewMindset } from './screens/mindset.js';
 import { drawBrand, loadLibrary, uploadClip, viewBrand } from './screens/brand.js';
 import { drawMemory, drawSettings, loadMemory, loadPromptPreview, promptHTML, promptText, viewSettings } from './screens/settings.js';
@@ -328,7 +328,7 @@ function shell(view) {
 }
 
 let main = null;
-const VIEW_NAMES = { grow: 'your results', profile: 'your profile', library: 'your library', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', admin: 'the admin view', account: 'your account', setup: 'setup' };
+const VIEW_NAMES = { grow: 'your results', profile: 'your profile', library: 'your topics', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', admin: 'the admin view', account: 'your account', setup: 'setup' };
 let pageGen = 0;
 async function page(view, fn, ctx = {}) {
   const gen = ++pageGen;
@@ -421,11 +421,11 @@ function freshAfterLogin() {
 /* ================= Can't do it right now ================= */
 // Buttons that need the AI or a video from this month's allowance are turned off, with the reason,
 // when they can't work (budget used up, no plan, all videos made), instead of failing on tap.
-const AI_ACTS = ['rewrite', 'test', 'st-hooks', 'st-fill', 'st-ideas', 'st-foot', 'st-hear', 'gen', 'link-all', 'check-links', 'autolink', 'mind-advice', 'coach-starter', 'comms-starter', 'ws-run', 'weekly-refresh', 'aud-style', 'drill-next'];
+const AI_ACTS = ['rewrite', 'test', 'st-hooks', 'st-fill', 'st-ideas', 'st-foot', 'st-hear', 'mind-advice', 'coach-starter', 'comms-starter', 'ws-run', 'weekly-refresh', 'aud-style', 'drill-next'];
 const MAKE_ACTS = ['make', 'make-topic', 'next-make', 'plan-make', 'st-render', 'job-again'];
 const AI_FORMS = ['footage', 'mind-lens', 'coach', 'coach-reply'];
 // Controls that change the workspace's settings: off (with the reason) for people who can't.
-const SETTINGS_ACTS = ['keep-ready', 'auto-plan', 'aud-style-set', 'ws-use', 'weekly-apply', 'save-search', 'season'];
+const SETTINGS_ACTS = ['keep-ready', 'auto-plan', 'aud-style-set', 'ws-use', 'weekly-apply', 'save-search'];
 function cantNow(make) {
   const w = S.me?.workspace;
   if (!w || S.me.account?.role === 'admin' && !S.me.acting) return '';
@@ -748,7 +748,7 @@ function setCfg(c, versions) { S.cfg = migrate(c); S.saved = JSON.stringify(S.cf
 const dirty = () => !!S.cfg && JSON.stringify(S.cfg) !== S.saved;
 // The pages where settings are edited. Elsewhere (Account, Guide, Review…) there's nothing to save, so
 // changes still waiting from one of these pages show as a short reminder of where they are (v15).
-const SETTINGS_VIEWS = { content: 'Content', brand: 'Brand', settings: 'Settings', profile: 'Setup → Profile', library: 'Setup → Library', voice: 'Setup → Voice and rules', look: 'Setup → Look', autopilot: 'Setup → Autopilot' };
+const SETTINGS_VIEWS = { content: 'Content', brand: 'Brand', settings: 'Settings', profile: 'Setup → Profile', library: 'Setup → Topics', voice: 'Setup → Voice and rules', look: 'Setup → Look', autopilot: 'Setup → Autopilot' };
 function saveBar() {
   const bar = document.getElementById('savebar');
   trackEdit();
@@ -806,7 +806,6 @@ async function saveCfg() {
   local.del(draftKey());
   saveBar();
   toast('Saved');
-  checkLinks();
 }
 // One change saved by itself (a coach suggestion): made to the saved settings and saved at once, and to
 // the page's copy too, so any other edits still waiting stay unsaved, as they were.
@@ -823,29 +822,6 @@ async function saveOneChange(change) {
     S.undo = (S.undo || []).map(also); lastSnap = JSON.stringify(S.cfg);
   }
   saveBar();
-  checkLinks();
-}
-// The fit check runs after each save, for links that are new or whose words changed. Verdicts are
-// saved on the server; here they're merged in without making the page look unsaved.
-let checkingLinks = false, checkAgain = false;
-async function checkLinks(manual = false) {
-  if (!S.cfg) return;
-  if (checkingLinks) { checkAgain = true; return; }   // a save during a check gets its own check after
-  if (!linkChecks(S.cfg).some(l => l.score === null && !l.product)) { if (manual) toast('Every link is checked.'); return; }
-  checkingLinks = true; if (S.view === 'content' || S.view === 'library') drawContent();
-  const before = JSON.stringify(S.cfg.story.fit);
-  try {
-    const r = await api('/api/content/relevance', { method: 'POST', body: { manual, ...(dirty() ? { config: S.cfg } : {}) } });
-    const wasClean = !dirty(), mine = JSON.parse(before), fit = S.cfg.story.fit;
-    // Only links the agent hasn't touched since the check started take the new verdict.
-    Object.entries(r.fit).forEach(([k, v]) => { if (JSON.stringify(fit[k]) === JSON.stringify(mine[k])) fit[k] = { ...v, ...(fit[k]?.o ? { o: fit[k].o, oAt: fit[k].oAt } : {}) }; });
-    if (wasClean) S.saved = JSON.stringify(S.cfg);
-    if (manual) toast(r.judged ? `Checked ${plural(r.judged, 'link')}.${r.left ? ` ${r.left} more next time.` : ''}` : 'Every link is checked.');
-  } catch (e) { if (manual) toast(e.message); }
-  checkingLinks = false;
-  if (S.view === 'content' || S.view === 'library') drawContent();
-  saveBar();
-  if (checkAgain) { checkAgain = false; checkLinks(); }
 }
 const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 function setPath(o, p, v) { const ks = p.split('.'); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; }
@@ -859,7 +835,7 @@ const REJECT_TIPS = {
   'Weak opening': 'Paste a few of your own captions and the real questions you hear in Setup → Voice and rules. New openings learn from them and from openings that brought messages.',
   'Wrong footage': 'Check who each audience shows “In the footage”, and save searches that score 4–5 in Create → Test footage.',
   'Too salesy': 'In Setup → Voice and rules, try a calmer energy or add a rule like “Teach, never pitch”.',
-  'Not accurate': 'Re-check the fact this video used in Setup → Library → Facts. Reword it or unconfirm it until it’s right.',
+  'Not accurate': 'Re-check the fact this video used in Setup → Topics. Reword it, or untick it until it’s right.',
   'Not my voice': 'Paste 2–3 captions you wrote yourself in Setup → Voice and rules. That changes the wording more than any setting.',
   'Wrong music': 'That track won’t be picked for you again. Setup → Voice and rules → What the app remembers can undo it.',
 };
@@ -885,7 +861,6 @@ S.st = null;   // the open draft: { d, foot: {}, rw: {}, busy: '', saveTimer }
 /* ================= Team: public/screens/team.js ================= */
 /* ================= Admin: public/screens/admin.js ================= */
 // What stays here from it: it runs as the page loads (the screen file loads before this one runs).
-const PRODUCT_NAMES = { final_expense: 'Final expense', mortgage: 'Mortgage protection', family: 'Family protection', other: 'Something else' };
 // Activity log (audit): who did what, newest first. Filters: workspace and kind.
 S.auditF = { ws: '', kind: '', limit: 30 };
 /* ================= Events ================= */
@@ -1029,11 +1004,9 @@ const actions = {
   'setup-next'(el) {
     const a = S.setup.answers;
     if (S.setup.step === 1 && !a.name.trim()) return status(main.querySelector('[data-st]'), 'Add your name.', 'err');
-    if (S.setup.step === 2 && !a.products.length) return status(main.querySelector('[data-st]'), 'Pick at least one product.', 'err');
     S.setup.step++; drawSetup(); window.scrollTo(0, 0);
   },
   'state-del'(el) { S.setup.answers.states.splice(+el.dataset.i, 1); drawSetup(); },
-  product(el) { const a = S.setup.answers, id = el.dataset.id; a.products = a.products.includes(id) ? a.products.filter(x => x !== id) : [...a.products, id]; drawSetup(); },
   keep(el) { S.setup.keepContent = el.dataset.v === '1'; drawSetup(); },
   ans(el) { S.setup.answers[el.dataset.k] = el.dataset.v; drawSetup(); },
   async 'setup-draft'(el) {
@@ -1047,7 +1020,7 @@ const actions = {
   accept(el) { S.setup.accept = el.checked; },
   async 'setup-finish'(el) {
     const st = main.querySelector('[data-st]');
-    if (!S.setup.draft.story.insights.some(i => i.confirmed)) return status(st, 'Confirm at least one fact.', 'err');
+    if (!S.setup.draft.topics.some(i => i.confirmed && i.fact)) return status(st, 'Check at least one topic.', 'err');
     if (!S.setup.accept) return status(st, 'Tick the box above to finish.', 'err');
     if (S.me.termsRequired && !S.setup.acceptTerms) return status(st, 'Accept the Terms of Service and Privacy Policy to finish.', 'err');
     el.disabled = true;
@@ -1286,7 +1259,7 @@ const actions = {
   'st-worry'(el) { stPickWorry(el.dataset.id || ''); },
   async 'st-surprise'() {
     const U = usableRoutes(S.cfg), pains = S.st.d.brief.noFact ? S.cfg.story.painPoints : U.pains;
-    if (!pains.length) return toast('Confirm a fact in Setup → Library first.');
+    if (!pains.length) return toast('Check a topic’s fact in Setup → Topics first.');
     const others = pains.filter(x => x.id !== S.st.d.brief.painId), from = others.length ? others : pains;
     await stPickWorry(from[Math.floor(Math.random() * from.length)].id, true);
     if (!stPicks().problems.length && !S.st.d.hooks.length) { document.querySelector('[data-act="st-hooks"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); await actions['st-hooks'](); }
@@ -1336,14 +1309,8 @@ const actions = {
   },
 
   // Content
-  link(el) {
-    const it = S.cfg.story[el.dataset.list].find(x => x.id === el.dataset.id), pid = el.dataset.pid, key = linkKey(it.id, pid);
-    // Unlinking also drops any override, so linking again is judged afresh.
-    if (it.links.includes(pid) && S.cfg.story.fit?.[key]?.o) { const { o, oAt, ...rest } = S.cfg.story.fit[key]; S.cfg.story.fit[key] = rest; }
-    it.links = it.links.includes(pid) ? it.links.filter(x => x !== pid) : [...it.links, pid]; S.openLinks = it.id; drawContent(); saveBar();
-  },
-  'goto-tab'(el, e) { e?.preventDefault?.(); S.contentTab = el.dataset.v; S.openLinks = null; go(!canSee('library') ? 'content' : el.dataset.v === 'voice' ? 'voice' : 'library'); },
-  'content-tab'(el) { S.contentTab = el.dataset.v; S.openLinks = null; drawContent(); },
+  'goto-tab'(el, e) { e?.preventDefault?.(); S.contentTab = el.dataset.v; go(!canSee('library') ? 'content' : el.dataset.v === 'voice' ? 'voice' : 'library'); },
+  'content-tab'(el) { S.contentTab = el.dataset.v; drawContent(); },
   'all-warnings'() { S.allWarnings = true; drawContent(); },
   // Your voice
   bdel(el) {
@@ -1351,7 +1318,6 @@ const actions = {
     if (list === 'samples') b.samples.splice(+el.dataset.i, 1); else b[list] = b[list].filter(x => x.id !== el.dataset.id);
     drawContent(); saveBar();
   },
-  blink(el) { const it = S.cfg.bank[el.dataset.list].find(x => x.id === el.dataset.id), pid = el.dataset.pid; it.links = it.links.includes(pid) ? it.links.filter(x => x !== pid) : [...it.links, pid]; S.openLinks = it.id; drawContent(); saveBar(); },
   // Coach
   'coach-open'() { openCoach('', null, S.view === 'communicate' ? 'comms' : 'content'); },
   'coach-mode'(el) { setCoachMode(el.dataset.v); S.coach.tab = 'ask'; drawCoach(); },
@@ -1369,66 +1335,6 @@ const actions = {
   },
   'coach-copy'(el) { const x = S.coach.reply.out?.replies?.[+el.dataset.k]; if (x) copy(x.text, 'Reply'); },
   async 'note-del'(el) { try { S.coach.notes = (await api('/api/coach/notes/' + el.dataset.id, { method: 'DELETE' })).notes; drawCoach(); } catch (e) { toast(e.message); } },
-  'fact-coach'(el) {
-    const f = S.cfg.story.insights.find(i => i.id === el.dataset.id);
-    if (f) openCoach(`Reword this fact so it stays accurate for everyone and still reads clearly: "${f.text}"`, { label: 'Fact: ' + short(f.text), data: { factId: f.id } });
-  },
-  'autolink'(el) { autoLinkItem(el.dataset.list, el.dataset.id); },
-  'autolink-undo'(el) {
-    const id = el.dataset.id, a = S.autoLinked?.[id], s = S.cfg.story;
-    if (!a) return;
-    const item = s[a.list].find(x => x.id === id);
-    if (item) { item.links = item.links.filter(p => !a.parents.includes(p)); if (a.product && item.product === a.product) delete item.product; }
-    a.children.forEach(cid => { const c = s[a.childList]?.find(x => x.id === cid); if (c) c.links = c.links.filter(p => p !== id); });
-    delete S.autoLinked[id]; drawContent(); saveBar(); toast('Links undone. Tap the ones you want.');
-  },
-  'fit-override'(el) {
-    const key = el.dataset.key, l = linkChecks(S.cfg).find(x => x.key === key);
-    if (!l) return;
-    const why = prompt(`Use “${l.child.text.slice(0, 60)}” with “${l.parent.text.slice(0, 60)}” anyway? Say why (it’s kept on record):`, '');
-    if (!why || !why.trim()) return;
-    const cur = S.cfg.story.fit[key];
-    S.cfg.story.fit[key] = { ...(cur || { s: 3, r: l.reason, k: textKey(l.child.text, l.parent.text) }), o: why.trim().slice(0, 200), oAt: new Date().toISOString() };
-    drawContent(); saveBar(); toast('Overridden. Save to use it in videos.');
-  },
-  async 'check-links'() { await checkLinks(true); },
-  async 'link-all'() {
-    S.linkAll = { busy: true }; drawContent();
-    try { S.linkAll = await api('/api/content/link-all', { method: 'POST', body: dirty() ? { config: S.cfg } : {} }); } catch (e) { S.linkAll = { error: e.message }; }
-    drawContent();
-  },
-  'link-all-close'() { S.linkAll = null; drawContent(); },
-  'link-all-apply'() {
-    const s = S.cfg.story, picked = (S.linkAll?.add || []).filter(a => !a.off);
-    let n = 0;
-    picked.forEach(a => { const it = s[a.list].find(x => x.id === a.id); if (it && !it.links.includes(a.pid) && s[{ painPoints: 'audiences', insights: 'painPoints', solutions: 'insights' }[a.list]].some(p => p.id === a.pid)) { it.links.push(a.pid); s.fit[linkKey(a.id, a.pid)] = a.fit; n++; } });
-    S.linkAll = null; drawContent(); saveBar(); toast(n ? `${plural(n, 'link')} added. Save to use them.` : 'Nothing to add.');
-  },
-  async gen(el) {
-    const list = el.dataset.list, s = S.cfg.story, f = S.genFor || {};
-    const body = { kind: list, ...(dirty() ? { config: S.cfg } : {}) };
-    if (list === 'insights') body.painId = f.painId || s.painPoints[0]?.id;
-    if (list === 'painPoints') body.audienceId = f.audienceId || s.audiences[0]?.id;
-    if (list === 'solutions') body.factId = f.factId || s.insights[0]?.id;
-    if (list === 'cta') body.audienceId = f.ctaAudienceId || s.audiences[0]?.id;
-    S.gen = { list, busy: true }; drawContent();
-    try { S.gen = { list, options: (await api('/api/content/generate', { method: 'POST', body })).options }; } catch (e) { S.gen = { list, error: e.message }; }
-    drawContent();
-  },
-  'gen-add'(el) {
-    const g = S.gen, o = g?.options?.[+el.dataset.k], s = S.cfg.story;
-    if (!o || o.added) return;
-    if (g.list === 'cta') { s.ctaAction = o.text; o.added = true; drawContent(); saveBar(); return toast('Call to action changed. Save to use it.'); }
-    const id = uid({ audiences: 'a', painPoints: 'p', insights: 'i', solutions: 's' }[g.list]);
-    const upList = { painPoints: 'audiences', insights: 'painPoints', solutions: 'insights' }[g.list];
-    o.links = (o.links || []).filter(p => s[upList]?.some(x => x.id === p));
-    const item = { audiences: { id, text: o.text, visual: o.visual || '' }, painPoints: { id, text: o.text, question: o.question || '', links: o.links || [] },
-      insights: { id, text: o.text, links: o.links || [], confirmed: false, confirmedAt: '', source: '', ai: true, ...(o.product ? { product: o.product } : {}) },
-      solutions: { id, text: o.text, plain: o.plain || '', mustMention: o.mustMention || '', links: o.links || [], ...(o.product ? { product: o.product } : {}) } }[g.list];
-    s[g.list].unshift(item); o.added = true; S.openLinks = id;
-    drawContent(); saveBar();
-    toast(g.list === 'insights' ? 'Added, unconfirmed. Check it, add a source and confirm it before videos use it.' : 'Added. Save to use it.');
-  },
   // Mindset
   'mind-why-edit'() { S.editWhy = true; drawMindset(); },
   'mind-why-cancel'() { S.editWhy = false; drawMindset(); },
@@ -1446,16 +1352,6 @@ const actions = {
   async 'mind-obj-link'(el) { await mindSave({ profile: { objections: S.mind.profile.objections.map(o => (o.id === el.dataset.id ? { ...o, links: o.links.includes(el.dataset.pid) ? o.links.filter(x => x !== el.dataset.pid) : [...o.links, el.dataset.pid] } : o)) } }, ''); },
   async 'mind-closer-done'(el) { await mindSave({ closer: S.mind.mindset.closer.map(c => (c.id === el.dataset.id ? { ...c, done: new Date().toISOString() } : c)) }, 'Done. On to the next one.'); },
   'mind-past'() { S.pastWeeks = !S.pastWeeks; drawMindset(); },
-  async 'suggest-links'(el) {
-    const f = S.cfg.story.insights.find(i => i.id === el.dataset.id);
-    if (!f) return;
-    el.disabled = true; el.innerHTML = '<span class="spin"></span> Looking…';
-    try {
-      const r = await api('/api/coach/links', { method: 'POST', body: { text: f.text, ...(dirty() ? { config: S.cfg } : {}) } });
-      S.suggestedLinks[f.id] = r.painIds; S.openLinks = f.id; drawContent();
-      toast(r.painIds.length ? 'Suggested worries are marked ✦. Tap the ones that fit.' : 'No clear match. Pick the worries yourself, or add a new one.');
-    } catch (e) { toast(e.message); el.disabled = false; el.textContent = 'Suggest worries'; }
-  },
   async 'save-search'(el) {
     await loadCfg();
     const sg = { type: 'add_search', audienceId: el.dataset.a, text: el.dataset.q.toLowerCase() };
@@ -1499,16 +1395,6 @@ const actions = {
     });
   },
   'soft-undo'(el) { softUndo(el.dataset.key); },
-  season(el) {
-    const p = S.cfg.story.painPoints.find(x => x.id === el.dataset.id), m = +el.dataset.m;
-    if (!p) return;
-    const have = new Set(p.months || []);
-    have.has(m) ? have.delete(m) : have.add(m);
-    p.months = [...have].sort((a, b) => a - b);
-    if (!p.months.length) delete p.months;
-    drawContent(); saveBar();
-  },
-  'search-del'(el) { const a = S.cfg.story.audiences.find(x => x.id === el.dataset.a); if (a) { a.searches = (a.searches || []).filter(q => q !== el.dataset.q); drawContent(); saveBar(); } },
   async rewrite(el) {
     const k = `${el.dataset.id}-${el.dataset.i}`;
     S.rewrites[k] = { busy: true }; drawReview();
@@ -1569,28 +1455,6 @@ const actions = {
     if (!/^Open that Studio draft|^The board has changed/.test(msg)) sg.applied = true;
     saveCoachMsgs(); drawCoach(); toast(msg);
   },
-  del(el) {
-    const list = S.cfg.story[el.dataset.list], i = list.findIndex(x => x.id === el.dataset.id);
-    if (i < 0) return;
-    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = '?'; el.title = 'Tap again to delete'; setTimeout(() => { el.dataset.confirm = ''; el.textContent = '×'; }, 2500); return; }
-    const gone = list.splice(i, 1)[0];
-    ['painPoints', 'insights', 'solutions'].forEach(k => S.cfg.story[k].forEach(x => { x.links = x.links.filter(id => id !== gone.id); }));
-    drawContent(); saveBar();
-  },
-  confirm(el) { const i = S.cfg.story.insights.find(x => x.id === el.dataset.id); i.confirmed = true; i.confirmedAt = ''; drawContent(); saveBar(); toast('Confirmed. Save to use it in videos.'); },
-  unconfirm(el) { const i = S.cfg.story.insights.find(x => x.id === el.dataset.id); i.confirmed = false; i.confirmedAt = ''; drawContent(); saveBar(); },
-
-  // Brand / Settings
-  set(el) { setPath(S.cfg, el.dataset.bind, el.dataset.v); redraw(); saveBar(); },
-  step(el) { const k = el.dataset.k, [lo, hi] = LIMITS[k]; S.cfg.output[k] = Math.round(Math.min(hi, Math.max(lo, S.cfg.output[k] + +el.dataset.d)) * 10) / 10; drawSettings(); saveBar(); },
-  'shot-type'(el) { const o = S.cfg.output, v = el.dataset.v; if (v === 'people') return; const cur = o.shotTypes || []; o.shotTypes = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]; drawSettings(); saveBar(); },
-  structure(el) { const o = S.cfg.output, v = el.dataset.v; if (v === 'classic') return; const cur = o.structures || ['classic']; o.structures = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]; drawSettings(); saveBar(); },
-  format(el) { const o = S.cfg.output, v = el.dataset.v; const next = o.formats.includes(v) ? o.formats.filter(x => x !== v) : [...o.formats, v]; if (!next.length) return toast('Keep at least one format on'); o.formats = next; drawSettings(); saveBar(); },
-  'rule-del'(el) { S.cfg.guardrails[el.dataset.k].splice(+el.dataset.i, 1); redraw(); saveBar(); },
-  'never-add'(el) { const g = S.cfg.guardrails.neverUse; if (!g.some(x => x.toLowerCase() === el.dataset.v.toLowerCase())) g.push(el.dataset.v); redraw(); saveBar(); },
-  'say-del'(el) { S.cfg.voice.say.splice(+el.dataset.i, 1); drawBrand(); saveBar(); },
-  'brand-color'(el) { S.cfg.look.brandColor = el.dataset.v; S.cfg.look.accentColor = 'brand'; drawBrand(); saveBar(); },
-  'pstate-del'(el) { S.cfg.profile.states.splice(+el.dataset.i, 1); drawSettings(); saveBar(); },
   async 'load-version'(el) { const name = document.getElementById('versionSel').value; if (el) { el.disabled = true; el.innerHTML = '<span class="spin"></span> Loading…'; } try { const r = await api('/api/history/' + encodeURIComponent(name)); S.cfg = migrate(r.config); drawSettings(); saveBar(); toast('Loaded. Save to use it.'); } catch (e) { toast(e.message); if (el && document.contains(el)) { el.disabled = false; el.textContent = 'Load'; } } },
   reroll() { S.picks = roll(S.cfg); S.promptPreview = null; S.promptOpen = true; drawSettings(); },
 
@@ -1713,25 +1577,23 @@ const actions = {
   // Communicate
   'comm-style'(el) { S.comm.open = el.dataset.k; drawCommunicate(); },
   'aud-style'(el) {
-    const a = S.cfg.story.audiences.find(x => x.id === el.dataset.id), k = el.dataset.k;
-    if (!a) return;
+    const a = S.cfg.audience, k = el.dataset.k;
     const cur = normStyle(a.style).split('').filter(Boolean);
     let next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];
     if (next.length > 2) next = [next[0], k];   // keep the main style, swap the second
     a.style = next.join('');
-    drawCommunicate(); saveBar();
+    restory(); drawCommunicate(); saveBar();
   },
   'aud-style-set'(el) {
-    const a = S.cfg.story.audiences.find(x => x.id === el.dataset.id), k = el.dataset.k;
-    if (!a || !STYLES[k]) return;
+    const a = S.cfg.audience, k = el.dataset.k;
+    if (!STYLES[k]) return;
     const second = normStyle(a.style).split('').filter(x => x && x !== k)[0] || '';
     a.style = k + second;
-    drawCommunicate(); saveBar(); toast(`Set to ${styleLabel(a.style)}. Save to use it.`);
+    restory(); drawCommunicate(); saveBar(); toast(`Set to ${styleLabel(a.style)}. Save to use it.`);
   },
   'aud-coach'(el) {
-    const a = S.cfg.story.audiences.find(x => x.id === el.dataset.id);
-    if (!a) return;
-    openCoach(`How should my videos speak to “${a.text}”? ${a.style ? `I set them as ${styleLabel(a.style)}. Is that a good guess, and` : 'Which style do they most likely lean, and'} what words, openings and calls to action fit them? Show me examples.`, { label: 'Audience: ' + short(a.text), data: { audienceId: a.id } }, 'comms');
+    const a = { ...S.cfg.audience, text: S.cfg.profile.clients || 'my clients' };
+    openCoach(`How should my videos speak to “${a.text}”? ${a.style ? `I set them as ${styleLabel(a.style)}. Is that a good guess, and` : 'Which style do they most likely lean, and'} what words, openings and calls to action fit them? Show me examples.`, { label: 'Audience: ' + short(a.text), data: { audienceId: 'aud' } }, 'comms');
   },
   'comms-starter'(el) { openCoach(el.dataset.q, null, 'comms'); },
   'comms-open'() { openCoach('', null, 'comms'); },
@@ -1810,6 +1672,7 @@ function updateBadge() {
 // Two modes share one panel: 'content' (videos, prompts, settings) and 'comms' (how people take in
 // information: DISC styles, behavior, selling). Each keeps its own conversation.
 S.coach = { open: false, mode: 'content', msgs: [], focus: null, busy: false, ws: null, loaded: '', tab: 'ask', notes: null, reply: { busy: false, out: null, message: '', note: '' } };
+Object.assign(actions, contentActions);
 Object.assign(actions, signoffActions);
 Object.assign(actions, repliesActions);   // Keyword replies on Instagram (public/screens/replies.js)   // Sign-off, the compliance reviewer's page (public/screens/signoff.js)
 // The initial's menu is a disclosure: a tap elsewhere, Tab out of it, or Escape closes it. Escape puts
@@ -1835,12 +1698,10 @@ document.addEventListener('change', e => {
   if (t.dataset.wsSwitch !== undefined) { if (dirty() && !confirm('You have unsaved changes. Switch anyway?')) { t.value = S.me.workspace.id; return; } api('/api/workspaces/switch', { method: 'POST', body: { workspaceId: t.value } }).then(() => { location.hash = '#/'; location.reload(); }).catch(e => toast(e.message)); return; }
   if (t.dataset.act === 'accept-terms' && S.setup) { S.setup.acceptTerms = t.checked; return; }
   if (t.dataset.audit) { S.auditF[t.dataset.audit] = t.value; S.auditF.limit = 30; loadAudit(); return; }
-  if (t.dataset.gen) { S.genFor = { ...(S.genFor || {}), [t.dataset.gen]: t.value }; return; }
   if (t.dataset.mindCheck !== undefined && S.mind) { api('/api/mindset/check', { method: 'POST', body: { habitId: t.dataset.mindCheck, done: t.checked } }).then(r => { S.mind = r; drawMindset(); if (t.checked) haptic(); }).catch(e => { t.checked = !t.checked; toast(`Not saved: ${e.message}`); }); return; }
   if (t.dataset.mindShow !== undefined && S.mind) { mindSave({ profile: { why: { ...S.mind.profile.why, show: t.checked ? 'on' : 'off' } } }, ''); return; }
   if (t.dataset.mindPersuasion !== undefined && S.mind) { mindSave({ profile: { persuasion: t.checked ? 'on' : 'off' } }, ''); return; }
   if (t.dataset.mindTopic !== undefined && S.mind) { mindSave({ profile: { objections: S.mind.profile.objections.map(o => (o.id === t.dataset.mindTopic ? { ...o, topic: t.checked } : o)) } }, t.checked ? 'Now a video topic.' : ''); return; }
-  if (t.dataset.linkall !== undefined && S.linkAll?.add) { S.linkAll.add[+t.dataset.linkall].off = !t.checked; return; }
   // Studio brief: each change is saved and the board follows it.
   if (t.dataset.stb && S.st) {
     const k = t.dataset.stb, v = t.value, patch = { [k]: k === 'scenes' || k === 'part' ? Number(v) : v };
@@ -1863,11 +1724,11 @@ document.addEventListener('change', e => {
   if (t.dataset.storyOk && S.cfg) { const it = S.cfg.bank.stories.find(x => x.id === t.dataset.storyOk); it.confirmed = t.checked; t.closest('.item').classList.toggle('confirmed', t.checked); t.closest('.item').classList.toggle('fact', t.checked); saveBar(); }
   if (t.dataset.swap !== undefined && S.fix) { const i = +t.dataset.swap; if (t.checked) { S.fix.swaps.add(i); if (S.fix.picks) delete S.fix.picks[i]; } else S.fix.swaps.delete(i); drawReview(); }
   if (t.dataset.factOk && S.setup?.draft) {
-    const i = S.setup.draft.story.insights.find(x => x.id === t.dataset.factOk);
+    const i = S.setup.draft.topics.find(x => x.id === t.dataset.factOk);
     i.confirmed = t.checked; i.confirmedAt = '';
     t.closest('.fact').classList.toggle('confirmed', t.checked);
-    const n = S.setup.draft.story.insights.filter(x => x.confirmed).length;
-    const b = main.querySelector('.panel:last-of-type b'); if (b) b.textContent = `${n} of ${S.setup.draft.story.insights.length} confirmed`;
+    const n = S.setup.draft.topics.filter(x => x.confirmed && x.fact).length;
+    const b = main.querySelector('.panel:last-of-type b'); if (b) b.textContent = `${n} of ${S.setup.draft.topics.length} checked`;
   }
   if (t.dataset.ans && t.tagName === 'SELECT') S.setup.answers[t.dataset.ans] = t.value;
   if (t.dataset.bind && t.tagName === 'SELECT') { setPath(S.cfg, t.dataset.bind, t.value); saveBar(); if (S.view === 'brand' || stepView()) drawBrand(); }
@@ -1892,17 +1753,16 @@ document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.ans) { S.setup.answers[t.dataset.ans] = t.value; return; }
   if (t.dataset.factText && S.setup?.draft) {
-    const i = S.setup.draft.story.insights.find(x => x.id === t.dataset.factText);
-    const changed = i.text !== t.value;
-    i.text = t.value;
-    const problems = checkInsightText(i.text);
+    const i = S.setup.draft.topics.find(x => x.id === t.dataset.factText);
+    const changed = i.fact !== t.value;
+    i.fact = t.value;
+    const problems = checkInsightText(i.fact);
     main.querySelector(`[data-problems="${i.id}"]`).innerHTML = problems.map(p => `<li>${esc(p)}</li>`).join('');
     const box = main.querySelector(`[data-fact-ok="${i.id}"]`);
     box.disabled = problems.length > 0;
     if (changed && problems.length) { box.checked = false; i.confirmed = false; t.closest('.fact').classList.remove('confirmed'); }
     return;
   }
-  if (t.dataset.factSrc && S.setup?.draft) { S.setup.draft.story.insights.find(x => x.id === t.dataset.factSrc).source = t.value; return; }
   if (t.dataset.sample !== undefined && S.cfg) { S.cfg.bank.samples[+t.dataset.sample] = t.value; saveBar(); return; }
   if (t.dataset.bankedit && S.cfg) {
     const it = S.cfg.bank[t.dataset.bankedit].find(x => x.id === t.dataset.id);
@@ -1918,22 +1778,8 @@ document.addEventListener('input', e => {
   if (t.dataset.fix !== undefined && S.fix) { S.fix.edits[+t.dataset.fix][t.dataset.k] = t.value; return; }
   if (t.dataset.sts !== undefined && S.st) { S.st.d.scenes[+t.dataset.sts][t.dataset.k] = t.value; stRefreshChecks(); stSave(); if (t.dataset.k === 'text') stSpell(); const sv = document.getElementById('stSaved'); if (sv) sv.textContent = 'Saving…'; return; }
   if (t.dataset.wsf === 'text' && S.workshop) { S.workshop.text = t.value; return; }
-  if (t.dataset.bind && S.cfg && t.tagName !== 'SELECT') { setPath(S.cfg, t.dataset.bind, t.value); saveBar(); return; }
-  if (t.dataset.edit && S.cfg) {
-    const it = S.cfg.story[t.dataset.edit].find(x => x.id === t.dataset.id);
-    it[t.dataset.k] = t.value;
-    if (t.dataset.edit === 'insights' && t.dataset.k === 'text') {
-      // An edited fact must be confirmed again.
-      it.confirmed = false; it.confirmedAt = '';
-      const problems = checkInsightText(it.text);
-      main.querySelector(`[data-problems="${it.id}"]`).innerHTML = problems.map(p => `<li>${esc(p)}</li>`).join('');
-      const pill = main.querySelector(`[data-pill="${it.id}"]`); if (pill) { pill.className = 'pill'; pill.textContent = 'Not confirmed'; }
-      const row = main.querySelector(`[data-fact-actions="${it.id}"]`); if (row) row.innerHTML = factActions(it);
-      const fn = main.querySelector(`[data-fnotes="${it.id}"]`); if (fn) fn.innerHTML = fnotesHTML(it);
-      main.querySelector(`[data-fact-item="${it.id}"]`)?.classList.remove('confirmed', 'stale');
-    }
-    saveBar();
-  }
+  if (t.dataset.bind && S.cfg && t.tagName !== 'SELECT') { setPath(S.cfg, t.dataset.bind, t.value); restory(); saveBar(); return; }
+  if ((t.dataset.topic || t.dataset.topicOk) && S.cfg) onTopicInput(t);
 });
 
 document.addEventListener('submit', async e => {
@@ -1995,7 +1841,7 @@ document.addEventListener('submit', async e => {
     if (kind === 'sample') { const v = String(data.text || '').trim(); if (v) { S.cfg.bank.samples.push(v.slice(0, 800)); drawContent(); saveBar(); toast('Added. Save to use it.'); } }
     if (kind === 'badd') {
       const v = String(data.text || '').trim(), list = f.dataset.list;
-      if (v) { const it = { id: uid(list === 'stories' ? 'st' : 'q'), text: v, links: [], ...(list === 'stories' ? { confirmed: false } : {}) }; S.cfg.bank[list].unshift(it); S.openLinks = it.id; drawContent(); saveBar(); }
+      if (v) { const it = { id: uid(list === 'stories' ? 'st' : 'q'), text: v, links: [], ...(list === 'stories' ? { confirmed: false } : {}) }; S.cfg.bank[list].unshift(it); drawContent(); saveBar(); }
     }
     if (kind === 'coach') { const q = String(data.q || '').trim(); if (q) { f.reset(); await sendCoach(q); } return; }
     if (kind === 'coach-reply') {
@@ -2019,17 +1865,7 @@ document.addEventListener('submit', async e => {
       showLink(document.getElementById('reviewerOut'), r.link, `Send this invite link to ${data.email} (valid 7 days, single use):`);
       return;
     }
-    if (kind === 'add') {
-      const text = String(data.text || '').trim(), list = f.dataset.list;
-      if (text) {
-        const base = { id: uid({ audiences: 'a', painPoints: 'p', insights: 'i', solutions: 's' }[list]), text };
-        const extra = { audiences: { visual: '' }, painPoints: { links: [], question: '' }, insights: { links: [], confirmed: false, confirmedAt: '', source: '', ai: false }, solutions: { links: [], plain: '', mustMention: '' } }[list];
-        S.cfg.story[list].unshift({ ...base, ...extra });
-        S.openLinks = base.id;
-        drawContent(); saveBar();
-        autoLinkItem(list, base.id);
-      }
-    }
+    if (kind === 'topic-add') { addTopic(data); f.reset(); return; }
     if (kind === 'footage') {
       status(st, 'Searching and scoring… about 10 seconds.');
       S.footage = { ...(await api('/api/footage-test', { method: 'POST', body: data })), keyword: data.keyword, audienceId: data.audienceId };
@@ -2078,4 +1914,4 @@ document.addEventListener('keydown', e => {
 
 // What the screens use from here (public/screens/*.js).
 export { canSee };
-export { softGone, prunePreload, preloadMedia, ACCENT_COLORS, AI_VOICE_NOTE, AUTO_HABITS, BOOKS, DEFAULT_CONFIG, DRILL, FACT_REVIEW_DAYS, FONTS, FOOTAGE_MIX, FORMATS, GOV_TERMS, LEVELS, LIMITS, MONTHS, PERSUASION, PLATFORMS, PRINCIPLES, PRODUCT_LINES, PRODUCT_NAMES, REJECT_TIPS, RUBRIC, S, SALES, SERVER_TROUBLE, SHOT_TYPES, SKILLS, STRUCTURES, STYLES, STYLE_KEYS, VOICES, WORKSHOP_KINDS, accentHex, actions, ago, analyze, api, app, applySuggestionTo, badgeFromMe, beatPlan, calm, can, cantNow, checkInsightText, checkStoryText, checkingLinks, cityOf, copy, countMixes, day, dirty, esc, estimateSeconds, factNotes, fetchError, getPath, go, gridPanel, insightStatus, later, linkChecks, loadCfg, loadPush,   local, main, nicheOf, normStyle, offlineOK, okBookingUrl, outage, overlayQueue, page, pageWs, plural,    pushInner, readQueue,   refreshMe, render, roleText, roll, saveBar, saveCfg, saveOneChange, seasonsNow, short, shotList, status, stopTimers,  structureFits, studioChecks, studioFormatFor, studioPicks, styleLabel, suggestAccent, toast, updateBadge, usableRoutes, watchJobs, watching,  when, whyNoVideos, wsHeaders, wsKey, wsParam };
+export { softGone, prunePreload, preloadMedia, ACCENT_COLORS, AI_VOICE_NOTE, AUTO_HABITS, BOOKS, DEFAULT_CONFIG, DRILL, FONTS, FOOTAGE_MIX, FORMATS, GOV_TERMS, LEVELS, LIMITS, PERSUASION, PLATFORMS, PRINCIPLES, REJECT_TIPS, RUBRIC, S, SALES, SERVER_TROUBLE, SHOT_TYPES, SKILLS, STRUCTURES, STYLES, STYLE_KEYS, VOICES, WORKSHOP_KINDS, accentHex, actions, ago, analyze, api, app, applySuggestionTo, badgeFromMe, beatPlan, calm, can, cantNow, checkInsightText, checkStoryText, cityOf, copy, countMixes, day, dirty, esc, estimateSeconds, factNotes, fetchError, getPath, go, gridPanel, insightStatus, later, loadCfg, loadPush,   local, main, nicheOf, normStyle, offlineOK, okBookingUrl, outage, overlayQueue, page, pageWs, plural,    pushInner, readQueue,   refreshMe, render, roleText, roll, saveBar, saveCfg, saveOneChange, short, shotList, status, stopTimers,  structureFits, studioChecks, studioFormatFor, studioPicks, styleLabel, suggestAccent, toast, updateBadge, usableRoutes, watchJobs, watching,  when, whyNoVideos, wsHeaders, wsKey, wsParam };

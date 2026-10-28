@@ -20,7 +20,7 @@ test('a video is made, checked, saved for review, then fixed', { skip, timeout: 
 
   const ws = store.createWorkspace({ name: 'Test Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   cfg.look = { ...cfg.look, name: 'Test Agent', location: 'Gallup, NM', font };
   store.saveConfig(ws.id, cfg);

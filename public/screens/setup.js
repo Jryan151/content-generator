@@ -9,13 +9,11 @@ import { describe } from './coach.js';
 /* ================= Setup wizard ================= */
 const STATES = ['Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'District of Columbia', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming'];
 const ZONES = [['America/New_York', 'Eastern'], ['America/Chicago', 'Central'], ['America/Denver', 'Mountain'], ['America/Phoenix', 'Arizona'], ['America/Los_Angeles', 'Pacific'], ['America/Anchorage', 'Alaska'], ['Pacific/Honolulu', 'Hawaii']];
-const SOURCES = ['Carrier materials', 'My training', 'Licensing course', 'My upline', 'State insurance department'];
 const zoneOptions = sel => {
   const list = ZONES.some(z => z[0] === sel) || !sel ? ZONES : [[sel, sel], ...ZONES];
   return list.map(([v, l]) => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(l)}${l !== v ? ` (${v})` : ''}</option>`).join('');
 };
 const statesList = `<datalist id="stateList">${STATES.map(s => `<option value="${s}">`).join('')}</datalist>`;
-const sourceList = `<datalist id="sourceList">${SOURCES.map(s => `<option value="${s}">`).join('')}</datalist>`;
 
 async function viewSetup() {
   if (!S.setup) {
@@ -44,10 +42,10 @@ function drawSetup() {
       <form class="add" data-form="state"><input class="ctl" name="state" list="stateList" placeholder="Add a state" autocomplete="off"><button class="btn">Add</button></form>${statesList}</div>
     <label class="field"><span>How do you describe yourself? <small>(optional)</small></span><input class="ctl" data-ans="about" value="${esc(a.about)}" maxlength="160" placeholder="e.g. a mom running my own business"><small>A few words in your own voice. Scripts sound more like you.</small></label>
     </section>${nav(false, 'Next')}`;
-  if (st.step === 2) body = `<div class="head"><span class="label">Step 2 of 4</span><h1>Who you help</h1><p class="lede">Your starter content comes from vetted templates for the products you sell.</p></div>
-    <section class="panel"><div class="field"><span>What do you sell? *</span><div class="cards">${S.me.products.map(p => `<button class="pick" data-act="product" data-id="${p.id}" aria-pressed="${a.products.includes(p.id)}"><b>${esc(p.label)}</b><span>${esc(p.note)}</span></button>`).join('')}</div></div>
-      <label class="field"><span>Who are your clients?</span><textarea class="ctl" data-ans="clients" maxlength="200" placeholder="e.g. older adults on fixed incomes, mostly retired, many helping raise grandkids">${esc(a.clients)}</textarea><small>Used to word your audiences and their worries. Never shown on screen.</small></label>
-      ${st.hasContent ? `<div class="field"><span>Your current content</span><div class="seg"><button data-act="keep" data-v="1" aria-pressed="${st.keepContent}">Keep it</button><button data-act="keep" data-v="0" aria-pressed="${!st.keepContent}">Start from the templates</button></div><small>${st.keepContent ? 'Your audiences, worries and facts stay. You’ll confirm each fact next.' : 'Replaces your current content with fresh starter content.'}</small></div>` : ''}
+  if (st.step === 2) body = `<div class="head"><span class="label">Step 2 of 4</span><h1>Who you help</h1><p class="lede">Your starter topics are vetted final expense topics, worded for your clients.</p></div>
+    <section class="panel">
+      <label class="field"><span>Who are your clients?</span><textarea class="ctl" data-ans="clients" maxlength="200" placeholder="e.g. older adults on fixed incomes, mostly retired, many helping raise grandkids">${esc(a.clients)}</textarea><small>Used to word your topics’ worries. Never shown on screen.</small></label>
+      ${st.hasContent ? `<div class="field"><span>Your current content</span><div class="seg"><button data-act="keep" data-v="1" aria-pressed="${st.keepContent}">Keep it</button><button data-act="keep" data-v="0" aria-pressed="${!st.keepContent}">Start from the templates</button></div><small>${st.keepContent ? 'Your topics stay. You’ll check each one next.' : 'Replaces your current content with fresh starter content.'}</small></div>` : ''}
     </section>${nav(true, 'Next')}`;
   if (st.step === 3) {
     const spec = (k, lv) => DEFAULT_CONFIG.specs[k][lv];
@@ -61,41 +59,31 @@ function drawSetup() {
       <label class="field"><span>Call to action</span><input class="ctl" data-ans="ctaAction" value="${esc(a.ctaAction)}" maxlength="60" placeholder="Message me"><small>The last scene of every video. Keep it short.</small></label>
       <div class="chips">${['Message me', 'Call me', 'Send me a message'].map(c => `<button class="toggle" data-act="ans" data-k="ctaAction" data-v="${c}" aria-pressed="${a.ctaAction === c}">${c}</button>`).join('')}</div>
       <label class="field"><span>Something you wrote <small>(optional, but it helps a lot)</small></span><textarea class="ctl" data-ans="sample" rows="3" maxlength="800" placeholder="Paste a caption, post or text you wrote yourself">${esc(a.sample || '')}</textarea><small>Scripts copy your word choice and rhythm. You can add more later in Setup → Voice and rules.</small></label>
-    </section>${nav(true, st.keepContent && st.hasContent ? 'Next: confirm your facts' : 'Draft my content', 'setup-draft')}`;
+    </section>${nav(true, st.keepContent && st.hasContent ? 'Next: check your topics' : 'Draft my content', 'setup-draft')}`;
   }
   if (st.step === 4) body = setupFactsHTML() + nav(true, 'Finish setup', 'setup-finish');
   main.innerHTML = `<div class="stack" style="gap:18px">${steps}${body}</div>`;
 }
 function setupFactsHTML() {
-  const st = S.setup, cfg = st.draft, s = cfg.story;
-  const groups = new Map();
-  for (const i of s.insights) {
-    const k = i.ai ? 'ai' : i.product || 'yours';
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(i);
-  }
-  const title = k => (k === 'ai' ? 'Suggested for your clients' : k === 'yours' ? 'Your facts' : S.me.products.find(p => p.id === k)?.label || k);
-  const n = s.insights.filter(i => i.confirmed).length;
-  return `<div class="head"><span class="label">Step 4 of 4</span><h1>Confirm your facts</h1>
-    <p class="lede">Videos only teach facts you confirm. Read each one and confirm it only if it’s true for the products you sell in your state. You can edit the wording; it’s checked against the same rules.</p></div>
+  const st = S.setup, topics = st.draft.topics;
+  const n = topics.filter(t => t.confirmed && t.fact).length;
+  return `<div class="head"><span class="label">Step 4 of 4</span><h1>Check your topics</h1>
+    <p class="lede">Each topic is one video: a worry your clients have and the fact that answers it. Videos only teach facts you tick. Tick one only if it’s true for what you sell in your state. You can edit the wording; it’s checked against the same rules.</p></div>
     ${st.note ? `<div class="note warn">${esc(st.note)}</div>` : ''}
-    ${[...groups].map(([k, list]) => `<section class="panel story"><h2><span class="dot"></span>${esc(title(k))}</h2><div class="stack">${list.map(i => setupFact(i, s)).join('')}</div></section>`).join('')}
-    ${sourceList}
-    <section class="panel"><div class="row between"><b>${n} of ${s.insights.length} confirmed</b>${n < 4 ? '<span class="small muted">Confirm at least 4 for variety. 1 is the minimum.</span>' : ''}</div>
-      <label class="check"><input type="checkbox" data-act="accept" ${st.accept ? 'checked' : ''}> <span>I’ve read each fact I confirmed. I’ll watch every video before posting it, and I’m responsible for following my state’s and my carriers’ advertising rules.</span></label>
+    <section class="panel story"><div class="stack">${topics.map(setupFact).join('')}</div></section>
+    <section class="panel"><div class="row between"><b>${n} of ${topics.length} checked</b>${n < 4 ? '<span class="small muted">Check at least 4 for variety. 1 is the minimum.</span>' : ''}</div>
+      <label class="check"><input type="checkbox" data-act="accept" ${st.accept ? 'checked' : ''}> <span>I’ve read each fact I ticked. I’ll watch every video before posting it, and I’m responsible for following my state’s and my carriers’ advertising rules.</span></label>
       ${S.me.termsRequired ? `<label class="check"><input type="checkbox" data-act="accept-terms" ${st.acceptTerms ? 'checked' : ''}> <span>I’ve read and accept the ${termsLinks()}.</span></label>` : ''}</section>`;
 }
-function setupFact(i, s) {
-  const problems = checkInsightText(i.text);
-  const answers = s.painPoints.filter(p => i.links.includes(p.id)).map(p => `“${esc(p.text)}”`).join(' · ');
-  return `<div class="item fact${i.confirmed ? ' confirmed' : ''}" data-fact="${i.id}">
-    <div class="row">${i.ai ? '<span class="pill ai">AI suggestion · check carefully</span>' : '<span class="pill">Starter library</span>'}</div>
-    <textarea class="ctl" data-fact-text="${i.id}" rows="3" aria-label="Fact">${esc(i.text)}</textarea>
-    <ul class="problems" data-problems="${i.id}">${problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
-    ${answers ? `<small class="muted">Answers: ${answers}</small>` : ''}
-    <label class="check"><input type="checkbox" data-fact-ok="${i.id}" ${i.confirmed ? 'checked' : ''} ${problems.length ? 'disabled' : ''}> <span>True for the products I sell</span></label>
-    <input class="ctl sm" data-fact-src="${i.id}" value="${esc(i.source)}" list="sourceList" maxlength="80" placeholder="Source (optional), e.g. carrier materials">
+function setupFact(t) {
+  const problems = checkInsightText(t.fact);
+  return `<div class="item fact${t.confirmed ? ' confirmed' : ''}" data-fact="${t.id}">
+    <div class="row">${t.ai ? '<span class="pill ai">AI suggestion · check carefully</span>' : '<span class="pill">Starter topic</span>'}</div>
+    ${t.worry ? `<b class="small">“${esc(t.worry)}”</b>` : ''}
+    <textarea class="ctl" data-fact-text="${t.id}" rows="3" aria-label="Fact">${esc(t.fact)}</textarea>
+    <ul class="problems" data-problems="${t.id}">${problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+    <label class="check"><input type="checkbox" data-fact-ok="${t.id}" ${t.confirmed ? 'checked' : ''} ${problems.length ? 'disabled' : ''}> <span>True for what I sell</span></label>
   </div>`;
 }
 
-export { drawSetup, sourceList, statesList, viewSetup, zoneOptions };
+export { drawSetup, statesList, viewSetup, zoneOptions };

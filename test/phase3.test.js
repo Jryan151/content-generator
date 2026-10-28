@@ -24,7 +24,7 @@ test.after(() => { server.close(); stubs.close(); });
 async function agent(email, { comped = true } = {}) {
   const ws = store.createWorkspace({ name: email, comped });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look.name = 'Jane Smith';
   store.saveConfig(ws.id, cfg);
@@ -51,32 +51,6 @@ async function fake(routes) {
 }
 
 /* ---------------- 11. Seasonal topics ---------------- */
-test('seasons: a worry tagged for this month comes up about 3× as often; untagged months are unchanged', () => {
-  const cfg = M.migrate(M.DEFAULT_CONFIG);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
-  cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
-  const pains = M.usableRoutes(cfg).pains;
-  const aud = cfg.story.audiences[0];
-  const mine = pains.filter(p => p.links.includes(aud.id));
-  assert.ok(mine.length >= 2, 'needs two worries for one audience');
-  const target = mine[0];
-  cfg.story.audiences = [aud];
-  cfg.profile.timezone = 'America/Denver';
-  const sept = Date.parse('2026-09-15T18:00:00Z');
-  // Tags are cleaned: integers 1–12, sorted, no repeats.
-  target.months = [9, '9', 13, 0, 2.5, 1];
-  const m = M.migrate(cfg);
-  assert.deepEqual(m.story.painPoints.find(p => p.id === target.id).months, [1, 9]);
-  const count = (c, now) => { let n = 0; let s = 7; const rng = () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; for (let i = 0; i < 4000; i++) if (M.roll(c, rng, [], {}, now).painPoint?.id === target.id) n++; return n / 4000; };
-  const untagged = M.migrate({ ...cfg, story: { ...cfg.story, painPoints: cfg.story.painPoints.map(p => { const { months, ...r } = p; return r; }) } });
-  const base = count(untagged, sept), boosted = count(m, sept), outOfSeason = count(m, Date.parse('2026-03-15T18:00:00Z'));
-  assert.ok(boosted > base * 1.6, `in season: ${boosted} vs ${base}`);
-  assert.ok(Math.abs(outOfSeason - base) < 0.04, `out of season: ${outOfSeason} vs ${base}`);
-  assert.deepEqual(M.seasonBoosts(m, sept), { [target.id]: 3 });
-  assert.equal(M.seasonsNow(m, sept)[0].label, 'Life Insurance Awareness Month');
-  // Month is the agent's: 11pm Aug 31 in Denver is still August there.
-  assert.equal(M.monthIn('America/Denver', Date.parse('2026-09-01T05:00:00Z')), 8);
-});
 
 /* ---------------- 12. Automatic Instagram results ---------------- */
 test('insights: posted videos get views, reach and more from Instagram daily; messages are one tap', async () => {

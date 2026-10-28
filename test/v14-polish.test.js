@@ -35,7 +35,7 @@ test.after(() => { server.close(); stubs.close(); pushSrv.close(); });
 
 const ws = store.createWorkspace({ name: 'Polish Test', comped: true });
 const base = store.loadConfig(ws.id);
-base.story = { ...base.story, ...starterStory(['final_expense']) };
+base.story = { ...base.story, ...starterStory() };
 base.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 base.look.name = 'Dana Ruiz';
 store.saveConfig(ws.id, base);

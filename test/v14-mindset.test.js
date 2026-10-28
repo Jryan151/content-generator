@@ -19,7 +19,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Mindset Test', comped: true });
 const base = store.loadConfig(ws.id);
-base.story = { ...base.story, ...starterStory(['final_expense', 'mortgage']) };
+base.story = { ...base.story, ...starterStory() };
 base.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 store.saveConfig(ws.id, base);
 store.updateWorkspace(ws.id, { onboarded: true });
@@ -46,14 +46,8 @@ test('the library: a principle a day without repeating a book ten days running; 
   assert.ok(score > 0 && score <= 100);
 });
 
-test('the profile shapes videos: sweet spot, objections as topics, give before asking, the why', () => {
+test('the profile shapes videos: objections as topics, give before asking, the why', () => {
   const c0 = M.migrate(cfg());
-  const mp = c0.story.audiences.find(a => a.product === 'mortgage') || c0.story.audiences.at(-1);
-  const count = cf => Array.from({ length: 300 }, (_, k) => M.roll(cf, seeded(k + 1)).audience?.id).filter(id => id === mp.id).length;
-  const before = count(c0);
-  const sweet = M.migrate({ ...c0, mindset: { ...c0.mindset, hedgehog: { audiences: [mp.id, 'nope'], products: ['mortgage', 'cars'] } } });
-  assert.deepEqual([sweet.mindset.hedgehog.audiences, sweet.mindset.hedgehog.products], [[mp.id], ['mortgage']]);
-  assert.ok(count(sweet) > before, `sweet spot comes up more (${count(sweet)} > ${before})`);
   // An objection marked as a topic opens "Question I get asked" videos.
   const pain = c0.story.painPoints[0];
   const ob = M.migrate({ ...c0, output: { ...c0.output, formats: ['asked'] }, mindset: { ...c0.mindset, objections: [{ text: 'I need to think about it.', answer: 'zqxanswer', links: [pain.id], topic: true }, { text: 'Not a topic', topic: false }] } });

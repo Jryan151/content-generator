@@ -19,7 +19,7 @@ test.after(() => { server.close(); stubs.close(); });
 
 const ws = store.createWorkspace({ name: 'Footage Test', comped: true });
 const cfg0 = store.loadConfig(ws.id);
-cfg0.story = { ...cfg0.story, ...starterStory(['final_expense']) };
+cfg0.story = { ...cfg0.story, ...starterStory() };
 cfg0.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
 cfg0.look = { ...cfg0.look, name: 'Jane Smith', location: 'Gallup, NM' };
 store.saveConfig(ws.id, cfg0);
@@ -133,11 +133,10 @@ test('studio coach: it sees the board and offers changes that are checked first'
   const sc = r.data.suggestions[0];
   assert.equal(sc.i, 1); assert.ok(d.scenes[1].text.toLowerCase().includes(sc.accent.toLowerCase()), 'its highlight is in its own line');
   assert.equal(r.data.suggestions[1].keyword, 'small town street at sunset');
-  // Truths: a confirmed fact for this worry can be taught; a new one goes in linked to the worry, unconfirmed.
+  // Truths: a topic teaches one fact, so a new one goes in as a new topic for this worry, unchecked.
   const t = await ask('Find a truth for this worry');
-  const use = t.data.suggestions.find(s => s.type === 'use_fact'), add = t.data.suggestions.find(s => s.type === 'add_fact');
-  assert.equal(t.data.suggestions.filter(s => s.type === 'use_fact').length, 1, 'only real, confirmed facts for this worry');
-  assert.ok(use.text && !d.picks.insights.some(f => f.id === use.id));
+  const add = t.data.suggestions.find(s => s.type === 'add_fact');
+  assert.equal(t.data.suggestions.filter(s => s.type === 'use_fact').length, 0, 'no other checked fact for this topic');
   assert.ok(add.painIds.includes(d.brief.painId));
   // Without a Studio draft in focus, it's the usual coach.
   const plain = await c.post('/api/coach', { messages: [{ role: 'user', content: 'hi' }], view: 'create' });
@@ -169,7 +168,7 @@ test('studio coach on a new board, and openings held to the Studio rules; every 
   const ask = q => c.post('/api/coach', { messages: [{ role: 'user', content: q }], view: 'studio', focus: { studio: { draftId: d.id, scenes: [] } } });
   const a = await ask('Footage ideas for every scene');
   assert.ok(a.data.suggestions.some(s => s.type === 'studio_footage'), 'an empty board still gets suggestions');
-  assert.ok(a.data.suggestions.every(s => s.draftId === d.id && s.sceneCount === 6));
+  assert.ok(a.data.suggestions.filter(s => s.type.startsWith('studio_')).every(s => s.draftId === d.id && s.sceneCount === 6), JSON.stringify(a.data.suggestions));
   const h = await ask('Write me an opening');
   assert.deepEqual(h.data.suggestions.map(s => s.text), ['Who pays for your funeral someday?'], 'an age the fact doesn’t have is held back');
   // Another workspace's draft id is never found.

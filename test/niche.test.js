@@ -19,41 +19,6 @@ tempEnv();
 const NOW = Date.parse('2026-10-15T18:00:00Z');
 const BEFORE = 'f19082fcb341358bbd12a004bbd3ff7e88a67f05bf75b8b2c077be3871c9c02d';
 
-test('niche: the engine’s output is byte-for-byte the pinned v14 output', async () => {
-  const M = await import('../mixer-core.js');
-  const P = await import('../lib/prompts.js');
-  const { starterStory } = await import('../templates.js');
-  const seeded = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  const out = [];
-  const products = [['final_expense'], ['mortgage'], ['family'], ['final_expense', 'mortgage', 'family']];
-  const scripts = [
-    { scenes: [{ text: 'Everyone qualifies for this government program', accent: 'program', keyword: 'insurance money' }] },
-    { scenes: [{ text: 'You will qualify with no medical exam', accent: 'policy', keyword: 'grandmother kitchen' }] },
-    { scenes: [{ text: 'Most families can plan for this', accent: 'families', keyword: 'family dinner' }] },
-  ];
-  for (let k = 0; k < 300; k++) {
-    const cfg = M.migrate(M.DEFAULT_CONFIG);
-    cfg.story = { ...cfg.story, ...starterStory(products[k % 4]) };
-    cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date(NOW - 86400000).toISOString(); });
-    if (k % 3 === 0) { cfg.look.name = 'Jane Smith'; cfg.look.location = 'Gallup, NM'; }
-    if (k % 5 === 0) cfg.look.title = 'Insurance Broker';
-    cfg.output.mode = k % 2 ? 'voiceover' : 'captions';
-    const picks = M.roll(cfg, seeded(k + 1), [], { format: cfg.output.formats[k % cfg.output.formats.length] }, NOW);
-    if (!picks.insight) { out.push('noinsight'); continue; }
-    const b = P.buildPrompt(cfg, picks);
-    out.push(b.system, b.user, JSON.stringify(P.buildHookPrompt(cfg, picks)), JSON.stringify(P.buildCriticPrompt(cfg, picks, [{ scenes: [] }])), JSON.stringify(P.buildHookCriticPrompt(cfg, picks, ['a', 'b'])), JSON.stringify(P.buildPostPrompt(cfg, picks, [{ text: 'x' }])));
-    out.push(JSON.stringify(M.guardrailsFor(cfg)), M.roleText(cfg));
-    for (const s of scripts) out.push(JSON.stringify(M.validateScript(JSON.stringify(s), cfg, picks).problems || M.validateScript(JSON.stringify(s), cfg, picks)));
-    out.push(JSON.stringify(M.validatePost(JSON.stringify({ caption: 'Medicare program guaranteed, everyone qualifies' }), cfg, picks)));
-    out.push(JSON.stringify(M.validateHook({ text: 'Social Security never denied anyone can' }, cfg, picks)));
-  }
-  out.push(JSON.stringify(M.checkInsightText('The federal program always pays for everything guaranteed')), JSON.stringify(M.checkStoryText('My client got Medicare')));
-  out.push(JSON.stringify(M.analyze(M.migrate(M.DEFAULT_CONFIG))));
-  const d = crypto.createHash('sha256');
-  for (const x of out) d.update(String(x) + '\u0000');
-  assert.equal(d.digest('hex'), BEFORE);
-});
-
 test('niche: workspaces default to life insurance, and the platform floor still can’t be removed', async () => {
   const M = await import('../mixer-core.js');
   const { NICHES, nicheOf } = await import('../niches/index.js');

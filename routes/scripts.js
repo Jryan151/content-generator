@@ -152,10 +152,4 @@ route('POST', '/api/coach/rewrite', 'ws', async ({ wsId, ws, body }) => {
   return { options: judged.filter(x => !x.problem).map(x => ({ ...x.o, ...(x.notes.length ? { notes: x.notes } : {}) })), dropped: reasons.length, reasons, hidden: hiddenNote(reasons) };
 });
 
-// Which worries a fact answers (for facts linked to none).
-route('POST', '/api/coach/links', 'ws', async ({ wsId, ws, body, me }) => {
-  coachGate(wsId, ws);
-  const { suggestLinks } = await coach();
-  return { painIds: await suggestLinks({ cfg: workingConfig(wsId, body, me), text: clip(body.text, 300), meter: usage.meter(wsId) }) };
-});
 }

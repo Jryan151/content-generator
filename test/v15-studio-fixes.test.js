@@ -30,7 +30,7 @@ test.after(() => { server.close(); stubs.close(); });
 const mk = name => {
   const ws = store.createWorkspace({ name, comped: true });
   const c = store.loadConfig(ws.id);
-  c.story = { ...c.story, ...starterStory(['final_expense']) };
+  c.story = { ...c.story, ...starterStory() };
   c.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   store.saveConfig(ws.id, c);
   store.updateWorkspace(ws.id, { onboarded: true, limits: { assistantSeats: 1 } });
@@ -47,7 +47,7 @@ const asst = await login('fs@example.com', 'fspass123456');
 const admin = await login('froot@example.com', 'frootpass1234');
 const cfg = () => store.loadConfig(ws.id);
 const FACT = cfg().story.insights[0];
-const brief = { painId: 'fe_p1', audienceId: 'fe_a1', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
+const brief = { painId: 't_funeral', audienceId: 'aud', insightIds: [FACT.id], scenes: 6, format: 'question', structure: 'classic' };
 const picks = () => M.studioPicks(cfg(), brief);
 const sc = (text, accent = '') => ({ text, accent, keyword: 'older woman kitchen', say: '' });
 const good = () => [sc('Who pays for your funeral someday?', 'funeral'), sc('Final expense insurance is usually a small policy', 'small'), sc('It is meant to cover funeral and end-of-life costs', 'funeral'),

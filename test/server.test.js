@@ -31,14 +31,14 @@ async function newAgent(email, name) {
 async function finishSetup(c) {
   const d = await c.post('/api/setup/draft', { answers: { name: 'Jane Smith', location: 'Gallup, NM', products: ['final_expense'] } });
   assert.equal(d.status, 200);
-  d.data.config.story.insights.slice(0, 3).forEach(i => { i.confirmed = true; i.source = 'Carrier guide'; });
+  d.data.config.topics.slice(0, 3).forEach(t => { t.confirmed = true; });
   return c.post('/api/setup/finish', { config: d.data.config, accept: true });
 }
 function fakeVideo(ws, status = 'pending') {
   const id = store.newId ? store.newId() : String(Date.now());
   const file = `video_${id}.mp4`;
   fs.writeFileSync(store.videoPath(ws, file), Buffer.from('fake mp4 ' + id));
-  return store.addVideo(ws, { id, file, cover: '', status, createdAt: new Date().toISOString(), duration: 25, mode: 'captions', meta: { painPoint: 'Worry', insight: 'Fact', painId: 'fe_p1', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Post', clips: [], preflight: [] });
+  return store.addVideo(ws, { id, file, cover: '', status, createdAt: new Date().toISOString(), duration: 25, mode: 'captions', meta: { painPoint: 'Worry', insight: 'Fact', painId: 't_funeral', format: 'question' }, scenes: [{ text: 'Hi' }], post: 'Post', clips: [], preflight: [] });
 }
 
 test('login works and is rate limited', async () => {
@@ -64,16 +64,17 @@ test('invite links are single use; setup needs a confirmed fact and the agreemen
   const { c, token } = await newAgent('jane@example.com', 'Jane Smith Insurance');
   assert.equal((await client(port).post('/api/link/accept', { token, kind: 'invite', name: 'X', password: 'anotherpass1' })).status, 410);
   assert.equal((await c.post('/api/jobs', { count: 1 })).status, 409, 'no videos before setup');
-  const d = await c.post('/api/setup/draft', { answers: { name: 'Jane Smith', location: 'Gallup, NM', products: ['final_expense', 'mortgage'] } });
-  assert.ok(d.data.config.story.insights.length >= 16, 'templates for both products');
-  assert.ok(d.data.config.story.insights.every(i => !i.confirmed));
-  assert.equal((await c.post('/api/setup/finish', { config: d.data.config, accept: true })).status, 400, 'needs a confirmed fact');
-  d.data.config.story.insights[0].confirmed = true;
-  d.data.config.story.insights[0].confirmedAt = '2020-01-01T00:00:00.000Z';
+  const d = await c.post('/api/setup/draft', { answers: { name: 'Jane Smith', location: 'Gallup, NM' } });
+  assert.ok(d.data.config.topics.length >= 8, 'the starter topics');
+  assert.ok(d.data.config.topics.every(t => !t.confirmed));
+  assert.equal((await c.post('/api/setup/finish', { config: d.data.config, accept: true })).status, 400, 'needs a checked topic');
+  d.data.config.topics[0].confirmed = true;
+  d.data.config.topics[0].confirmedAt = '2020-01-01T00:00:00.000Z';
   assert.equal((await c.post('/api/setup/finish', { config: d.data.config, accept: false })).status, 400, 'needs the agreement');
   const f = await c.post('/api/setup/finish', { config: d.data.config, accept: true });
   assert.equal(f.status, 200);
-  const fact = f.data.config.story.insights[0];
+  const fact = f.data.config.topics[0];
+  assert.equal(f.data.config.story.insights[0].confirmed, true, 'the story the checks read follows the topic');
   assert.equal(fact.confirmed, true);
   assert.notEqual(fact.confirmedAt, '2020-01-01T00:00:00.000Z', 'the server stamps the time, not the browser');
   assert.ok(fact.confirmedBy);
@@ -83,14 +84,15 @@ test('editing a fact’s wording needs a new confirmation; banned wording can’
   const { c } = await newAgent('ed@example.com', 'Ed');
   await finishSetup(c);
   const { data } = await c.get('/api/config');
-  const f = data.config.story.insights.find(i => i.confirmed);
-  f.text = f.text.replace('usually', 'generally');
+  const f = data.config.topics.find(t => t.confirmed);
+  f.fact = f.fact.replace('usually', 'generally');
   let r = await c.put('/api/config', { config: data.config });
-  assert.equal(r.data.config.story.insights.find(i => i.id === f.id).confirmed, false);
-  const g = r.data.config.story.insights.find(i => i.id === f.id);
-  g.confirmed = true; g.text = 'Everyone qualifies for this plan, guaranteed.';
+  assert.equal(r.data.config.topics.find(t => t.id === f.id).confirmed, false);
+  assert.equal(r.data.config.story.insights.find(i => i.id === `${f.id}_f`).confirmed, false);
+  const g = r.data.config.topics.find(t => t.id === f.id);
+  g.confirmed = true; g.fact = 'Everyone qualifies for this plan, guaranteed.';
   r = await c.put('/api/config', { config: r.data.config });
-  assert.equal(r.data.config.story.insights.find(i => i.id === f.id).confirmed, false);
+  assert.equal(r.data.config.topics.find(t => t.id === f.id).confirmed, false);
 });
 
 test('one agent can never see another agent’s videos, files or settings', async () => {
@@ -129,7 +131,7 @@ test('approval needs every checklist item; download only after approval; records
   assert.match(csv.data.toString(), new RegExp(hash));
   const stats = (await c.get('/api/videos')).data.stats;
   assert.equal(stats.totals.messages, 3);
-  assert.equal(stats.topics[0].key, 'fe_p1');
+  assert.equal(stats.topics[0].key, 't_funeral');
 });
 
 test('rejecting a video feeds the reason to the next scripts', async () => {

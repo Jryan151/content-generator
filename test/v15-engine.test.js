@@ -398,7 +398,7 @@ test('a video job keeps each finished stage, so a retry doesn’t pay again', { 
   const { makeVideo } = await import('../pipeline.js');
   const ws = store.createWorkspace({ name: 'Checkpoint Agent', comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look = { ...cfg.look, name: 'Checkpoint Agent', font };
   cfg.output.mode = 'voiceover';

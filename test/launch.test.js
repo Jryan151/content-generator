@@ -24,7 +24,7 @@ test.after(() => { server.close(); stubs.close(); });
 async function agent(email, { comped = true, password = 'agentpass123' } = {}) {
   const ws = store.createWorkspace({ name: email, comped });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); });
   cfg.look.name = 'Jane Smith';
   store.saveConfig(ws.id, cfg);

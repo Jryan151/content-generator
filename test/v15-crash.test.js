@@ -138,7 +138,7 @@ const skip = !process.env.FULL_TEST ? 'renders videos; run with npm run test:ful
 function setupWorkspace(name) {
   const ws = store.createWorkspace({ name, comped: true });
   const cfg = store.loadConfig(ws.id);
-  cfg.story = { ...cfg.story, ...starterStory(['final_expense']) };
+  cfg.story = { ...cfg.story, ...starterStory() };
   cfg.story.insights.forEach(i => { i.confirmed = true; i.confirmedAt = new Date().toISOString(); i.source = 'Carrier guide'; });
   cfg.look = { ...cfg.look, name, location: 'Gallup, NM', font };
   cfg.output = { ...cfg.output, mode: 'captions', scenes: 6 };
