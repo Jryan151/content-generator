@@ -1,5 +1,4 @@
-// v15 Phase 9: the compliance reviewer (sign-off before posting), bookings traced to the video that
-// brought them, keyword replies on Instagram, and A/B tests of openings.
+// v15 Phase 9: the compliance reviewer (sign-off before posting) and keyword replies on Instagram.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -34,9 +33,7 @@ const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const roles = await import('../lib/roles.js');
 const signoff = await import('../lib/signoff.js');
-const bookings = await import('../lib/bookings.js');
 const links = await import('../lib/links.js');
-const clientsLib = await import('../lib/clients.js');
 const crypto = await import('crypto');
 const M = await import('../mixer-core.js');
 const replies = await import('../lib/replies.js');
@@ -97,7 +94,6 @@ test('sign-off: invite a reviewer, turn it on, and nothing leaves until they sig
   const r = await login('rita@carrier.example', 'ritapass12345');
   assert.equal((await r.get('/api/me')).data.portal, 'reviewer');
   assert.equal((await r.get('/api/videos')).status, 403, 'nothing but Sign-off');
-  assert.equal((await r.get('/api/clients')).status, 403);
   assert.equal((await r.get('/api/signoff')).status, 200);
   assert.equal((await r.get('/api/push')).status, 200, 'they can turn on notifications');
   assert.equal((await a.get('/api/signoff')).status, 403, 'the agent can’t sign off their own');
@@ -134,9 +130,6 @@ test('sign-off: invite a reviewer, turn it on, and nothing leaves until they sig
   // A new version (a fixed scene) needs signing off again.
   store.updateVideo(w.id, 'sv1', { version: 2, file: 'video_sv1-2.mp4' });
   assert.equal(signoff.waiting(store.getWorkspace(w.id), store.getVideo(w.id, 'sv1')), true);
-  // The activity feed shows the reviewer's decisions.
-  const act = (await a.get('/api/desk/activity')).data.activity.map(x => x.what);
-  assert.ok(act.includes('signed off a video') && act.includes('sent a video back for changes'), JSON.stringify(act));
   // The last reviewer removed: sign-off goes off, so nothing is stuck.
   p = await a.del(`/api/people/${rita.id}`);
   assert.equal(p.status, 200); assert.equal(p.data.reviewers.on, false);
@@ -171,97 +164,6 @@ test('sign-off: the posting plan skips a waiting video; a waiting one already sc
 /* ---------------- 9b: bookings traced to videos ---------------- */
 const raw = (p, opts = {}) => fetch(`http://127.0.0.1:${port}${p}`, { redirect: 'manual', ...opts, headers: { 'user-agent': 'Mozilla/5.0 (iPhone) Safari', ...(opts.headers || {}) } });
 const hook = (url, body, headers = {}) => fetch(url.replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${port}`), { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
-
-test('bookings: the video’s code rides to the booking page', async () => {
-  assert.equal(bookings.bookingUrlFor('https://calendly.com/dana/15min', 'abcdef0123'), 'https://calendly.com/dana/15min?utm_source=agentreels&utm_medium=video&utm_content=abcdef0123');
-  assert.match(bookings.bookingUrlFor('https://cal.com/dana?x=1', 'abcdef0123'), /x=1&utm_source=agentreels.*&metadata%5Bref%5D=abcdef0123/);
-  assert.equal(bookings.bookingUrlFor('https://calendly.com/dana', 'nope'), 'https://calendly.com/dana', 'no code, no change');
-  const w = mkWs('Book link');
-  vid(w, 'bl1', { status: 'posted' });
-  const code = links.codeFor(w.id, 'bl1');
-  const r = await raw(`/r/${code}/book`);
-  assert.equal(r.status, 302); assert.equal(r.headers.get('location'), `https://calendly.com/dana/15min?utm_source=agentreels&utm_medium=video&utm_content=${code}`);
-});
-
-test('bookings: a Calendly booking finds the lead from the video, books them, counts once; a cancel is noted', async () => {
-  const w = mkWs('Bookings');
-  store.createAccount({ email: 'bk@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bkpass123456') });
-  const a = await login('bk@example.com', 'bkpass123456');
-  vid(w, 'bk1', { status: 'posted', scenes: [{ text: 'Who pays for your funeral someday?', keyword: 'family' }] });
-  const code = links.codeFor(w.id, 'bk1');
-  const lead = clientsLib.add(w.id, { name: 'Maria', email: 'maria@example.com', stage: 'lead', videoId: 'bk1', source: 'Video: “Who pays…”' });
-  const H = (await a.get('/api/bookings/hook')).data;
-  assert.match(H.url, /\/hooks\/booking\/[\w-]{20,40}$/); assert.equal(H.hasKey, false);
-  const calendly = (event, uri = 'https://api.calendly.com/x/1') => ({ event, payload: { name: 'Maria Lopez', email: 'MARIA@example.com', uri, scheduled_event: { start_time: '2026-10-20T16:00:00.000000Z' }, tracking: { utm_content: code } } });
-  let r = await hook(H.url, calendly('invitee.created'));
-  assert.equal(r.status, 200);
-  let c = clientsLib.get(w.id, lead.id);
-  assert.equal(c.stage, 'booked'); assert.ok(c.bookedAt); assert.match(c.notes, /Booked a time for Tue, Oct 20, 10:00 AM from a video/);
-  assert.deepEqual([store.getVideo(w.id, 'bk1').bookings.total, clientsLib.list(w.id).length], [1, 1], 'the same person, not a new one');
-  // Booking tools retry: the same call is done once; a reschedule doesn't count twice.
-  await hook(H.url, calendly('invitee.created'));
-  await hook(H.url, calendly('invitee.created', 'https://api.calendly.com/x/2'));
-  assert.equal(store.getVideo(w.id, 'bk1').bookings.total, 1);
-  // Counts toward what the app learns works (a booking like three messages).
-  assert.equal(M.resultValue({ bookings: { total: 1 } }), 3);
-  // A cancel: noted, back to Talking, counted as canceled.
-  await hook(H.url, calendly('invitee.canceled'));
-  c = clientsLib.get(w.id, lead.id);
-  assert.equal(c.stage, 'talking'); assert.match(c.notes, /Canceled their booked time/);
-  assert.equal(store.getVideo(w.id, 'bk1').bookings.canceled, 1);
-  assert.ok((await a.get('/api/bookings/hook')).data.last, 'the last one received is shown');
-  // Someone new, with no code (they found the booking page another way): added, not traced.
-  await hook(H.url, { event: 'booked', id: 'z1', name: 'Al Jones', phone: '505-555-0100', start: '2026-10-21T15:00:00Z' });
-  const al = clientsLib.list(w.id).find(x => x.name === 'Al Jones');
-  assert.deepEqual([al.stage, al.source, al.videoId], ['booked', 'Booking page', '']);
-  // Not a booking at all: answered, nothing kept.
-  assert.equal((await hook(H.url, { event: 'ping' })).status, 200);
-  assert.equal((await hook(H.url, 'not json')).status, 400);
-  assert.equal((await hook(H.url.replace(/[\w-]+$/, 'x'.repeat(24)), {})).status, 404, 'an unknown address');
-});
-
-test('bookings: with a signing key every call is signed (Calendly and Cal.com); a new address retires the old', async () => {
-  const w = mkWs('Book signed');
-  store.createAccount({ email: 'bs@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bspass123456') });
-  const a = await login('bs@example.com', 'bspass123456');
-  vid(w, 'bs1', { status: 'posted' });
-  const code = links.codeFor(w.id, 'bs1');
-  const H = (await a.post('/api/bookings/hook', { key: 'whsec_test' })).data;
-  assert.equal(H.hasKey, true);
-  const body = JSON.stringify({ triggerEvent: 'BOOKING_CREATED', payload: { uid: 'cal-1', startTime: '2026-10-22T17:00:00Z', attendees: [{ name: 'Rosa Diaz', email: 'rosa@example.com' }], metadata: { ref: code } } });
-  assert.equal((await hook(H.url, body)).status, 401, 'unsigned');
-  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': 'deadbeef' })).status, 401);
-  const sig = crypto.createHmac('sha256', 'whsec_test').update(body).digest('hex');
-  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': sig })).status, 200);
-  const rosa = clientsLib.list(w.id).find(x => x.name === 'Rosa Diaz');
-  assert.deepEqual([rosa.stage, rosa.videoId], ['booked', 'bs1']); assert.match(rosa.source, /^Booking: /, 'its own label (not counted as a page lead)');
-  assert.equal(store.getVideo(w.id, 'bs1').bookings.total, 1);
-  // Calendly's signature: t=<time>,v1=<hmac of time.body>; an old one is refused.
-  const cb = JSON.stringify({ event: 'invitee.created', payload: { name: 'Lee Park', email: 'lee@example.com', uri: 'u-9', tracking: { utm_content: code } } });
-  const ts = Math.floor(Date.now() / 1000), v1 = crypto.createHmac('sha256', 'whsec_test').update(`${ts}.${cb}`).digest('hex');
-  assert.equal((await hook(H.url, cb, { 'calendly-webhook-signature': `t=${ts - 3600},v1=${crypto.createHmac('sha256', 'whsec_test').update(`${ts - 3600}.${cb}`).digest('hex')}` })).status, 401, 'too old');
-  assert.equal((await hook(H.url, cb, { 'calendly-webhook-signature': `t=${ts},v1=${v1}` })).status, 200);
-  assert.equal(store.getVideo(w.id, 'bs1').bookings.total, 2);
-  // A new address: the old one stops working.
-  const H2 = (await a.post('/api/bookings/hook', { rotate: true })).data;
-  assert.notEqual(H2.url, H.url); assert.equal(H2.hasKey, true, 'the key stays');
-  assert.equal((await hook(H.url, body, { 'x-cal-signature-256': sig })).status, 404);
-  // The key can be removed.
-  assert.equal((await a.post('/api/bookings/hook', { key: '' })).data.hasKey, false);
-});
-
-test('bookings: a lead from a video moved to “Appointment booked” by hand counts for the video, once', async () => {
-  const w = mkWs('Book by hand');
-  store.createAccount({ email: 'bh@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bhpass123456') });
-  const a = await login('bh@example.com', 'bhpass123456');
-  vid(w, 'bh1', { status: 'posted' });
-  const lead = clientsLib.add(w.id, { name: 'Joan', phone: '505-555-0111', stage: 'lead', videoId: 'bh1' });
-  let r = await a.put(`/api/clients/${lead.id}`, { stage: 'booked', bookedAt: '2020-01-01T00:00:00.000Z' });
-  assert.equal(r.status, 200); assert.notEqual(r.data.client.bookedAt, '2020-01-01T00:00:00.000Z', 'the server sets it');
-  assert.equal(store.getVideo(w.id, 'bh1').bookings.total, 1);
-  await a.put(`/api/clients/${lead.id}`, { stage: 'talking' }); await a.put(`/api/clients/${lead.id}`, { stage: 'booked' });
-  assert.equal(store.getVideo(w.id, 'bh1').bookings.total, 1, 'once per person');
-});
 
 /* ---------------- 9c: keyword replies on Instagram ---------------- */
 const signed = body => { const raw = JSON.stringify(body); return { raw, sig: `sha256=${crypto.createHmac('sha256', 'ig-secret').update(raw).digest('hex')}` }; };
@@ -305,7 +207,7 @@ test('keyword replies: the wording is checked, the agent approves an assistant�
   assert.equal(replies.fill('Hi {name}, more: {link}', {}), 'Hi there, more:');
 });
 
-test('keyword replies: a signed comment gets a private reply with the video’s page, once; the person is a lead on the Desk', async () => {
+test('keyword replies: a signed comment gets a private reply with the booking link, once', async () => {
   const w = mkWs('Replies live');
   connectIg(w, { userId: '1790', scopes: 'instagram_business_basic,instagram_business_content_publish,instagram_business_manage_messages,instagram_business_manage_comments' });
   vid(w, 'rl1', { status: 'posted', autopost: { status: 'posted', mediaId: 'media-77' } });
@@ -325,16 +227,13 @@ test('keyword replies: a signed comment gets a private reply with the video’s 
   await until(() => igSeen.sent.length > before);
   const msg = igSeen.sent.at(-1);
   assert.deepEqual(msg.recipient, { comment_id: 'cm1' });
-  assert.match(msg.message.text, new RegExp(`^Hi Maria! Here’s the checklist: http.*/r/${store.getVideo(w.id, 'rl1').link}$`));
-  const lead = await until(() => clientsLib.list(w.id).find(c => c.igsid === 'igsid-1'));
-  assert.deepEqual([lead.name, lead.stage, lead.videoId, lead.source], ['Maria Garcia', 'lead', 'rl1', 'Instagram: “PLAN”']);
+  assert.match(msg.message.text, /^Hi Maria! Here’s the checklist: https:\/\/calendly\.com\/dana\/15min$/);
   // The same comment again (Meta retries): nothing more. Another comment from her today: not answered again.
   await igHook(b.raw, b.sig);
   b = signed(comment('cm2', 'plan'));
   await igHook(b.raw, b.sig);
   await until(() => replies.log(w.id).some(x => x.why === 'Already answered today'));
   assert.equal(igSeen.sent.length, before + 1);
-  assert.equal(clientsLib.list(w.id).filter(c => c.igsid === 'igsid-1').length, 1, 'the same person once');
   // A message (DM) with the keyword: answered with the booking link; the agent's own messages never are.
   const dm = (from, text, echo = false) => ({ object: 'instagram', entry: [{ id: '1790', time: 1, messaging: [{ sender: { id: from }, recipient: { id: '1790' }, timestamp: 1, message: { mid: `m-${from}`, text, ...(echo ? { is_echo: true } : {}) } }] }] });
   b = signed(dm('igsid-2', 'Plan'));
@@ -346,12 +245,11 @@ test('keyword replies: a signed comment gets a private reply with the video’s 
   b = signed(dm('igsid-3', 'Hello there, how are you?')); await igHook(b.raw, b.sig);
   await new Promise(r => setTimeout(r, 200));
   assert.equal(igSeen.sent.length, before + 2, 'no keyword, no echo');
-  // Instagram refusing: logged, no lead.
+  // Instagram refusing: logged.
   igSeen.down = true;
   b = signed(dm('igsid-4', 'PLAN')); await igHook(b.raw, b.sig);
   await until(() => replies.log(w.id).some(x => x.from === undefined && !x.ok && /Instagram/.test(x.why)) || replies.log(w.id).some(x => !x.ok && /Instagram/.test(x.why)));
   igSeen.down = false;
-  assert.ok(!clientsLib.list(w.id).some(c => c.igsid === 'igsid-4'));
   // Turned off, or switched off in Admin: nothing is sent.
   replies.setOn(w.id, false);
   b = signed(dm('igsid-5', 'PLAN')); await igHook(b.raw, b.sig);
@@ -400,29 +298,7 @@ test('review fixes: keyword replies: limits counted apart from the log; the word
   assert.equal(replies.saveRule(w.id, { id: r3.id, keyword: 'PLANS', where: 'dm', text: 'Hi {name}: {link}' }, { by: 'y', byName: 'Sam' }).status, 'draft');
 });
 
-test('review fixes: bookings: reschedules aren’t cancels, a cancel counts once, new people are capped, an address has an hourly limit', async () => {
-  const w = mkWs('Book fixes');
-  store.createAccount({ email: 'bf@example.com', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('bfpass123456') });
-  const a = await login('bf@example.com', 'bfpass123456');
-  vid(w, 'bf1', { status: 'posted' });
-  const code = links.codeFor(w.id, 'bf1'), H = (await a.get('/api/bookings/hook')).data;
-  const cal = (event, extra = {}, uri = 'u1') => ({ event, payload: { name: 'Ann Lee', email: 'ann@example.com', uri, tracking: { utm_content: code }, ...extra } });
-  await hook(H.url, cal('invitee.created'));
-  await hook(H.url, cal('invitee.canceled', { rescheduled: true }, 'u1'));
-  assert.equal(store.getVideo(w.id, 'bf1').bookings.canceled, 0, 'a reschedule isn’t a cancel');
-  assert.equal(clientsLib.list(w.id).find(x => x.name === 'Ann Lee').stage, 'booked');
-  await hook(H.url, cal('invitee.canceled', {}, 'u2')); await hook(H.url, cal('invitee.canceled', {}, 'u3'));
-  assert.equal(store.getVideo(w.id, 'bf1').bookings.canceled, 1, 'counted once');
-  // New people: at most PER_DAY a day this way.
-  for (let k = 0; k < bookings.PER_DAY; k++) bookings.receive(w.id, { event: 'booked', id: `n${k}`, name: `P${k}`, email: `p${k}@example.com` });
-  const over = bookings.receive(w.id, { event: 'booked', id: 'nx', name: 'One more', email: 'more@example.com' });
-  assert.equal(over.full, true); assert.ok(!clientsLib.list(w.id).some(x => x.name === 'One more'));
-  // An hour's calls per address.
-  for (let k = 0; k < bookings.PER_HOUR; k++) bookings.allow('tok-test');
-  assert.equal(bookings.allow('tok-test'), false);
-});
-
-test('review fixes: the export holds keyword replies; reviewers aren’t on the Desk’s people; the week counts waiting videos as in review', async () => {
+test('review fixes: the export holds keyword replies; turning sign-off on tells the reviewer what’s waiting', async () => {
   const w = mkWs('Fix misc');
   store.createAccount({ email: 'fm@example.com', name: 'Dana Agent', role: 'agent', workspaceId: w.id, hash: await auth.hashPassword('fmpass123456') });
   const rv = store.createAccount({ email: 'fmr@example.com', name: 'Rev', role: 'agent', workspaceId: w.id, hash: 'x' });
@@ -433,12 +309,7 @@ test('review fixes: the export holds keyword replies; reviewers aren’t on the 
   const ex = exportWorkspace(w.id);
   assert.equal(ex.keywordReplies.rules[0].keyword, 'PLAN');
   assert.equal(exportCounts(ex).keywordReplies, 1);
-  assert.ok(!(await a.get('/api/desk')).data.people.some(p => p.id === rv.id), 'not someone to hand work to');
-  // With sign-off on, an approved video waiting for it isn't "ready" in the week ahead.
   signoff.setOn(w.id, true, 'x');
   vid(w, 'wk1', { status: 'approved', approval: { at: new Date().toISOString() } });
-  const c = store.loadConfig(w.id); c.schedule = { ...c.schedule, autopost: { ...c.schedule.autopost, on: true, days: [0, 1, 2, 3, 4, 5, 6], time: '23:59' } }; store.saveConfig(w.id, c);
-  const week = (await a.get('/api/today')).data.week;
-  assert.equal(week.ready, 0); assert.ok(week.review >= 1);
   assert.equal(signoff.tellReviewers(w.id), 1, 'turning it on tells the reviewer what’s already waiting');
 });

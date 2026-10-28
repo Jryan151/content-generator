@@ -15,7 +15,7 @@ try { chromium = createRequire(path.join(process.env.PLAYWRIGHT_DIR || '/opt/nod
 const exe = [process.env.PLAYWRIGHT_CHROMIUM, '/opt/pw-browsers/chromium'].find(p => p && fs.existsSync(p));
 const skip = !chromium ? 'Playwright isn’t installed here' : false;
 
-let server, stubs, browser, base, store, studio, queue, desk, paths, ws, sam, d;
+let server, stubs, browser, base, store, studio, queue, paths, ws, sam, d;
 const sc = (text, accent = '') => ({ text, accent, keyword: 'older woman kitchen', say: '' });
 test.before(async () => {
   if (skip) return;
@@ -23,7 +23,6 @@ test.before(async () => {
   store = await import('../lib/store.js');
   studio = await import('../lib/studio.js');
   queue = await import('../lib/queue.js');
-  desk = await import('../lib/desk.js');
   paths = await import('../lib/paths.js');
   const auth = await import('../lib/auth.js');
   const { starterStory } = await import('../templates.js');
@@ -92,19 +91,9 @@ test('Studio: a stop holds the render with its one-tap fix; after it, notes trav
   await page.close();
 });
 
-test('Review: Needs changes sends a checklist to the assistant’s Desk; the clip picker’s pick goes to the fix exactly', { skip, timeout: 120000 }, async () => {
+test('Review: the clip picker’s pick goes to the fix exactly', { skip, timeout: 120000 }, async () => {
   const { page, errors } = await open('ui@example.com', 'uipass123456', '#/review');
-  await page.waitForSelector('[data-act="changes-open"][data-id="u1"]');
-  await page.click('[data-act="changes-open"][data-id="u1"]');
-  await page.check('[data-change-i="1"][data-change-what="caption"]');
-  await page.check('[data-change-what="music"]');
-  await page.fill('[data-form="changes"] textarea[name=note]', 'Warmer, please');
-  await page.click('[data-form="changes"] .btn.primary');
-  await page.waitForFunction(() => /Changes asked for|Sent for changes/i.test(document.getElementById('main').innerText));
-  const h = desk.list(ws.id).find(x => x.kind === 'changes');
-  assert.ok(h, 'on the Desk');
-  assert.deepEqual(h.checklist.map(x => x.k), ['1:caption', 'music']);
-  assert.equal(h.to, sam.id); assert.equal(h.message, 'Warmer, please');
+  await page.waitForSelector('[data-act="fix-open"][data-id="u1"]');
   // Fix a scene → Show clips → pick one → Re-render: the job carries the pick.
   await page.click('[data-act="fix-open"][data-id="u1"]');
   await page.click('[data-act="fix-clips"][data-i="2"]');

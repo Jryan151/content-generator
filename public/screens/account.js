@@ -1,7 +1,7 @@
 // public/screens/account.js — Login, invite and reset; Two-factor login; Terms of service and privacy; Account.
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
-import { S, ago, api, app, can, copy, day, esc, go, loadPush, main, plural, pushInner, readComfort, status, sunTimes, when } from '../app.js';
+import { S, ago, api, app, can, copy, day, esc, go, loadPush, main, plural, pushInner, status, when } from '../app.js';
 
 /* ================= Login, invite and reset ================= */
 function authPage(inner) {
@@ -101,23 +101,12 @@ async function viewTerms() {
 }
 
 /* ================= Account ================= */
-// Comfort (v15): bigger text and stronger contrast with one switch, and when dark mode comes on. Kept on
-// this device (it's about this screen); reduced motion follows the phone's own setting.
-function comfortPanel() {
-  const c = readComfort(), s = c.theme === 'sunset' ? sunTimes() : null;
-  const seg = (k, opts) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="comfort-set" data-k="${k}" data-v="${v}" aria-pressed="${(c[k] || '') === v}">${l}</button>`).join('')}</div>`;
-  return `<section class="panel" id="comfortPanel"><div class="head"><h2>Comfort</h2><p>For this phone or computer.</p></div>
-    <div class="field"><span>Bigger text and stronger contrast</span>${seg('comfort', [['on', 'On'], ['', 'Off']])}</div>
-    <div class="field"><span>Dark mode</span>${seg('theme', [['phone', 'Like my phone'], ['sunset', 'At sunset'], ['light', 'Always light'], ['dark', 'Always dark']])}${s ? `<small>Dark from sunset (${esc(when(new Date(s.set).toISOString()))}) until sunrise.</small>` : ''}</div>
-    <p class="small muted" style="margin:0">Movement on screen follows your phone’s “Reduce motion” setting.</p></section>`;
-}
 async function viewAccount() {
   const a = S.me.account;
   setTimeout(loadSessions, 0);
   S.push = null; setTimeout(loadPush, 0);
   main.innerHTML = `<div class="head"><h1>Account</h1><p class="lede">${esc(a.email)}${a.role === 'admin' ? ' · admin' : ''}</p></div>
     ${!S.me.workspace && a.role !== 'admin' ? '<div class="note warn">Your account isn’t linked to a workspace yet. Ask your admin.</div>' : ''}
-    ${comfortPanel()}
     <section class="panel"><h2>Your name</h2><form class="row" data-form="name"><input class="ctl" name="name" value="${esc(a.name)}" maxlength="80" style="flex:1 1 220px" aria-label="Your name"><button class="btn">Save</button></form></section>
     <section class="panel"><h2>Change password</h2><form class="stack" data-form="password">
       <label class="field"><span>Current password</span><input class="ctl" type="password" name="current" autocomplete="current-password" required></label>

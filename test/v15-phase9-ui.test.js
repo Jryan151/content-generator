@@ -95,7 +95,7 @@ test('the agent: the note on the sent-back video, a signed-off one ready to post
 });
 
 test('keyword replies: add one, turn them on, try a comment', { skip, timeout: 120000 }, async () => {
-  const { page, errors } = await open('nine@example.com', 'ninepass1234', '#/leads');   // (v15 Phase 10) keyword replies live on Leads
+  const { page, errors } = await open('nine@example.com', 'ninepass1234', '#/autopilot');   // keyword replies live in Setup → Autopilot
   await page.waitForSelector('#repliesPanel [data-act="reply-new"]');
   await page.click('[data-act="reply-new"]');
   await page.fill('[data-form="reply-rule"] input[name=keyword]', 'plan');

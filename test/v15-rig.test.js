@@ -96,8 +96,8 @@ test('an alert that can’t be saved still reaches the phone, once (not on every
 /* ---------------- Fault injection ---------------- */
 test('a full disk: the save is refused cleanly, nothing is half-written, the agent gets a plain answer', async () => {
   const agent = await login('rig@example.com', 'rigpass12345');
-  const file = path.join(store.wsDir(ws.id), 'clients.json');
-  assert.equal((await agent.post('/api/clients', { name: 'Before Full' })).status, 200);
+  const file = path.join(store.wsDir(ws.id), 'coach-notes.json');
+  assert.equal((await agent.post('/api/coach/notes', { text: 'Before Full' })).status, 200);
   const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
   // The alert can't be saved on a full disk either, so it goes straight to the admin's phone.
   let pushed = '';
@@ -105,17 +105,17 @@ test('a full disk: the save is refused cleanly, nothing is half-written, the age
   process.env.ALERT_WEBHOOK_URL = `http://127.0.0.1:${hook.address().port}/ntfy.sh/rig`;
   process.env.FAULTS = 'enospc';
   try {
-    const r = await agent.post('/api/clients', { name: 'During Full' });
+    const r = await agent.post('/api/coach/notes', { text: 'During Full' });
     assert.equal(r.status, 507);
     assert.match(r.data.error, /out of disk space.*Nothing was changed/);
     for (let i = 0; i < 50 && !pushed; i++) await new Promise(r2 => setTimeout(r2, 20));
   } finally { delete process.env.FAULTS; delete process.env.ALERT_WEBHOOK_URL; faults._resetFaults(); hook.close(); }
   assert.match(pushed, /Refused the change[\s\S]*Left for you: df -h/);
   if (before !== null) assert.equal(fs.readFileSync(file, 'utf8'), before, 'the saved copy is untouched');
-  const names = (paths.readJSON(file, []) || []).map(c => c.name);
+  const names = (paths.readJSON(file, []) || []).map(c => c.text);
   assert.ok(names.includes('Before Full') && !names.includes('During Full'));
   assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(n => /\.tmp/.test(n)), [], 'no temp files left');
-  assert.equal((await agent.post('/api/clients', { name: 'After Full' })).status, 200, 'works again once there’s room');
+  assert.equal((await agent.post('/api/coach/notes', { text: 'After Full' })).status, 200, 'works again once there’s room');
 });
 
 test('a frozen FFmpeg is stopped at its time limit, and nothing is left running', async () => {
@@ -165,12 +165,12 @@ test('services that are slow, down, cut off or talking nonsense: each gives a pl
 
 test('a damaged file: repaired from its last good copy, with an alert that says so', async () => {
   const agent = await login('rig@example.com', 'rigpass12345');
-  await agent.post('/api/clients', { name: 'Kept Safe' });
-  await agent.post('/api/clients', { name: 'Kept Too' });
+  await agent.post('/api/coach/notes', { text: 'Kept Safe' });
+  await agent.post('/api/coach/notes', { text: 'Kept Too' });
   if (paths.storageEngine() !== 'json') return;   // SQLite rows: covered in v15-engine
-  const file = path.join(store.wsDir(ws.id), 'clients.json');
+  const file = path.join(store.wsDir(ws.id), 'coach-notes.json');
   fs.writeFileSync(file, '{"broken": [1, 2');
-  const names = (paths.readJSON(file, []) || []).map(c => c.name);
+  const names = (paths.readJSON(file, []) || []).map(c => c.text);
   assert.ok(names.includes('Kept Safe'));
   const a = alerts.listAlerts().find(x => x.title === 'A damaged data file was repaired');
   assert.ok(a && /Restored it from/.test(a.did));

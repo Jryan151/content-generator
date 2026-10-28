@@ -41,13 +41,8 @@ import * as studio from './lib/studio.js';
 import * as memory from './lib/memory.js';
 import * as roles from './lib/roles.js';
 import * as requests from './lib/requests.js';
-import * as desk from './lib/desk.js';
-import * as today from './lib/today.js';
 import * as push from './lib/push.js';
-import * as chauffeur from './lib/chauffeur.js';
-import * as landing from './lib/landing.js';
 import * as signoff from './lib/signoff.js';
-import * as bookings from './lib/bookings.js';
 import * as replies from './lib/replies.js';
 import * as gauges from './lib/gauges.js';
 import * as clock from './lib/clock.js';
@@ -77,8 +72,6 @@ import mount_social from './routes/social.js';
 import mount_billing from './routes/billing.js';
 import mount_admin from './routes/admin.js';
 import mount_people from './routes/people.js';
-import mount_desk from './routes/desk.js';
-import mount_chauffeur from './routes/chauffeur.js';
 import mount_signoff from './routes/signoff.js';
 import mount_replies from './routes/replies.js';
 
@@ -211,7 +204,7 @@ function wsSummary(wsId, caps = null) {
 function wsSummaryAll(ws, wsId) {
   const access = billing.access(ws);
   return {
-    id: ws.id, name: ws.name, onboarded: ws.onboarded, comped: ws.comped, suspended: ws.suspended, managed: billing.isManaged(ws), logo: store.hasLogo(wsId), photo: landing.hasPhoto(wsId),
+    id: ws.id, name: ws.name, onboarded: ws.onboarded, comped: ws.comped, suspended: ws.suspended, managed: billing.isManaged(ws), logo: store.hasLogo(wsId),
     timezone: store.loadConfig(wsId).profile?.timezone || 'America/Denver',   // (v15: the portal writes times in the agent's zone)
     billing: { status: ws.billing?.status || '', plan: ws.billing?.plan || '', periodEnd: ws.billing?.periodEnd || '', cancelAtPeriodEnd: !!ws.billing?.cancelAtPeriodEnd },
     access, used: usedThisMonth(wsId), limit: access.limit,
@@ -302,12 +295,9 @@ export function enqueueVideos(wsId, n, source = 'manual', by = '', force = {}) {
   }
   return jobs;
 }
-// "Your video is ready", with its opening line and cover. Overnight videos stay quiet (they're in the
-// morning greeting), and quiet hours apply.
+// "Your video is ready", with its opening line and cover. Overnight videos stay quiet (they're waiting in
+// Review in the morning), and quiet hours apply.
 export async function notifyReady(job, result, { now = new Date() } = {}) {
-  // A busy week's videos are told about once, when the last one is done (v15).
-  if (chauffeur.inBusyBatch(store.getWorkspace(job.ws), job.id)) return busyCheck(job.ws, { id: job.id, ok: !!result?.videoId }, now);
-  if (result?.keepsakeId) return keepsakeReady(job, result.keepsakeId, now);
   if (job.source === 'overnight' || !result?.videoId) return null;
   const v = store.getVideo(job.ws, result.videoId);
   if (!v || !push.list(job.ws).length) return null;
@@ -318,25 +308,6 @@ export async function notifyReady(job, result, { now = new Date() } = {}) {
     body: String(v.scenes?.[0]?.text || '').slice(0, 140), url: `/#/review/${v.id}`, tag: `video-${v.id}`,
     ...(v.cover ? { image: `/media/${v.cover}` } : {}), ...(v.file && !v.fileDeleted ? { media: `/media/${v.file}` } : {}),
   }, { tz: cfg.profile?.timezone || 'America/Denver', now, daysOff: cfg.profile?.daysOff || [], accountIds: ownersOf(job.ws) });   // the agent approves, so it's for them
-}
-// A keepsake is ready: whoever asked for it hears (it opens the Desk, where it's shared from).
-async function keepsakeReady(job, id, now = new Date()) {
-  const keepsakes = await import('./lib/keepsakes.js');
-  const k = keepsakes.get(job.ws, id);
-  if (!k || !job.by || !push.list(job.ws).length) return null;
-  const cfg = store.loadConfig(job.ws);
-  return push.send(job.ws, { title: `${keepsakes.KINDS[k.kind]} for ${k.name} is ready`, body: 'It’s in Leads, ready to text.', url: '/#/leads', tag: `keepsake-${k.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', now, accountIds: [job.by] });
-}
-// The busy week's one notification: all its videos made (or as many as could be), to review in one sitting.
-async function busyCheck(wsId, finishing = null, now = new Date()) {
-  const r = chauffeur.busyFinished(wsId, finishing);
-  if (!r || !push.list(wsId).length) return null;
-  const cfg = store.loadConfig(wsId);
-  return push.send(wsId, {
-    title: r.made ? 'Your week is ready' : 'Your week’s videos didn’t finish',
-    body: r.made ? `${r.made} video${r.made === 1 ? '' : 's'} to review in one sitting.${r.failed ? ` ${r.failed} didn’t finish; Create can make ${r.failed === 1 ? 'it' : 'them'} again.` : ''}` : 'Create can make them again.',
-    url: r.made ? '/#/review/focus' : '/#/create', tag: 'busy-week',
-  }, { tz: cfg.profile?.timezone || 'America/Denver', now, daysOff: cfg.profile?.daysOff || [], accountIds: ownersOf(wsId) });
 }
 export async function runJob(job, log) {
   const ws = store.getWorkspace(job.ws);
@@ -351,31 +322,15 @@ export async function runJob(job, log) {
     if (!ws.onboarded) throw quiet('Finish setup first.');
     // The brief and scenes as they were when Render was tapped (and checked), not as edited since.
     const built = job.opts.scenes ? { ...d, brief: job.opts.brief, scenes: job.opts.scenes, notes: job.opts.notes || [] } : d;
-    // A resubmission after "Needs changes" carries the checklist as it was ticked, and closes the request.
-    const asked = job.opts.replace ? store.getVideo(job.ws, job.opts.replace)?.needsChanges : null;
-    const h = asked?.handoffId ? desk.list(job.ws).find(x => x.id === asked.handoffId) : null;
-    if (h) built.changes = { handoffId: h.id, checklist: h.checklist || [] };
     try {
       const v = await makeVideo({ ws: job.ws, studio: built, source: 'studio', log, checkpoint: jobDir(job), limp: true, replace: job.opts.replace || '', by: job.by || '' });
       studio.save(job.ws, d.id, { status: 'done', videoId: v.id, error: '' });
-      if (h && h.status === 'open') desk.finish(job.ws, h.id, job.by || '');
       return { videoId: v.id };
     } catch (e) {
       // A failure that will be tried again keeps the draft locked; only the last one frees it. A try the
       // watchdog gave up on leaves the draft alone (the next try, or the job's status, decides it).
       const last = e.permanent || (job.attempts >= queue.MAX_ATTEMPTS && !(queue.isOutage(e) && (job.waits || 0) < queue.MAX_OUTAGE_WAITS));
       if (last && !currentSignal()?.aborted) studio.save(job.ws, d.id, { status: 'draft', error: plainError(e.message) });
-      throw e;
-    }
-  }
-  // A private video for one client (v15): its own list, never the agent's videos.
-  if (job.kind === 'keepsake') {
-    const { makeKeepsake } = await import('./pipeline.js');
-    const keepsakes = await import('./lib/keepsakes.js');
-    try { const k = await makeKeepsake({ ws: job.ws, id: job.opts.id, log }); return { keepsakeId: k.id }; }
-    catch (e) {
-      const last = e.permanent || (job.attempts >= queue.MAX_ATTEMPTS && !(queue.isOutage(e) && (job.waits || 0) < queue.MAX_OUTAGE_WAITS));
-      if (last && !currentSignal()?.aborted) keepsakes.save(job.ws, job.opts.id, { status: 'failed', error: plainError(e.message) });
       throw e;
     }
   }
@@ -501,7 +456,6 @@ const workingConfig = (wsId, body, me) => (body.config ? stampFacts(store.loadCo
 
 /* ----- Mindset: the agent working on themselves, and the parts that shape their videos ----- */
 const mindset = () => import('./lib/mindset.js');
-const clientsLib = () => import('./lib/clients.js');
 const todayFor = cfg => mc.dayKey(Date.now(), cfg.profile?.timezone || 'America/Denver');
 /* ----- Smart Content: automatic links, a fit check on every link, ✦ Generate ----- */
 const content = () => import('./lib/content.js');
@@ -569,28 +523,23 @@ const ROUTE_CAPS = {
   'POST /api/coach/plan/skip': 'make', 'POST /api/coach/plan': 'make',
   'POST /api/coach/reply': 'replies', 'GET /api/comms/calibration': 'replies',
   'GET /api/mindset': 'mindset', 'PUT /api/mindset': 'mindset', 'POST /api/mindset/check': 'mindset', 'POST /api/mindset/principle': 'mindset', 'POST /api/mindset/practice': 'mindset', 'DELETE /api/mindset/practice/:id': 'mindset', 'POST /api/mindset/audit': 'mindset', 'POST /api/mindset/audit/advice': 'mindset', 'POST /api/mindset/reflection': 'mindset', 'POST /api/mindset/lens': 'mindset',
-  'GET /api/clients': 'clients', 'POST /api/clients/:id/care': 'clients', 'POST /api/clients/:id/note': 'clients', 'GET /api/keepsakes': 'clients', 'POST /api/keepsakes': 'clients', 'DELETE /api/keepsakes/:id': 'clients', 'POST /api/clients': 'clients', 'PUT /api/clients/:id': 'clients', 'POST /api/clients/:id/reached': 'clients', 'DELETE /api/clients/:id': 'clients',
   'POST /api/content/autolink': 'settings', 'POST /api/content/relevance': 'settings', 'POST /api/content/link-all': 'settings', 'POST /api/content/generate': 'settings',
   'GET /api/studio': 'make', 'GET /api/studio/:id': 'make', 'POST /api/studio': 'make', 'PUT /api/studio/:id': 'make', 'DELETE /api/studio/:id': 'make', 'POST /api/studio/:id/hooks': 'make', 'POST /api/studio/:id/fill': 'make', 'POST /api/studio/:id/rewrite': 'make', 'POST /api/studio/:id/ideas': 'make', 'POST /api/studio/:id/footage': 'make', 'POST /api/studio/:id/voice': 'make', 'POST /api/studio/:id/render': 'make', 'POST /api/spell': 'make',
   'POST /api/jobs': 'make', 'DELETE /api/jobs/:id': 'make', 'POST /api/videos/:id/fix': 'make', 'POST /api/videos/:id/clips': 'make', 'POST /api/videos/:id/cover': 'make',
-  'POST /api/videos/:id/approve': 'approve', 'POST /api/videos/:id/changes': 'approve', 'POST /api/videos/:id/reject': 'approve', 'POST /api/videos/:id/reopen': 'approve', 'DELETE /api/videos/:id': 'approve',
+  'POST /api/videos/:id/approve': 'approve', 'POST /api/videos/:id/reject': 'approve', 'POST /api/videos/:id/reopen': 'approve', 'DELETE /api/videos/:id': 'approve',
   'POST /api/videos/:id/posted': 'post', 'POST /api/videos/:id/autopost': 'post', 'DELETE /api/videos/:id/autopost': 'post', 'POST /api/videos/:id/facebook': 'post', 'DELETE /api/videos/:id/facebook': 'post', 'GET /api/videos/:id/facebook-text': 'post',
   'POST /api/videos/:id/results': 'results', 'GET /api/records.csv': 'data', 'GET /api/records.html': 'data', 'POST /api/videos/:id/message': 'results',
-  'POST /api/milestones/:id/seen': 'view', 'POST /api/memory/forget': 'settings',
+  'POST /api/memory/forget': 'settings',
   'POST /api/push/subscribe': ['view', 'signoff'], 'POST /api/push/unsubscribe': ['view', 'signoff'], 'POST /api/push/test': ['view', 'signoff'], 'GET /api/push': ['view', 'signoff'],
-  'POST /api/brand/logo': 'settings', 'POST /api/brand/photo': 'settings', 'DELETE /api/brand/photo': 'settings', 'DELETE /api/brand/logo': 'settings', 'GET /api/brand/logo-colors': 'settings',
+  'POST /api/brand/logo': 'settings', 'DELETE /api/brand/logo': 'settings', 'GET /api/brand/logo-colors': 'settings',
   'POST /api/library': 'settings', 'POST /api/library/:id': 'settings', 'DELETE /api/library/:id': 'settings',
   'POST /api/instagram/connect': 'connect', 'DELETE /api/instagram': 'connect', 'POST /api/facebook/connect': 'connect', 'POST /api/facebook/page': 'connect', 'DELETE /api/facebook': 'connect',
   'GET /api/billing': 'billing', 'POST /api/billing/checkout': 'billing', 'POST /api/billing/portal': 'billing',
   'GET /api/requests': 'view', 'POST /api/requests': 'requests',
   'GET /api/replies': 'replies', 'POST /api/replies/rules': 'replies', 'POST /api/replies/rules/:id/approve': 'approve', 'DELETE /api/replies/rules/:id': 'replies', 'POST /api/replies/on': 'approve', 'POST /api/replies/try': 'replies',
-  'GET /api/bookings/hook': 'connect', 'POST /api/bookings/hook': 'connect',
   'GET /api/people': 'people', 'POST /api/people/signoff': 'people', 'POST /api/people/invite': 'people', 'PUT /api/people/:id': 'people', 'DELETE /api/people/:id': 'people', 'POST /api/people/invites/revoke': 'people', 'POST /api/billing/seats': 'billing',
   // The compliance reviewer's page (v15): theirs alone.
   'GET /api/signoff': 'signoff', 'POST /api/signoff/:id': 'signoff',
-  // Away mode and the busy week (v15): the agent's own.
-  'GET /api/away': 'approve', 'POST /api/away': 'approve', 'DELETE /api/away': 'approve', 'POST /api/away/welcome': 'approve', 'POST /api/busy-week': 'make', 'DELETE /api/busy-week': 'make',
-  'GET /api/desk': 'view', 'POST /api/desk/handoffs': 'view', 'POST /api/desk/handoffs/:id/done': 'view', 'POST /api/desk/handoffs/:id/check': 'view', 'DELETE /api/desk/handoffs/:id': 'view', 'GET /api/desk/activity': 'people',
 };
 export const capFor = r => ROUTE_CAPS[`${r.method} ${r.pattern}`] || (r.method === 'GET' ? 'view' : null);
 export const deadCaps = () => Object.keys(ROUTE_CAPS).filter(k => !routes.some(r => `${r.method} ${r.pattern}` === k));
@@ -625,7 +574,6 @@ const AUDIT = {
   'PUT /api/config': 'settings.saved',
   'POST /api/setup/finish': c => ({ action: 'setup.finished', detail: c.body.acceptTerms ? `accepted terms version ${terms().version}` : '' }),
   'POST /api/videos/:id/approve': c => ({ action: 'video.approved', target: c.params.id }),
-  'POST /api/videos/:id/changes': c => ({ action: 'video.changes', target: c.params.id }),
   'POST /api/videos/:id/reject': c => ({ action: 'video.rejected', target: c.params.id, detail: REJECT_REASONS.includes(c.body.reason) ? c.body.reason : 'Other' }),
   'POST /api/videos/:id/reopen': c => ({ action: 'video.reopened', target: c.params.id }),
   'POST /api/videos/:id/posted': c => ({ action: 'video.posted', target: c.params.id, detail: clip(c.body.url, 200) }),
@@ -647,23 +595,17 @@ const AUDIT = {
   'DELETE /api/admin/workspaces/:id/delete-request': c => ({ action: 'deletion.declined', ws: c.params.id }),
   'POST /api/admin/access-requests/:id': (c, out) => ({ action: `access.${c.body.status}`, target: out?.request?.email || c.params.id }),
   'POST /api/admin/workspaces/:id/confirm-facts': (c, out) => (out?.confirmed?.length ? { action: 'facts.confirmed', ws: c.params.id, detail: `${out.confirmed.length} fact(s) confirmed by admin for a done-for-you client: ${out.confirmed.map(f => f.text).join(' | ').slice(0, 250)}` } : null),
-  'POST /api/clients': 'client.added', 'PUT /api/clients/:id': 'client.saved', 'POST /api/clients/:id/reached': 'client.reached', 'DELETE /api/clients/:id': 'client.deleted',
   'POST /api/videos/:id/fix': c => ({ action: 'video.fixed', target: c.params.id }),
   'POST /api/people/invite': c => ({ action: 'people.invited', target: store.normEmail(c.body.email), detail: c.body.canPost ? 'can post' : '' }),
   'PUT /api/people/:id': c => ({ action: 'people.changed', target: emailOf(c.params.id), detail: 'canEdit' in c.body ? (c.body.canEdit ? 'can edit settings' : 'can’t edit settings') : c.body.canPost ? 'can post' : 'can’t post' }),
   'DELETE /api/people/:id': c => ({ action: 'people.removed', target: emailOf(c.params.id) }),
   'POST /api/people/invites/revoke': c => ({ action: 'people.uninvited', target: store.normEmail(c.body.email) }),
   'POST /api/billing/seats': c => ({ action: 'seats.changed', detail: String(Math.round(Number(c.body.seats) || 0)) }),
-  'POST /api/desk/handoffs': c => ({ action: 'handoff.made', detail: clip(c.body.kind, 20) }),
-  'POST /api/desk/handoffs/:id/done': c => ({ action: 'handoff.done', target: c.params.id }),
   'POST /api/signoff/:id': c => ({ action: c.body.ok === true ? 'video.signedoff' : 'video.sentback', target: c.params.id, detail: clip(c.body.note, 120) }),
   'POST /api/people/signoff': c => ({ action: c.body.on ? 'signoff.on' : 'signoff.off' }),
   'POST /api/replies/rules': c => ({ action: 'replies.saved', detail: clip(c.body.keyword, 20) }),
   'POST /api/replies/rules/:id/approve': c => ({ action: 'replies.approved', target: c.params.id }),
   'POST /api/replies/on': c => ({ action: c.body.on ? 'replies.on' : 'replies.off' }),
-  'POST /api/away': c => ({ action: 'away.started', detail: `back on ${String(c.body?.back || '').slice(0, 10)}` }),
-  'DELETE /api/away': () => ({ action: 'away.ended' }),
-  'POST /api/busy-week': () => ({ action: 'busy.started' }),
   'POST /api/requests': (c, out) => ({ action: 'request.made', target: out?.request?.id || '', detail: clip(c.body.text, 120) }),
   'POST /api/admin/requests/:ws/:id': c => ({ action: 'request.done', ws: c.params.ws, target: c.params.id }),
   'POST /api/workspaces/switch': c => ({ action: 'workspace.switched', ws: clip(c.body.workspaceId, 40) }),
@@ -772,11 +714,10 @@ const STATIC = {
   '/screens/communicate.js': ['public/screens/communicate.js', 'text/javascript; charset=utf-8'],
   '/screens/content.js': ['public/screens/content.js', 'text/javascript; charset=utf-8'],
   '/screens/create.js': ['public/screens/create.js', 'text/javascript; charset=utf-8'],
-  '/screens/desk.js': ['public/screens/desk.js', 'text/javascript; charset=utf-8'],
   '/screens/signoff.js': ['public/screens/signoff.js', 'text/javascript; charset=utf-8'],
   '/screens/replies.js': ['public/screens/replies.js', 'text/javascript; charset=utf-8'],
-  '/screens/today.js': ['public/screens/today.js', 'text/javascript; charset=utf-8'],
   '/screens/grow.js': ['public/screens/grow.js', 'text/javascript; charset=utf-8'],
+  '/screens/guide.js': ['public/screens/guide.js', 'text/javascript; charset=utf-8'],
   '/screens/steps.js': ['public/screens/steps.js', 'text/javascript; charset=utf-8'],
   '/screens/mindset.js': ['public/screens/mindset.js', 'text/javascript; charset=utf-8'],
   '/screens/review.js': ['public/screens/review.js', 'text/javascript; charset=utf-8'],
@@ -847,74 +788,17 @@ function pub(req, res, url) {
 }
 
 // A video's tracking link: count the click, then on to the agent's booking page. No login, by design.
-// The tracking link (v15: a personal page, lib/landing.js). /r/<code> is the page (or straight to the
-// booking page, when Brand → Booking link says so); /r/<code>/book counts a Pick a time tap and goes to
-// the booking page; /r/<code>/photo is the agent's photo; a POST to /r/<code> is the short form.
-const LANDING_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
-async function trackClick(req, res, url) {
-  const [, , code = '', what = '', extra] = url.pathname.split('/');
-  const headers = { ...BASE_HEADERS, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
-  const html = (status, body) => { res.writeHead(status, { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LANDING_CSP }); res.end(req.method === 'HEAD' ? '' : body); };
-  const go = to => { res.writeHead(302, { ...headers, Location: to }); res.end(); };
-  const p = extra === undefined ? landing.pageFor(code) : null;
-  if (what === 'photo') {
-    if (!['GET', 'HEAD'].includes(req.method) || !p || !landing.hasPhoto(p.ws.id)) return send(res, 404, { error: 'Not found' });
-    return streamFile(req, res, landing.photoPath(p.ws.id), 'image/jpeg');
-  }
-  if (!p || (what && what !== 'book')) return html(404, landing.notActive());
-  const ip = clientIp(req), ua = req.headers['user-agent'] || '';
-  if (what === 'book') {
-    if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' });
-    if (!p.booking) return html(404, landing.notActive());
-    if (req.method === 'GET') trackLinks.tally(code, { ip, ua, kind: 'book' });
-    return go(bookings.bookingUrlFor(p.booking, code));   // (v15) the code rides along, so a booking traces back here
-  }
-  if (req.method === 'POST') {
-    // A public form with no login or cookies (so nothing to forge); spam is held back by the hidden
-    // field and the few-an-hour limit per address (lib/landing.js). Browsers send "Origin: null" here
-    // (the page asks for no referrer), so the origin isn't checked.
-    let form = {};
-    try { form = Object.fromEntries(new URLSearchParams((await readRaw(req, 8000)).toString('utf8'))); } catch { return html(413, landing.render(p, { error: 'That was too long. Try a shorter question.' })); }
-    try {
-      const r = landing.addLead(p, form, { ip });
-      if (!r.bot && !r.dup) leadNotice(p, r.client).catch(e => console.error('[push]', e.message));
-      return html(200, landing.render(p, { state: 'thanks', values: r.values }));
-    } catch (e) {
-      // The visitor sees only what's about their form; anything else is ours, in the log.
-      if (e.status === 400 || e.status === 429) return html(e.status, landing.render(p, { error: e.message, values: e.values || {} }));
-      console.error('[landing]', e.message);
-      return html(500, landing.render(p, { error: 'Something went wrong on our side. Try again in a moment.', values: e.values || { name: String(form.name || '').slice(0, 60), contact: String(form.contact || '').slice(0, 120), message: String(form.message || '').slice(0, 300) } }));
-    }
-  }
+function trackClick(req, res, url) {
   if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' });
-  if (req.method === 'GET') trackLinks.tally(code, { ip, ua });
-  if (p.direct && p.booking) return go(bookings.bookingUrlFor(p.booking, code));
-  return html(200, landing.render(p));
-}
-// A lead from a video's page: the agent and their assistants hear about it (quiet hours and Away apply).
-async function leadNotice(p, client) {
-  const cfg = store.loadConfig(p.ws.id), ids = store.listAccounts().filter(a => !a.disabled && ['owner', 'assistant'].includes(roles.membership(a, p.ws.id)?.role)).map(a => a.id);
-  if (!ids.length || !push.list(p.ws.id).length) return null;
-  return push.send(p.ws.id, { title: 'A new lead from your video', body: `${client.name} left their ${client.email ? 'email' : 'number'} after watching “${String(p.video.scenes?.[0]?.text || '').slice(0, 80)}”.`, url: '/#/leads', tag: `lead-${client.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids });
+  const code = url.pathname.split('/')[2] || '';
+  const r = trackLinks.resolve(code), w = r ? store.getWorkspace(r.ws) : null, cfg = w && !w.suspended && store.getVideo(r.ws, r.v) ? store.loadConfig(r.ws) : null;
+  const to = cfg && okBookingUrl(cfg.look?.bookingUrl) ? cfg.look.bookingUrl : '';
+  if (!to) return send(res, 404, { error: 'This link isn’t active.' });
+  if (req.method === 'GET') trackLinks.tally(code, { ip: clientIp(req), ua: req.headers['user-agent'] || '' });
+  res.writeHead(302, { ...BASE_HEADERS, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex', Location: to });
+  res.end();
 }
 
-// A booking tool telling us someone booked a time (v15, lib/bookings.js): the private address names the
-// workspace; with a signing key set, the call must be signed. Always a quick answer (tools retry on errors).
-async function bookingHook(req, res, url) {
-  if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-  const token = url.pathname.split('/')[3], wsId = bookings.wsForToken(token);
-  if (!wsId || !store.getWorkspace(wsId)) return send(res, 404, { error: 'Not found' });
-  if (!bookings.allow(token)) return send(res, 429, { error: 'Too many calls' });
-  let raw;
-  try { raw = (await readRaw(req, 64000)).toString('utf8'); } catch { return send(res, 413, { error: 'Too large' }); }
-  if (!bookings.verify(wsId, raw, req.headers)) return send(res, 401, { error: 'Signature didn’t match' });
-  let body;
-  try { body = JSON.parse(raw); } catch { return send(res, 400, { error: 'Send JSON' }); }
-  let r;
-  try { r = bookings.receive(wsId, body); } catch (e) { console.error('[bookings]', e.message); return send(res, e.status === 409 ? 200 : 500, { ok: false }); }
-  if (r.kind === 'booked' && r.client) bookingNotice(wsId, r).catch(e => console.error('[push]', e.message));
-  return send(res, 200, { ok: true });
-}
 // Instagram's webhook (v15, lib/replies.js): Meta checks the address once (the verify token), then sends
 // comments and messages, signed with the app secret. Answered at once; replies go out just after.
 async function instagramHook(req, res, url) {
@@ -936,15 +820,10 @@ async function instagramHook(req, res, url) {
     try { await replies.handle(w, ev, { notice: replyNotice }); } catch (e) { console.error('[replies]', e.message); }
   }
 }
-function replyNotice(wsId, client, rule, video) {
-  const cfg = store.loadConfig(wsId), ids = store.listAccounts().filter(a => !a.disabled && ['owner', 'assistant'].includes(roles.membership(a, wsId)?.role)).map(a => a.id);
-  if (!client || !ids.length || !push.list(wsId).length) return;
-  push.send(wsId, { title: `Someone asked for ${rule.keyword}`, body: `${client.name} ${rule.where === 'dm' ? 'messaged' : 'commented'} “${rule.keyword}”${video ? ' on a video' : ''}. Your reply went to them; they’re in Leads.`, url: '/#/leads', tag: `reply-${client.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids }).catch(e => console.error('[push]', e.message));
-}
-async function bookingNotice(wsId, r) {
-  const cfg = store.loadConfig(wsId), ids = store.listAccounts().filter(a => !a.disabled && ['owner', 'assistant'].includes(roles.membership(a, wsId)?.role)).map(a => a.id);
-  if (!ids.length || !push.list(wsId).length) return null;
-  return push.send(wsId, { title: r.video ? 'A booking from your video' : 'A new booking', body: `${r.client.name} booked a time${r.at ? ` for ${r.at}` : ''}${r.video ? ` after watching “${String(r.video.scenes?.[0]?.text || '').slice(0, 70)}”` : ''}.`, url: '/#/leads', tag: `booking-${r.client.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids });
+function replyNotice(wsId, person, rule, video) {
+  const cfg = store.loadConfig(wsId), ids = ownersOf(wsId);
+  if (!person || !ids.length || !push.list(wsId).length) return;
+  push.send(wsId, { title: `Someone asked for ${rule.keyword}`, body: `${person.name} ${rule.where === 'dm' ? 'messaged' : 'commented'} “${rule.keyword}”${video ? ' on a video' : ''}. Your reply went to them.`, url: '/#/replies', tag: `reply-${rule.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids }).catch(e => console.error('[push]', e.message));
 }
 
 async function stripeWebhook(req, res) {
@@ -976,8 +855,7 @@ export function createServer() {
       if (url.pathname.startsWith('/api/')) return await api(req, res, url);
       if (url.pathname.startsWith('/media/')) return media(req, res, url);
       if (url.pathname.startsWith('/pub/')) return pub(req, res, url);
-      if (url.pathname.startsWith('/r/')) return await trackClick(req, res, url);
-      if (url.pathname.startsWith('/hooks/booking/')) return await bookingHook(req, res, url);
+      if (url.pathname.startsWith('/r/')) return trackClick(req, res, url);
       if (url.pathname === '/hooks/instagram') return await instagramHook(req, res, url);
       return serveStatic(req, res, url);
     } catch (e) {
@@ -1025,8 +903,6 @@ export async function proactiveJobs(now = new Date(), log = console.log) {
     // refill, so they still run if it's back on within their window (the Monday morning, or today).
     if (!ws.onboarded || ws.suspended || !switches.isOn('overnight', ws) || !switches.isOn('videos', ws)) continue;
     const cfg = store.loadConfig(ws.id), tz = cfg.profile?.timezone || 'America/Denver', { date, hour } = localTime(tz, now);
-    // Away (v15): no plan or refills to review while she's gone (the posting plan keeps posting).
-    if (chauffeur.awayOn(ws, date)) continue;
     // 1. The Monday plan: once per local Monday (`date` names the week).
     // (The coach writes the plan: with it switched off, the plan waits; the refills below still run.)
     if (cfg.schedule?.autoPlan && switches.isOn('coach', ws) && weekdayIn(tz, now.getTime()) === 1 && hour >= AUTO_PLAN_HOURS[0] && hour < AUTO_PLAN_HOURS[1] && ws.autoPlanWeek !== date) {
@@ -1102,7 +978,6 @@ function hookAlerts() {
 // A video that fails for good, for a reason the agent can't fix, is sent to you as an alert.
 function jobFailed(job, e) {
   fs.rmSync(jobDir(job), { recursive: true, force: true });   // no more tries: its saved stages go
-  busyCheck(job.ws, { id: job.id, ok: false }).catch(err => console.error('[push]', err.message));
   if (e?.quiet) return;
   const ws = store.getWorkspace(job.ws);
   alerts.notify({ level: 'error', kind: 'video', title: job.kind === 'fix' ? 'A scene fix failed' : `A${job.source === 'overnight' ? 'n overnight' : ''} video failed`, text: String(e?.message || job.error || 'Unknown error'), did: e?.permanent ? 'Stopped: it can’t work as things are, so it wasn’t tried again. The agent sees it failed.' : 'Tried it again (and waited out any outage) before giving up; the agent sees it failed.', run: 'If it’s not something the agent can fix, check pm2 logs generator --lines 100.', ws: job.ws, workspaceName: ws?.name });
@@ -1263,8 +1138,8 @@ export function main() {
 /* ---------------- The routes, by area (routes/*.js) ---------------- */
 // Mounted last, in the order they were written (the first route that matches a request answers it),
 // with the helpers they share with the rest of the server.
-const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, busyCheck, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clientsLib, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, hasSeat, ipLimit, jobView, keyProblem, linkError, lowFor, mailLink, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, pendingAssistantInvites, peopleRoom, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
-for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_billing, mount_admin, mount_people, mount_desk, mount_chauffeur, mount_signoff, mount_replies]) mount(ROUTE_CTX);
+const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, content, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fitSig, fixing, getV, hasSeat, ipLimit, jobView, keyProblem, linkError, lowFor, mailLink, main, media, mergeFit, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, pendingAssistantInvites, peopleRoom, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
+for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_billing, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
 
 // On restart (pm2 sends SIGINT), main() hands running videos back and writes what's waiting, then exits.
 // (Compared as real paths: the app folder, or `current`, may be a link.)

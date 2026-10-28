@@ -18,7 +18,6 @@ const MC = await import('../mindset-core.js');
 const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const memory = await import('../lib/memory.js');
-const todayLib = await import('../lib/today.js');
 const push = await import('../lib/push.js');
 const queue = await import('../lib/queue.js');
 const { colorsFrom } = await import('../lib/logocolors.js');
@@ -54,49 +53,6 @@ test('days off: streaks don’t break and “never miss twice” stays quiet; th
   const m = { habits: [{ id: 'h1', text: 'Call' }], checks: { h1: ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'] } };
   assert.equal(MC.growthScore(m, [], { today: '2026-10-16', off }), 40, 'every working day done is a full habit score');
   assert.ok(MC.growthScore(m, [], { today: '2026-10-16' }) < 40);
-});
-
-test('today: good news first, a gentle restart, heads-ups at 80%, the principle, and nothing about work on a day off', () => {
-  const w2 = store.createWorkspace({ name: 'Today', comped: true });
-  store.addVideo(w2.id, vid('g1', 'posted', { posted: { at: iso(3) }, results: { messages: 2 }, approval: { at: iso(4) } }));
-  store.addVideo(w2.id, vid('g2', 'pending'));
-  const t = todayLib.today(w2.id, { name: 'Rosa Diaz' }, { allowance: { used: 8, limit: 10, spend: { warn: true, pct: 85 } } });
-  assert.match(t.good[0], /“Opening g1” brought 2 messages/);
-  assert.equal(t.restart, '');
-  assert.ok(t.heads.some(h => /8 of your 10 videos/.test(h)) && t.heads.some(h => /85%/.test(h)));
-  assert.ok(t.principle?.text && t.principle.challenge);
-  assert.equal(todayLib.today(w2.id, {}, { allowance: { used: 3, limit: 10 } }).heads.length, 0);
-  // Ten quiet days: a gentle way back in.
-  const w3 = store.createWorkspace({ name: 'Away', comped: true });
-  store.addVideo(w3.id, vid('a1', 'approved', { approval: { at: iso(15) } }));
-  store.addVideo(w3.id, vid('a2', 'pending'));
-  assert.match(todayLib.today(w3.id, {}).restart, /^Welcome back\. No catching up needed: 1 video is waiting/);
-  // A day off: good news and the milestone stay; work, nudges and heads-ups don't.
-  const cfg = store.loadConfig(w2.id); cfg.profile.daysOff = [0, 1, 2, 3, 4, 5, 6].slice(0, 6); store.saveConfig(w2.id, cfg);
-  const weekday = new Date(`${todayLib.today(w2.id, {}).date}T12:00:00Z`).getUTCDay();
-  cfg.profile.daysOff = [weekday]; store.saveConfig(w2.id, M.migrate(cfg));
-  const off = todayLib.today(w2.id, {}, { allowance: { used: 9, limit: 10 } });
-  assert.equal(off.dayOff, true); assert.equal(off.pending, 0); assert.equal(off.line, ''); assert.deepEqual(off.heads, []); assert.equal(off.principle, null);
-  assert.ok(off.good.length);
-  assert.deepEqual(M.migrate({ ...cfg, profile: { ...cfg.profile, daysOff: [9, 'x', 1, 1, 3] } }).profile.daysOff, [1, 3]);
-});
-
-test('three rejections in a row ask what’s off; an approval ends it', () => {
-  const vs = [vid('r1', 'rejected', { rejection: { at: iso(1), reason: 'Weak opening' } }), vid('r2', 'rejected', { rejection: { at: iso(2), reason: 'Too salesy' } }), vid('r3', 'rejected', { rejection: { at: iso(3), reason: 'Weak opening' } }), vid('ok', 'approved', { approval: { at: iso(4) } })];
-  assert.deepEqual(todayLib.rejectionStreak(vs), { count: 3, since: 'r1', reasons: ['Weak opening', 'Too salesy'] });
-  assert.equal(todayLib.rejectionStreak([vid('ok2', 'approved', { approval: { at: iso(0) } }), ...vs]), null);
-  assert.equal(todayLib.rejectionStreak(vs.slice(1)), null, 'two in a row isn’t a streak');
-});
-
-test('the monthly recap', async () => {
-  const month = new Date().toISOString().slice(0, 7);
-  store.addVideo(ws.id, vid('m1', 'posted', { posted: { at: iso(0) }, results: { messages: 3, views: 900 }, approval: { at: iso(0) } }));
-  store.addVideo(ws.id, vid('m2', 'posted', { posted: { at: iso(0) }, results: { messages: 0, views: 300 }, meta: { painPoint: 'Debt' }, approval: { at: iso(0) } }));
-  const r = await c.get(`/api/recap?month=${month}`);
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.equal(r.data.recap.posted, 2); assert.equal(r.data.recap.messages, 3); assert.equal(r.data.recap.views, 1200);
-  assert.equal(r.data.recap.best.id, 'm1'); assert.deepEqual(r.data.recap.topTopic, { label: 'Funeral costs', messages: 3 });
-  assert.notEqual((await c.get('/api/recap?month=2999-01')).data.recap.month, '2999-01', 'no future months');
 });
 
 test('pronunciation: the voice says it your way, captions keep the spelling', () => {

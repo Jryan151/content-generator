@@ -211,17 +211,3 @@ test('the coach never comes back empty-handed: lines that would stop a render ar
   const { heldWhy } = await import('../lib/coach.js');
   assert.equal(heldWhy([{ reason: 'dropped “often”' }, { reason: 'dropped “often”' }]), '2 that dropped “often”');
 });
-
-test('the first-video note shows once, and only for the real first video', async () => {
-  const today = await import('../lib/today.js');
-  const memory = await import('../lib/memory.js');
-  const w2 = store.createWorkspace({ name: 'Milestones', comped: true });
-  assert.equal(today.nextMilestone(w2.id, []), null, 'the first look starts the clock quietly');
-  const v = n => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, status: 'pending', createdAt: new Date().toISOString() }));
-  assert.equal(today.nextMilestone(w2.id, v(1))?.id, 'first_video');
-  assert.equal(today.nextMilestone(w2.id, v(1)), null, 'once');
-  const w3 = store.createWorkspace({ name: 'Seven at once', comped: true });
-  today.nextMilestone(w3.id, []);
-  assert.equal(today.nextMilestone(w3.id, v(7)), null, 'seven already made: not “your first video”');
-  assert.ok(memory.read(w3.id).milestones.seen.first_video, 'set aside quietly');
-});

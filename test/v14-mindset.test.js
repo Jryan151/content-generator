@@ -75,7 +75,7 @@ test('the profile shapes videos: sweet spot, objections as topics, give before a
   assert.doesNotMatch(P.buildPrompt(c0, M.roll(c0, seeded(5))).user, /'S WHY/);
 });
 
-test('the tab: habits, the principle, practice, audit, reflection, lens and relationship notes', async () => {
+test('the tab: habits, the principle, practice, audit, reflection and lens', async () => {
   let v = (await c.get('/api/mindset')).data;
   assert.ok(v.principle.text && v.principle.book.title);
   assert.equal(v.mindset.habits.length, 5);
@@ -115,19 +115,9 @@ test('the tab: habits, the principle, practice, audit, reflection, lens and rela
   const gentle = (await c.post('/api/mindset/lens', { text: 'You don’t need to worry about being a burden. Policies can often fit tight budgets.' })).data;
   assert.equal(gentle.honest, true, 'naming a worry isn’t pressure'); assert.deepEqual(gentle.flags, [{ kind: 'fear', words: 'being a burden' }]);
   assert.ok(gentle.strengths.some(x => /qualifier “often”/.test(x)), 'credit for the qualifier kept');
-  // Relationship notes: a client, who's due, and the one thing to ask about.
-  const cl = (await c.post('/api/clients', { name: 'Rosa Begay', family: 'Granddaughter Mia graduates in May', next: '2020-01-01', ssn: 'never stored' })).data.client;
-  assert.equal(cl.ssn, undefined);
-  v = (await c.get('/api/mindset')).data;
-  assert.deepEqual(v.due.map(d => [d.name, d.ask]), [['Rosa Begay', 'Ask about granddaughter Mia graduates in May.']]);
-  assert.equal((await c.put('/api/clients/' + cl.id, { name: '' })).status, 400);
-  assert.equal((await c.put('/api/clients/' + cl.id, { interests: 'Gardening' })).data.client.interests, 'Gardening');
-  const exp = (await import('../lib/data.js')).exportWorkspace(ws.id);
-  assert.equal(exp.clients[0].name, 'Rosa Begay'); assert.ok(exp.mindset.habits);
-  assert.equal((await c.del('/api/clients/' + cl.id)).status, 200);
 });
 
-test('review fixes: a config save never wipes Mindset, explicit habit ticks, reached out, odd input, early warnings', async () => {
+test('review fixes: a config save never wipes Mindset, explicit habit ticks, odd input, early warnings', async () => {
   await c.put('/api/mindset', { profile: { why: { why: 'Families deserve plain answers.', how: '', what: '', show: 'off' } } });
   const stale = cfg(); stale.mindset = { ...stale.mindset, why: { why: '', how: '', what: '', show: 'off' } };
   const saved = (await c.put('/api/config', { config: stale })).data.config;
@@ -136,9 +126,6 @@ test('review fixes: a config save never wipes Mindset, explicit habit ticks, rea
   await c.post('/api/mindset/check', { habitId: h.id, done: true });
   const v1 = (await c.post('/api/mindset/check', { habitId: h.id, done: true })).data;
   assert.equal(v1.streaks[h.id].today, true, 'ticking twice keeps it ticked');
-  const cl = (await c.post('/api/clients', { name: 'Ed', next: '2020-02-02' })).data.client;
-  const r = (await c.post(`/api/clients/${cl.id}/reached`)).data.client;
-  assert.equal(r.next, ''); assert.match(r.last, /^\d{4}-\d{2}-\d{2}$/);
   // Inherited names aren't kinds of habits or skills.
   const v2 = (await c.put('/api/mindset', { habits: [{ text: 'x', auto: 'toString' }] })).data;
   assert.equal(v2.mindset.habits[0].auto, undefined);

@@ -313,18 +313,3 @@ test('a data change that can’t touch one (damaged) workspace skips it and goes
     assert.equal((await client(port).get('/api/health')).data.checks.changes, true, 'later updates aren’t blocked');
   } finally { changes.CHANGES.splice(-1, 1); }
 });
-
-test('milestones count archived videos without reading the archive', async () => {
-  const today = await import('../lib/today.js');
-  const w = store.createWorkspace({ name: 'Veteran', comped: true });
-  const now = Date.now(), iso = t => new Date(t).toISOString();
-  const vids = Array.from({ length: 12 }, (_, i) => ({ id: `a${i}`, status: 'posted', createdAt: iso(now - (400 + i) * DAY), updatedAt: iso(now - (400 + i) * DAY), file: `video_a${i}.mp4`, fileDeleted: true, approval: { at: iso(now - 400 * DAY) }, results: { views: 100, messages: 1 } }));
-  paths.writeJSON(path.join(store.wsDir(w.id), 'videos.json'), vids);
-  assert.equal(store.archiveOld(w.id, now), 12);
-  assert.equal(store.readVideos(w.id).length, 0);
-  const stubs = store.archiveStubs(w.id);
-  assert.equal(stubs.filter(s => s.status === 'posted').length, 12);
-  assert.equal(stubs.reduce((a, s) => a + (s.results?.messages || 0), 0), 12);
-  const reached = today.MILESTONES.filter(m => m.test(stubs)).map(m => m.id);
-  for (const id of ['first_video', 'first_approved', 'first_post', 'first_message', 'posts_10', 'messages_10']) assert.ok(reached.includes(id), id);
-});

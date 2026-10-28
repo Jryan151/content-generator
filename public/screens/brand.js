@@ -7,23 +7,8 @@ import { describe } from './coach.js';
 import { drawStep, stepView } from './steps.js';
 
 /* ================= Brand ================= */
-// Booking confirmations (v15): where the booking tool tells us someone booked, so the booking traces back
-// to the video. Loaded with the page for whoever can connect accounts.
-async function loadBookHook() { if (!can('connect')) return; try { S.bookHook = await api('/api/bookings/hook'); } catch { S.bookHook = null; } }
-function bookHookHTML(L) {
-  const H = S.bookHook;
-  if (!can('connect') || !L.bookingUrl || !H) return '';
-  return `<details class="box" id="bookHookBox"${S.bookHookOpen ? ' open' : ''}><summary class="small"><b>Booking confirmations</b> ${H.last ? `<span class="muted">· last one ${esc(when(H.last))}</span>` : '<span class="muted">· see which video each booking came from</span>'}</summary>
-    <p class="small" style="margin:0">Your booking link carries each video’s code. Give your booking tool this private address and every booking shows up in Leads as “Appointment booked”, tied to the video that brought it, and counts in that video’s results.</p>
-    <div class="row"><input class="ctl sm mono" readonly value="${esc(H.url)}" style="flex:1 1 260px" aria-label="Your booking confirmations address"><button class="btn sm" data-act="copy-text" data-text="${esc(H.url)}">Copy</button></div>
-    <ul class="list small"><li><i>·</i><span><b>Calendly:</b> a webhook for “Invitee created” and “Invitee canceled” to this address (Calendly’s paid plans, or through Zapier).</span></li>
-      <li><i>·</i><span><b>Cal.com:</b> Settings → Developer → Webhooks: this address, for “Booking created” and “Booking cancelled”. Put your webhook secret below.</span></li>
-      <li><i>·</i><span><b>Anything else</b> (Zapier, Make): send JSON with name, email, phone, start and ref (the utm_content from the booking link).</span></li></ul>
-    <form class="row" data-form="book-key"><input class="ctl sm" name="key" type="password" autocomplete="off" placeholder="${H.hasKey ? 'A signing key is set (type to replace)' : 'Signing key or webhook secret (optional)'}" style="flex:1 1 220px" aria-label="Signing key"><button class="btn sm">${H.hasKey ? 'Replace key' : 'Save key'}</button>${H.hasKey ? '<button class="btn sm ghost" type="button" data-act="book-key-clear">Remove key</button>' : ''}</form>
-    <div class="row"><button class="btn sm ghost" data-act="book-rotate">Make a new address</button><span class="small muted">The old one stops working.</span></div></details>`;
-}
 async function viewBrand(ctx = {}) {
-  await Promise.all([loadCfg(), loadIg(), loadLibrary(), loadLogoColors(), loadBookHook()]);
+  await Promise.all([loadCfg(), loadIg(), loadLibrary(), loadLogoColors()]);
   socialReturn(ctx.q, 'brand');
   drawBrand();
 }
@@ -183,17 +168,6 @@ function endCardPanel(c = S.cfg) {
       <div class="fields">${input(c, 'look.name', 'Name', 'Jane Smith')}${input(c, 'look.title', 'Title', 'Licensed Agent')}${input(c, 'look.location', 'City', 'Gallup, NM')}${input(c, 'look.endCta', 'Call to action', 'Message me')}${input(c, 'look.handle', 'Instagram handle', '@yourhandle')}${input(c, 'look.disclaimer', 'Small print', 'e.g. license number', 'Optional. Also added as the last line of the post text.')}${input(c, 'look.bookingUrl', 'Booking link', 'https://calendly.com/you', 'Optional. Your scheduling page (https). Each video gets its own short link to it, so you can see which videos bring clicks.')}</div>
       ${L.bookingUrl && !okBookingUrl(L.bookingUrl) ? '<p class="small warn-text" style="margin:0">The booking link must start with https:// and have no spaces. It won’t be saved like this.</p>' : ''}</section>`;
 }
-function videoPagesPanel(c = S.cfg) {
-  const L = c.look;
-  return `<section class="panel"><div class="head"><h2><span class="dot"></span>Your video pages</h2><p>Each video’s link opens a small page about the person who tapped it: “You watched: …”, your photo, ${L.bookingUrl ? 'a button to pick a time, ' : ''}and a short form for their first name and number. What they send shows up as a new lead in Leads, tied to that video.</p></div>
-      <div class="field"><span>Your photo</span>
-        <div class="row">${S.me.workspace?.photo ? `<img class="logo-prev" style="border-radius:50%;width:56px;height:56px;object-fit:cover" src="/api/brand/photo?v=${S.photoV || 1}" alt="Your photo">` : '<span class="small muted">No photo yet.</span>'}
-          <label class="btn sm"><input type="file" accept="image/png,image/jpeg,image/webp" data-photo hidden>${S.me.workspace?.photo ? 'Replace' : 'Add your photo'}</label>
-          ${S.me.workspace?.photo ? '<button class="btn sm ghost danger" data-act="photo-del">Remove</button>' : ''}</div>
-        <small>A friendly head-and-shoulders photo. It’s cropped to a circle.</small></div>
-      <div class="field"><span>When someone taps a video’s link</span>${seg('look.landing', [['page', 'Show my page'], ['direct', 'Go straight to my booking page']], L.landing || 'page')}${(L.landing || 'page') === 'direct' && !L.bookingUrl ? '<small class="warn-text">Without a booking link, your page shows instead.</small>' : ''}</div>
-      ${bookHookHTML(L)}</section>`;
-}
 function captionsPanel(c = S.cfg) {
   const L = c.look;
   return `<section class="panel voice"><div class="head"><h2><span class="dot"></span>Captions and footage</h2></div>
@@ -230,11 +204,10 @@ function drawBrand() {
   }
   main.innerHTML = `<div class="head"><h1>Brand</h1><p class="lede">How every video looks and sounds.</p></div>
     ${endCardPanel(c)}
-    ${videoPagesPanel(c)}
     ${captionsPanel(c)}
     ${libraryPanel(c)}
     ${voicePanel(c)}
     ${igPanel()}${fbPanel()}${planPanel()}`;
 }
 
-export { DAYS, captionsPanel, drawBrand, endCardPanel, fbPanel, igPanel, libraryPanel, loadBookHook, loadLibrary, loadLogoColors, onOff, planPanel, seg, socialReturn, uploadClip, videoPagesPanel, viewBrand, voicePanel };
+export { DAYS, captionsPanel, drawBrand, endCardPanel, fbPanel, igPanel, libraryPanel, loadLibrary, loadLogoColors, onOff, planPanel, seg, socialReturn, uploadClip, viewBrand, voicePanel };

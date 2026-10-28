@@ -202,31 +202,31 @@ test('emails go through the outbox: kept while the provider is down or emails ar
 /* ---------------- One-time keys ---------------- */
 test('one-time keys: a double tap or a resend does the change once', async () => {
   const agent = await login('safe@example.com', 'safepass1234');
-  const count = () => paths.readJSON(path.join(store.wsDir(ws.id), 'clients.json'), []).length;
+  const count = () => paths.readJSON(path.join(store.wsDir(ws.id), 'coach-notes.json'), []).length;
   const before = count();
-  const a = await raw(agent, 'POST', '/api/clients', { name: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
-  const b = await raw(agent, 'POST', '/api/clients', { name: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
+  const a = await raw(agent, 'POST', '/api/coach/notes', { text: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
+  const b = await raw(agent, 'POST', '/api/coach/notes', { text: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
   assert.equal(a.status, 200); assert.equal(b.status, 200);
   assert.equal(b.replay, 'true');
-  assert.equal(a.data.client.id, b.data.client.id);
+  assert.equal(a.data.note.id, b.data.note.id);
   assert.equal(count(), before + 1);
   // Two at the same moment: still once.
-  const [c, d] = await Promise.all([1, 2].map(() => raw(agent, 'POST', '/api/clients', { name: 'Sam Lee' }, { 'Idempotency-Key': 'tap-abcdefghij' })));
-  assert.equal(c.data.client.id, d.data.client.id);
+  const [c, d] = await Promise.all([1, 2].map(() => raw(agent, 'POST', '/api/coach/notes', { text: 'Sam Lee' }, { 'Idempotency-Key': 'tap-abcdefghij' })));
+  assert.equal(c.data.note.id, d.data.note.id);
   assert.equal(count(), before + 2);
   // A different key is a different change; no key, as before.
-  await raw(agent, 'POST', '/api/clients', { name: 'Sam Lee' }, { 'Idempotency-Key': 'tap-other-12345' });
-  await raw(agent, 'POST', '/api/clients', { name: 'Sam Lee' });
+  await raw(agent, 'POST', '/api/coach/notes', { text: 'Sam Lee again' }, { 'Idempotency-Key': 'tap-other-12345' });
+  await raw(agent, 'POST', '/api/coach/notes', { text: 'Sam Lee once more' });
   assert.equal(count(), before + 4);
   // A refusal is repeated too (the same request gets the same answer).
-  const e1 = await raw(agent, 'POST', '/api/clients', { name: '' }, { 'Idempotency-Key': 'tap-empty-1234' });
-  const e2 = await raw(agent, 'POST', '/api/clients', { name: '' }, { 'Idempotency-Key': 'tap-empty-1234' });
+  const e1 = await raw(agent, 'POST', '/api/coach/notes', { text: '' }, { 'Idempotency-Key': 'tap-empty-1234' });
+  const e2 = await raw(agent, 'POST', '/api/coach/notes', { text: '' }, { 'Idempotency-Key': 'tap-empty-1234' });
   assert.equal(e1.status, 400); assert.equal(e2.status, 400);
   // Keys are per person.
   const assist = store.createAccount({ email: 'other@example.com', role: 'agent', workspaceId: store.createWorkspace({ name: 'Other', comped: true }).id, hash: await auth.hashPassword('otherpass1234') });
   void assist;
   const other = await login('other@example.com', 'otherpass1234');
-  const o = await raw(other, 'POST', '/api/clients', { name: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
+  const o = await raw(other, 'POST', '/api/coach/notes', { text: 'Rosa Diaz' }, { 'Idempotency-Key': 'tap-1234567890' });
   assert.notEqual(o.replay, 'true');
 });
 

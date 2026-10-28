@@ -8,10 +8,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { DIRS } from '../lib/paths.js';
 import * as store from '../lib/store.js';
-import * as landing from '../lib/landing.js';
 import * as data from '../lib/data.js';
 import * as library from '../lib/library.js';
-import * as bookings from '../lib/bookings.js';
 import { logoColors } from '../lib/logocolors.js';
 
 export default function mount(ctx) {
@@ -43,31 +41,6 @@ route('POST', '/api/brand/logo', 'ws', async ({ wsId, body }) => {
 route('GET', '/api/brand/logo-colors', 'ws', async ({ wsId }) => ({ colors: store.hasLogo(wsId) ? await logoColors(store.logoPath(wsId)) : [] }));
 route('DELETE', '/api/brand/logo', 'ws', ({ wsId }) => { fs.rmSync(store.logoPath(wsId), { force: true }); return { ok: true, logo: false }; });
 
-/* ----- Brand: the agent's photo, for the page behind each video's link (v15) ----- */
-route('GET', '/api/brand/photo', 'ws', ({ req, res, wsId }) => {
-  if (!landing.hasPhoto(wsId)) bad(404, 'No photo yet.');
-  streamFile(req, res, landing.photoPath(wsId), 'image/jpeg');
-});
-route('POST', '/api/brand/photo', 'ws', async ({ wsId, body }) => {
-  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.image || ''));
-  if (!m) bad(400, 'Send a JPEG or PNG photo.');
-  const buf = Buffer.from(m[2], 'base64');
-  const png = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), jpg = buf[0] === 0xff && buf[1] === 0xd8, webp = buf.subarray(8, 12).toString('latin1') === 'WEBP';
-  if (!png && !jpg && !webp) bad(400, 'That file isn’t a JPEG or PNG photo.');
-  if (buf.length > 2_000_000) bad(413, 'That photo is too large. Use one under 2 MB.');
-  const tmp = path.join(DIRS.work, `photo-${crypto.randomBytes(4).toString('hex')}`);
-  fs.mkdirSync(DIRS.work, { recursive: true });
-  fs.writeFileSync(tmp, buf);
-  try {
-    const { squarePhoto } = await import('../stages/render.js');
-    await squarePhoto(tmp, tmp + '.jpg');
-    fs.renameSync(tmp + '.jpg', landing.photoPath(wsId));
-  } catch { bad(400, 'That photo couldn’t be read. Try a JPEG from your phone’s camera.'); }
-  finally { fs.rmSync(tmp, { force: true }); fs.rmSync(tmp + '.jpg', { force: true }); }
-  return { ok: true, photo: true };
-});
-route('DELETE', '/api/brand/photo', 'ws', ({ wsId }) => { fs.rmSync(landing.photoPath(wsId), { force: true }); return { ok: true, photo: false }; });
-
 /* ----- The agent's own clips (Brand → Your own clips) ----- */
 route('GET', '/api/library', 'ws', ({ wsId }) => ({ clips: library.list(wsId), max: library.MAX_CLIPS(), maxMB: library.MAX_UPLOAD_MB() }));
 // The video file itself is the request body (Content-Type: video/…); its description comes in ?d=.
@@ -92,8 +65,4 @@ route('POST', '/api/library/:id', 'ws', ({ wsId, params, body }) => (library.des
 route('DELETE', '/api/library/:id', 'ws', ({ wsId, params }) => (library.remove(wsId, params.id) ? { clips: library.list(wsId) } : bad(404, 'Clip not found.')));
 route('GET', '/api/library/:id/thumb', 'ws', ({ req, res, wsId, params }) => { const f = library.thumbOf(wsId, params.id); if (!f) bad(404, 'Not found'); streamFile(req, res, f, 'image/jpeg'); });
 route('GET', '/api/library/:id/video', 'ws', ({ req, res, wsId, params }) => { const f = library.fileOf(wsId, params.id); if (!f) bad(404, 'Not found'); streamFile(req, res, f, 'video/mp4'); });
-// Booking confirmations (v15, lib/bookings.js): the private address the booking tool calls, a new one on
-// request (the old one stops working), and an optional signing key.
-route('GET', '/api/bookings/hook', 'ws', ({ wsId }) => bookings.hookFor(wsId));
-route('POST', '/api/bookings/hook', 'ws', ({ wsId, body }) => (body.rotate ? bookings.hookFor(wsId, { rotate: true }) : 'key' in body ? bookings.setKey(wsId, clip(body.key, 200)) : bookings.hookFor(wsId)));
 }

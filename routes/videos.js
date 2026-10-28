@@ -1,4 +1,4 @@
-// routes/videos.js — Videos; Today: the greeting, the week ahead, milestones; memory; notifications; Approval records.
+// routes/videos.js — Videos; memory; notifications; Approval records.
 // Split out of server.js by area (v15). server.js mounts it, passing in the helpers these routes share
 // with the rest of the server; the capability each route needs is still listed in one place
 // (server.js ROUTE_CAPS). The code below is as it was in server.js (not re-indented, so its text and
@@ -19,9 +19,7 @@ import * as trackLinks from '../lib/links.js';
 import * as switches from '../lib/switches.js';
 import * as memory from '../lib/memory.js';
 import * as roles from '../lib/roles.js';
-import * as today from '../lib/today.js';
 import * as push from '../lib/push.js';
-import * as desk from '../lib/desk.js';
 import * as studio from '../lib/studio.js';
 import * as usage from '../lib/usage.js';
 import * as signoff from '../lib/signoff.js';
@@ -50,38 +48,12 @@ route('POST', '/api/videos/:id/approve', 'ws', async ({ wsId, ws, params, body, 
   let sha256;
   try { sha256 = await sha256File(store.videoPath(wsId, v.file)); } catch { bad(409, 'This video’s file can’t be read (it may have been removed). Fix a scene or make it again.'); }
   const decidedAt = body.offline && /^\d{4}-\d{2}-\d{2}T/.test(String(body.decidedAt)) && Date.parse(body.decidedAt) <= Date.now() && Date.now() - Date.parse(body.decidedAt) < 30 * 86400000 ? String(body.decidedAt).slice(0, 30) : '';
-  // Changes asked for and then approved anyway: the request on the Desk is closed (v15).
-  if (v.needsChanges?.handoffId) desk.finish(wsId, v.needsChanges.handoffId, me.account.id);
-  store.updateVideo(wsId, v.id, { status: 'approved', rejection: null, updated: false, needsChanges: null, approval: { at: nowIso(), by: me.account.id, byName: me.account.name || me.account.email, checklist: CHECKLIST.map(c => c[1]), notice: APPROVAL_NOTE, sha256, file: v.file, ...(decidedAt ? { decidedOfflineAt: decidedAt } : {}) } });
+  store.updateVideo(wsId, v.id, { status: 'approved', rejection: null, updated: false, approval: { at: nowIso(), by: me.account.id, byName: me.account.name || me.account.email, checklist: CHECKLIST.map(c => c[1]), notice: APPROVAL_NOTE, sha256, file: v.file, ...(decidedAt ? { decidedOfflineAt: decidedAt } : {}) } });
   try { trackLinks.codeFor(wsId, v.id); } catch { /* made at the next start instead */ }
   const rec = store.getVideo(wsId, v.id);
   store.addExample(wsId, rec);   // approved scripts become style examples for new ones
   if (signoff.waiting(ws, rec)) signoff.tellReviewers(wsId, rec);   // (v15) it waits for the compliance reviewer
   return { video: videoView(rec) };
-});
-// Needs changes (v15): the agent ticks what needs work in each scene of a Studio video (caption, spoken
-// line, highlighted word, footage, and the music) and adds a note. It goes to the Desk as a handoff for
-// the person who submitted it (or the assistants), who ticks each item off in Studio and submits again;
-// the new version replaces this one, and the agent sees what changed. Only the agent approves.
-route('POST', '/api/videos/:id/changes', 'ws', ({ wsId, params, body, me }) => {
-  const v = getV(wsId, params.id);
-  if (v.status !== 'pending') bad(409, 'Only videos waiting for review can be sent back for changes.');
-  if (fixing(wsId, v.id)) bad(409, 'A new version of this video is being made. Ask for changes on it when it arrives.');
-  const draftId = v.meta?.draftId;
-  if (!draftId || !studio.get(wsId, draftId)) bad(409, 'This video wasn’t built in Studio (or its draft was deleted). Use Fix a scene instead.');
-  const n = (v.scenes || []).length;
-  const checklist = desk.cleanChecklist(body.items).filter(x => x.i === null || x.i < n);
-  const note = clip(body.note, 600);
-  if (!checklist.length && !note) bad(400, 'Tick what needs work, or add a note.');
-  const sub = v.by && store.getAccount(v.by);
-  const to = sub && sub.id !== me.account.id && roles.isMember(sub, wsId) && roles.membership(sub, wsId)?.role === 'assistant' ? sub.id : '';
-  let h;
-  try { h = desk.add(wsId, { kind: 'changes', title: `Changes to make: ${clip(v.meta?.painPoint || v.scenes?.[0]?.text || 'a Studio video', 100)}`, message: note || 'See the checklist.', videoId: v.id, draftId, checklist, to, by: me.account.id, byName: me.account.name || me.account.email, replaces: v.needsChanges?.handoffId || '' }); } catch (e) { bad(e.status || 400, e.message); }   // a newer request replaces the last one
-  store.updateVideo(wsId, v.id, { needsChanges: { at: nowIso(), by: me.account.id, byName: me.account.name || me.account.email, items: checklist.map(({ k, i, what, label }) => ({ k, i, what, label })), note, handoffId: h.id } });
-  const cfg = store.loadConfig(wsId);
-  const ids = to ? [to] : store.listAccounts().filter(a => !a.disabled && roles.membership(a, wsId)?.role === 'assistant').map(a => a.id);
-  if (ids.length) push.send(wsId, { title: 'Changes asked for on a video', body: clip(note || checklist.map(x => x.label).join(', '), 140), url: `/#/studio/${draftId}`, tag: `changes-${v.id}` }, { tz: cfg.profile?.timezone || 'America/Denver', accountIds: ids }).catch(() => {});
-  return { video: videoView(store.getVideo(wsId, v.id)), handoff: h };
 });
 route('POST', '/api/videos/:id/reject', 'ws', ({ wsId, params, body, me }) => {
   const v = getV(wsId, params.id);
@@ -105,26 +77,6 @@ route('POST', '/api/videos/:id/reject', 'ws', ({ wsId, params, body, me }) => {
   }
   return { video: videoView(rec), learned, never };
 });
-/* ----- Today: the greeting, the week ahead, milestones; memory; notifications ----- */
-const postedTodayFor = (wsId, cfg) => store.getWorkspace(wsId)?.autopostDay === localTime(cfg.profile?.timezone || 'America/Denver').date;
-// Milestones are the agent's own: someone else working in the workspace (an admin) doesn't see or clear them.
-const ownWs = (me, wsId) => roles.isMember(me.account, wsId) && roles.membership(me.account, wsId).role === 'owner';
-route('GET', '/api/today', 'ws', ({ wsId, me, caps }) => {
-  const w = wsSummary(wsId);
-  const t = today.today(wsId, me.account, { postedToday: postedTodayFor(wsId, store.loadConfig(wsId)), milestones: ownWs(me, wsId), daysOff: ownWs(me, wsId) || me.account.role === 'admin', caps, allowance: { used: w.used, limit: w.access?.allowed ? w.limit : 0, spend: w.spend } });
-  // The why and the principle come from the agent's Mindset: only for them.
-  return caps.includes('mindset') ? t : { ...t, why: '', principle: null };
-});
-// A month in review (default: last month, in the agent's time zone).
-route('GET', '/api/recap', 'ws', ({ wsId, url, caps }) => {
-  const want = url.searchParams.get('month') || '';
-  const cur = localTime(store.loadConfig(wsId).profile?.timezone || 'America/Denver').date.slice(0, 7);
-  const last = (() => { const [y, m] = cur.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; })();
-  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(want) && want <= cur ? want : last;
-  const r = today.recap(wsId, month);
-  return { recap: caps.includes('mindset') ? r : { ...r, habitDays: 0, reflections: 0 } };
-});
-route('POST', '/api/milestones/:id/seen', 'ws', ({ wsId, params, me }) => (!ownWs(me, wsId) ? bad(403, 'Only the agent can clear their milestones.') : today.seeMilestone(wsId, params.id) ? { ok: true } : bad(404, 'Unknown milestone.')));
 route('GET', '/api/memory', 'ws', ({ wsId }) => memory.summary(wsId));
 route('POST', '/api/memory/forget', 'ws', ({ wsId, body }) => {
   if (!['music', 'openings', 'all'].includes(body.what)) bad(400, 'Forget what?');
@@ -135,7 +87,7 @@ route('POST', '/api/memory/forget', 'ws', ({ wsId, body }) => {
 route('GET', '/api/jobs/finished', 'ws', ({ wsId, url }) => {
   const since = Date.parse(url.searchParams.get('since') || '') || Date.now() - 60000;
   const vids = store.readVideos(wsId);
-  const jobs = queue.listJobs(wsId).filter(j => j.kind !== 'keepsake' && ['done', 'failed'].includes(j.status) && Date.parse(j.endedAt || 0) > since).slice(-5);
+  const jobs = queue.listJobs(wsId).filter(j => ['done', 'failed'].includes(j.status) && Date.parse(j.endedAt || 0) > since).slice(-5);
   const active = queue.listJobs(wsId).some(j => ['queued', 'running'].includes(j.status));
   return { active, now: nowIso(), done: jobs.map(j => { const v = vids.find(x => x.id === j.result?.videoId); return { id: j.id, kind: j.kind, status: j.status, error: j.status === 'failed' ? plainError(j.error) : '', topic: j.opts?.force?.painId || '', draftId: j.opts?.draftId || '', videoId: v?.id || null, hook: v?.scenes?.[0]?.text || '', coverUrl: v?.cover && !v.fileDeleted ? `/media/${v.cover}` : null }; }) };
 });

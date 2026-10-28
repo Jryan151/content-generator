@@ -184,12 +184,10 @@ test('records are checked against their shape on save; unknown fields are kept',
     assert.equal(seen[0][1], 'addVideo');
   } finally { delete process.env.SHAPES; shapes.onShapeProblem(null); }
   // A field a newer version added survives an edit by this version.
-  const clients = await import('../lib/clients.js');
-  const c = clients.add(ws.id, { name: 'Rosa' });
-  paths.updateJSON(path.join(store.wsDir(ws.id), 'clients.json'), [], all => all.map(x => (x.id === c.id ? { ...x, fromTheFuture: 'keep me' } : x)));
-  clients.save(ws.id, c.id, { notes: 'Called her' });
-  assert.equal(clients.get(ws.id, c.id).fromTheFuture, 'keep me');
-  assert.equal(clients.get(ws.id, c.id).notes, 'Called her');
+  store.addVideo(ws.id, { id: 'fut', status: 'pending', fromTheFuture: 'keep me' });
+  store.updateVideo(ws.id, 'fut', { post: 'Edited' });
+  assert.equal(store.getVideo(ws.id, 'fut').fromTheFuture, 'keep me');
+  assert.equal(store.getVideo(ws.id, 'fut').post, 'Edited');
 });
 
 /* ---------------- The line ---------------- */

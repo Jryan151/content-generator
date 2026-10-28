@@ -1,7 +1,7 @@
 // public/screens/mindset.js — Mindset.
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
-import { AUTO_HABITS, BOOKS, PERSUASION, PRODUCT_LINES, S, SKILLS, api, can, copy, day, esc, go, loadCfg, main, page, plural, softGone, toast, when } from '../app.js';
+import { AUTO_HABITS, BOOKS, PERSUASION, PRODUCT_LINES, S, SKILLS, api, can, copy, day, esc, go, loadCfg, main, page, plural, toast, when } from '../app.js';
 import { growTabs } from './grow.js';
 import { redraw } from './coach.js';
 
@@ -9,7 +9,7 @@ import { redraw } from './coach.js';
 // Work on yourself the same way you work your pipeline. Every book is a tool here, and the parts
 // that matter for videos (the why, the sweet spot, objections) shape what Create makes.
 async function viewMindset() { await Promise.all([loadCfg(), loadMind()]); drawMindset(); }
-async function loadMind() { const m = await api('/api/mindset'); S.mind = Array.isArray(m.clients) ? { ...m, clients: m.clients.filter(c => !softGone(`client:${c.id}`)) } : m; }
+async function loadMind() { S.mind = await api('/api/mindset'); }
 async function mindSave(body, msg = 'Saved') {
   try {
     S.mind = await api('/api/mindset', { method: 'PUT', body });
@@ -58,8 +58,6 @@ async function mindFormSave(kind, f, data, fd, all) {
   switch (kind) {
     case 'mind-why': S.editWhy = false; return mindSave({ profile: { why: { why: data.why, how: data.how, what: data.what, show: S.mind.profile.why.show } } }, 'Your why is saved.');
     case 'mind-habits': { const ids = all('id'), texts = all('text'), autos = all('auto'), targets = all('target'); S.editHabits = false; return mindSave({ identity: data.identity, habits: ids.map((id, i) => ({ id, text: texts[i], ...(autos[i] ? { auto: autos[i], target: Number(targets[i]) || 3 } : {}) })) }); }
-    case 'mind-client-add': { if (!String(data.name || '').trim()) return; const r = await api('/api/clients', { method: 'POST', body: { name: data.name } }); S.clientOpen = r.client.id; S.replyClients = undefined; await loadMind(); return drawMindset(); }
-    case 'mind-client': { await api('/api/clients/' + f.dataset.id, { method: 'PUT', body: data }); S.clientOpen = null; S.replyClients = undefined; await loadMind(); drawMindset(); return toast('Saved'); }
     case 'mind-lens': {
       S.lensText = data.text;
       const b = f.querySelector('button'); if (b) b.innerHTML = '<span class="spin"></span> Checking your draft…';
@@ -103,7 +101,7 @@ function lensHTML(L) {
 }
 function drawMindsetPage() {
   // (A client waiting for its Undo stays off the screen whichever way the data was refreshed.)
-  const V = { ...S.mind, clients: (S.mind.clients || []).filter(c => !softGone(`client:${c.id}`)) }, m = V.mindset, p = V.profile, cfg = S.cfg, s = cfg.story, open = S.mindOpen || {};
+  const V = S.mind, m = V.mindset, p = V.profile, cfg = S.cfg, s = cfg.story, open = S.mindOpen || {};
   const delta = V.score - V.scoreWeekAgo;
   const why = p.why, friday = new Date().getDay() === 5, reflected = m.reflections.some(r => r.week === V.week);
   const card = (key, title, book, about, body, side = '') => `<details class="panel" ${open[key] ? 'open' : ''} data-mind-card="${key}"><summary class="row between" style="cursor:pointer"><span><b>${title}</b><br><span class="small muted">${book}</span></span>${side}</summary><p class="small muted" style="margin:6px 0 0">${about}</p><div class="stack" style="margin-top:10px">${body}</div></details>`;
@@ -139,20 +137,6 @@ function drawMindsetPage() {
         <div class="stack" style="gap:6px">${m.habits.map(h => { if (h.auto) { const a = V.autos[h.id]; return `<div class="row between box" style="padding:10px 12px"><span><span aria-hidden="true">${a.done ? '✅' : '◻️'}</span> ${esc(AUTO_HABITS[h.auto].label.replace('{n}', h.target))}</span><span class="small muted">${a.n} of ${a.target} · ticks itself</span></div>`; }
           const st = V.streaks[h.id]; return `<label class="row between box" style="padding:10px 12px;cursor:pointer"><span><input type="checkbox" data-mind-check="${esc(h.id)}" ${st.today ? 'checked' : ''}> ${esc(h.text)}</span><span class="small ${st.missedOnce ? 'warn-text' : 'muted'}">${st.missedOnce ? 'Never miss twice: do a small version today' : st.streak ? `${st.streak}d` : ''}</span></label>`; }).join('')}</div>`}</section>
     <h2 style="margin:8px 0 0">Your toolkit</h2><p class="small muted" style="margin:0">Each tool is built on one book.</p>
-    ${card('notes', 'Relationship notes', bookTag('carnegie'), 'Names, families, interests and wins for each client, so every call starts with them. Pick a client in the coach’s Reply to a message and the reply knows them too.',
-      `${V.due.length ? `<div class="box"><b class="small">Before you call today</b>${V.due.map(c => `<span class="small"><span class="pii">${esc(c.name)}${c.ask ? `: ${esc(c.ask)}` : ''}</span> <button class="btn sm ghost" data-act="mind-reached" data-id="${esc(c.id)}">Reached out ✓</button><button class="btn sm ghost" data-act="mind-client-open" data-id="${esc(c.id)}">Open</button></span>`).join('')}</div>` : ''}
-      <form class="add" data-form="mind-client-add"><input class="ctl" name="name" maxlength="80" placeholder="Add a client’s name" autocomplete="off"><button class="btn">Add</button></form>
-      ${V.clients.map(c => S.clientOpen === c.id ? `<form class="box stack" data-form="mind-client" data-id="${esc(c.id)}">
-        <label class="field"><span class="small">Name</span><input class="ctl sm pii" name="name" maxlength="80" value="${esc(c.name)}"></label>
-        <label class="field"><span class="small">Family</span><input class="ctl sm pii" name="family" maxlength="300" value="${esc(c.family)}" placeholder="e.g. Daughter Mia graduating in May"></label>
-        <label class="field"><span class="small">Interests</span><input class="ctl sm" name="interests" maxlength="300" value="${esc(c.interests)}" placeholder="e.g. Gardening, church choir"></label>
-        <label class="field"><span class="small">Wins</span><input class="ctl sm" name="wins" maxlength="300" value="${esc(c.wins)}" placeholder="e.g. Paid off the house last year"></label>
-        <label class="field"><span class="small">Notes</span><textarea class="ctl sm pii" name="notes" rows="2" maxlength="1000">${esc(c.notes)}</textarea></label>
-        <label class="field"><span class="small">Reach out next</span><input class="ctl sm" type="date" name="next" value="${esc(c.next)}"></label>
-        <div class="fields"><label class="field"><span class="small">Birthday (month and day)</span><input class="ctl sm" name="birthday" maxlength="5" value="${esc(c.birthday || '')}" placeholder="MM-DD" pattern="(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"></label>
-          <label class="field"><span class="small">Policy started</span><input class="ctl sm" type="date" name="since" value="${esc(c.since || '')}"></label></div>
-        <div class="row"><button class="btn sm primary">Save</button><button type="button" class="btn sm ghost" data-act="mind-client-close">Close</button><button type="button" class="btn sm ghost danger" data-act="mind-client-del" data-id="${esc(c.id)}">Delete</button></div></form>`
-        : `<button class="row between box" style="padding:8px 12px;text-align:left" data-act="mind-client-open" data-id="${esc(c.id)}"><span class="pii">${esc(c.name)}${c.family || c.interests ? `<br><span class="small muted">${esc([c.family, c.interests].filter(Boolean).join(' · ').slice(0, 80))}</span>` : ''}</span><span class="small muted">${c.next ? `next ${esc(c.next)}` : ''}</span></button>`).join('') || '<p class="empty">No clients yet.</p>'}`, `<span class="small muted">${plural(V.clients.length, 'client')}</span>`)}
     ${card('lens', 'Persuasion lens', bookTag('cialdini'), 'Checks a draft for reciprocity, authority, liking, unity, commitment and social proof, with an honesty check. Scarcity and urgency stay off.',
       `<form class="stack" data-form="mind-lens"><textarea class="ctl" name="text" rows="4" maxlength="3000" placeholder="Paste a message, post or script">${esc(S.lensText || '')}</textarea><div class="row"><button class="btn sm primary">Try on a draft</button></div></form>
       ${S.lens ? lensHTML(S.lens) : ''}

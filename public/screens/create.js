@@ -2,7 +2,7 @@
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
 import { FORMATS, S, STRUCTURES, api, app, badgeFromMe, can, day, esc, later, loadCfg, local, main, page, plural, refreshMe, short, status, stopTimers, usableRoutes, watchJobs, when, whyNoVideos, wsKey } from '../app.js';
-import { chainFoot } from './today.js';
+import { loadWeekly, weeklyPanel } from './review.js';
 import { loadStudioList, studioListPanel } from './studio.js';
 import { seg } from './brand.js';
 import { secs } from './admin.js';
@@ -13,7 +13,7 @@ async function loadOverview() {
   S.me.workspace = { ...S.me.workspace, ...S.overview.workspace };
 }
 async function viewCreate() {
-  await Promise.all([loadOverview(), loadCfg(), loadStudioList()]);
+  await Promise.all([loadOverview(), loadCfg(), loadStudioList(), can('coach') ? loadWeekly() : null]);
   drawCreate();
 }
 function pollCreate() {
@@ -71,10 +71,11 @@ function drawCreate() {
     ${nextPanel(o.next, can)}
     ${studioListPanel(can)}
     <section class="panel"><h2>Videos in progress</h2><div id="jobs"></div></section>
+    ${(S.me.caps || []).includes('coach') ? weeklyPanel() : ''}
     <section class="panel"><div class="head"><h2>Overnight</h2><p>Wake up to videos waiting for review. They’re made between 1 and 6am your time and count toward your monthly videos.</p></div>
-      <div class="field"><span>Keep this many ready each morning</span><div class="seg">${[0, 1, 2, 3, 5].map(n => `<button data-act="keep-ready" data-v="${n}" aria-pressed="${(cfg.schedule?.keepReady || 0) === n}">${n === 0 ? 'Off' : n}</button>`).join('')}</div>${cfg.schedule?.keepReady ? `<small>${S.today?.overnight?.learned ? `Ready by about ${esc(S.today.overnight.readyLabel)}, just before you usually review (around ${esc(S.today.overnight.usual)}).` : 'Made between 1 and 6am your time. Once you’ve reviewed a few, they’re ready just before you usually do.'}</small>` : ''}</div>
+      <div class="field"><span>Keep this many ready each morning</span><div class="seg">${[0, 1, 2, 3, 5].map(n => `<button data-act="keep-ready" data-v="${n}" aria-pressed="${(cfg.schedule?.keepReady || 0) === n}">${n === 0 ? 'Off' : n}</button>`).join('')}</div>${cfg.schedule?.keepReady ? '<small>Made between 1 and 6am your time.</small>' : ''}</div>
       <div class="field"><span>Every Monday morning</span><div class="seg"><button data-act="auto-plan" data-v="1" aria-pressed="${!!cfg.schedule?.autoPlan}">Make the coach’s plan for me</button><button data-act="auto-plan" data-v="0" aria-pressed="${!cfg.schedule?.autoPlan}">I’ll choose</button></div>
-        <small>${cfg.schedule?.autoPlan ? `The coach writes the week’s check-in and makes its 3–5 suggested videos, ready for your review. ${planSkipHTML(o.plan)}` : 'The weekly check-in on Today suggests videos; you tap Make these videos.'}</small></div></section>
+        <small>${cfg.schedule?.autoPlan ? `The coach writes the week’s check-in and makes its 3–5 suggested videos, ready for your review. ${planSkipHTML(o.plan)}` : 'The coach’s weekly check-in above suggests videos; you tap Make these videos.'}</small></div></section>
     <section class="panel"><div class="head"><h2>Test a script</h2><p>Writes and checks a script without making a video. Good after changing your content or voice. <span data-tests-left>${o.testsLeft}</span> left today.</p></div>
       <div class="row"><button class="btn" data-act="test" ${a.allowed && o.testsLeft && !why ? '' : 'disabled'}>Write a test script</button></div><div class="status" data-st="test"></div><div id="testOut">${S.test ? testHTML(S.test) : ''}</div></section>
     <section class="panel"><div class="head"><h2>Test footage</h2><p>See the clips a search finds and how the AI clip check scores them (5 = great fit, 3 = fine, 1 = never use). Use it to find searches that work, then put them in Fix a scene.</p></div>
@@ -84,7 +85,7 @@ function drawCreate() {
         <label class="field"><span>Caption (optional)</span><input class="ctl" name="caption" placeholder="the line shown over the clip"></label></div>
         <div class="row"><button class="btn">Test this search</button><span class="status" data-st></span></div></form>
       <div id="footageOut">${S.footage ? footageHTML(S.footage) : ''}</div></section>
-    ${chainFoot('create')}`;
+`;
   drawJobs();
   pollCreate();
 }

@@ -33,8 +33,8 @@ const STARTERS = {
   settings: ['How many drafts should I use?', 'Explain how my rules work'],
   communicate: COMMS_STARTERS,
 };
-// (v15 Phase 10) Setup's steps, Today, Leads and Grow ask what those pages are about.
-Object.assign(STARTERS, { today: STARTERS.review, grow: STARTERS.review, leads: ['How do I follow up with a new lead?', 'Help me write a keyword reply'], library: STARTERS.content, profile: STARTERS.content, voice: [...STARTERS.brand, 'What should I put in Your voice?'], look: STARTERS.settings, autopilot: ['How often should I post?', 'What time should my posts go out?'] });
+// Setup's steps and Grow ask what those pages are about.
+Object.assign(STARTERS, { grow: STARTERS.review, replies: ['Help me write a keyword reply'], library: STARTERS.content, profile: STARTERS.content, voice: [...STARTERS.brand, 'What should I put in Your voice?'], look: STARTERS.settings, autopilot: ['How often should I post?', 'What time should my posts go out?'] });
 // Studio starters name a real scene: the first one with a problem, or the first teaching scene.
 function studioStarters() {
   const bad = S.st ? stCheck().problems.map(p => p.match(/^Scene (\d+)/)?.[1]).find(Boolean) : null;
@@ -216,28 +216,16 @@ function suggestionHTML(sg, i, j) {
 }
 function coachReplyHTML() {
   const r = S.coach.reply;
-  // Their why first (Grow → Mindset → My why, if they asked to see it before replies), and their client list.
+  // Their why first (Grow → Mindset → My why, if they asked to see it before replies).
   const why = S.cfg?.mindset?.why;
-  if (S.replyClients === undefined) {
-    S.replyClients = null;
-    api('/api/clients').then(x => {
-      S.replyClients = x.clients;
-      if (S.coach.tab !== 'reply') return;
-      // Keep what's typed: the form is drawn again with the list.
-      const f = document.querySelector('[data-form="coach-reply"]');
-      if (f) { S.coach.reply.message = f.elements.message?.value || ''; S.coach.reply.note = f.elements.note?.value || ''; }
-      drawCoach();
-    }).catch(() => { S.replyClients = []; });
-  }
   return `<div class="coach-msgs">${why?.show === 'on' && why.why ? `<div class="note small"><b>Your why:</b> ${esc(why.why)}</div>` : ''}<form class="stack" data-form="coach-reply">
       <p class="small muted" style="margin:0">Paste a comment or DM from one of your videos. The coach reads their communication style and writes three replies to fit it. Replies never include prices, promises or health questions, and move real interest toward a call.</p>
       <label class="field"><span>What they wrote</span><textarea class="ctl pii" name="message" rows="4" maxlength="1200" placeholder="e.g. How much would this cost for my mom? She's 72." required>${esc(r.message)}</textarea></label>
-      ${(S.replyClients || []).length ? `<label class="field"><span>One of your clients? <small>(optional)</small></span><select class="ctl pii" data-reply-client><option value="">No / not sure</option>${S.replyClients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select><small>Fills in what you know about them from Relationship notes.</small></label>` : ''}
       <label class="field"><span>Anything you know about them? <small>(optional)</small></span><input class="ctl pii" name="note" maxlength="300" value="${esc(r.note)}" placeholder="e.g. she follows me and has commented before"></label>
       ${(S.cfg?.story.audiences || []).length ? `<label class="field"><span>Which audience are they? <small>(optional)</small></span><select class="ctl" name="audienceId"><option value="">Not sure</option>${S.cfg.story.audiences.map(a => `<option value="${a.id}"${r.audienceId === a.id ? ' selected' : ''}>${esc(short(a.text))}</option>`).join('')}</select><small>Picking one teaches the app how that audience really writes, so its communication style can be checked against real messages.</small></label>` : ''}
       <div class="row"><button class="btn primary" ${r.busy ? 'disabled' : ''}>${r.busy ? '<span class="spin"></span> Writing…' : 'Draft replies'}</button></div>
       ${r.error && !r.busy ? `<p class="small err-text" style="margin:0">${esc(r.error)} Your message is still here; try again.</p>` : ''}</form>
-    ${r.out ? `<div class="stack">${r.out.style && STYLES[r.out.style] ? `<p class="small" style="margin:0">${styleBadge(r.out.style)} Reads as <b>${esc(STYLES[r.out.style].name)}</b>${r.out.read ? `: ${esc(r.out.read.replace(/[.!\s]+$/, ''))}` : ''}. ${esc(STYLES[r.out.style].talk)}</p>` : ''}${r.out.replies.length ? r.out.replies.map((x, k) => `<div class="sg"><b class="small">${esc(x.label)}</b><p class="small pii" style="margin:0;white-space:pre-wrap">${esc(x.text)}</p><div class="row"><button class="btn sm" data-act="coach-copy" data-k="${k}">Copy</button>${S.me.role === 'assistant' ? `<button class="btn sm primary" data-act="coach-handoff" data-k="${k}">Hand to the agent</button>` : ''}</div></div>`).join('') : '<p class="empty">No reply passed the checks. Try adding a little context.</p>'}
+    ${r.out ? `<div class="stack">${r.out.style && STYLES[r.out.style] ? `<p class="small" style="margin:0">${styleBadge(r.out.style)} Reads as <b>${esc(STYLES[r.out.style].name)}</b>${r.out.read ? `: ${esc(r.out.read.replace(/[.!\s]+$/, ''))}` : ''}. ${esc(STYLES[r.out.style].talk)}</p>` : ''}${r.out.replies.length ? r.out.replies.map((x, k) => `<div class="sg"><b class="small">${esc(x.label)}</b><p class="small pii" style="margin:0;white-space:pre-wrap">${esc(x.text)}</p><div class="row"><button class="btn sm" data-act="coach-copy" data-k="${k}">Copy</button></div></div>`).join('') : '<p class="empty">No reply passed the checks. Try adding a little context.</p>'}
       ${r.out.tip ? `<p class="small muted">Tip: ${esc(r.out.tip)}</p>` : ''}<p class="small muted">Read each reply before sending. You’re the licensed agent.</p></div>` : ''}</div>`;
 }
 async function loadCoachNotes() { try { S.coach.notes = (await api('/api/coach/notes')).notes; S.coach.notesFailed = false; } catch { S.coach.notes = []; S.coach.notesFailed = true; } if (S.coach.tab === 'notes') drawCoach(); }
@@ -263,7 +251,7 @@ async function makeVideos(n, painId = '', format = '') {
   try {
     const r = await api('/api/jobs', { method: 'POST', body: { count: n, painId, format } });
     toast(r.jobs.length > 1 ? `${r.jobs.length} videos are in line` : 'Your video is in line');
-    watchJobs(); S.today = null;
+    watchJobs();
     if (S.view !== 'create') return go('create');
     await loadOverview(); drawCreate();
   } catch (e) { if (st) status(st, e.message, 'err'); else toast(e.message); }

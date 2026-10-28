@@ -7,14 +7,13 @@ import * as store from '../lib/store.js';
 import * as usage from '../lib/usage.js';
 import * as mc from '../mindset-core.js';
 import * as audit from '../lib/audit.js';
-import * as today from '../lib/today.js';
 import { migrate } from '../mixer-core.js';
 
 export default function mount(ctx) {
-const { api, bad, clientsLib, clip, coach, coachGate, mindset, route, todayFor } = ctx;
+const { api, bad, clip, coach, coachGate, mindset, route, todayFor } = ctx;
 // Everything the tab shows, computed here so the score and streaks match on every device.
 async function mindsetView(wsId) {
-  const cfg = store.loadConfig(wsId), M = await mindset(), C = await clientsLib(), m = M.read(wsId), videos = store.readVideos(wsId);
+  const cfg = store.loadConfig(wsId), M = await mindset(), m = M.read(wsId), videos = store.readVideos(wsId);
   const today = todayFor(cfg), tz = cfg.profile?.timezone, off = cfg.profile?.daysOff || [];
   const offset = m.principles.offsets[today] || 0, pr = mc.principleFor(today, offset);
   const posted = videos.filter(v => v.status === 'posted');
@@ -27,8 +26,7 @@ async function mindsetView(wsId) {
     streaks: Object.fromEntries(m.habits.filter(h => !h.auto).map(h => [h.id, { streak: mc.streak(m.checks[h.id], today, off), today: (m.checks[h.id] || []).includes(today), missedOnce: mc.missedOnce(m.checks[h.id], today, off) }])),
     autos: Object.fromEntries(m.habits.filter(h => h.auto).map(h => [h.id, mc.autoProgress(h, videos, today, tz)])),
     levels: Object.fromEntries(Object.keys(mc.SKILLS).map(k => [k, mc.skillLevel(m.practice.filter(p => p.skill === k).length, m.skills[k])])),
-    // Relationship notes are clients; leads live on the Desk.
-    clients: C.list(wsId).filter(c => !c.stage || c.stage === 'client'), due: C.dueToday(wsId, today).filter(d => { const c = C.get(wsId, d.id); return !c?.stage || c.stage === 'client'; }), contentPrinciples: byPrinciple,
+    contentPrinciples: byPrinciple,
   };
 }
 route('GET', '/api/mindset', 'ws', ({ wsId }) => mindsetView(wsId));
@@ -104,28 +102,5 @@ route('POST', '/api/mindset/lens', 'ws', async ({ wsId, ws, body }) => {
   coachGate(wsId, ws);
   const { lens } = await import('../lib/lens.js');
   return lens({ text: body.text, meter: usage.meter(wsId), cfg: store.loadConfig(wsId) });
-});
-// Relationship notes: the client list.
-route('GET', '/api/clients', 'ws', async ({ wsId }) => { const C = await clientsLib(); return { clients: C.list(wsId), due: C.dueToday(wsId, todayFor(store.loadConfig(wsId))) }; });
-// (bookedAt is the server's own: a booking is counted once, by lib/bookings.js.)
-const editable = body => { const { bookedAt, ...rest } = body || {}; return rest; };
-route('POST', '/api/clients', 'ws', async ({ wsId, body }) => { const C = await clientsLib(); try { return { client: C.add(wsId, editable(body)) }; } catch (e) { bad(e.status || 400, e.message); } });
-route('PUT', '/api/clients/:id', 'ws', async ({ wsId, params, body }) => {
-  const C = await clientsLib();
-  let c;
-  try { c = C.save(wsId, params.id, editable(body)) || bad(404, 'Client not found.'); } catch (e) { bad(e.status || 400, e.message); }
-  // A lead from a video moved to "Appointment booked" by hand: the video counts the booking (v15).
-  if (c.stage === 'booked' && c.videoId && !c.bookedAt) { const B = await import('../lib/bookings.js'); B.count(wsId, c.videoId, c.id); c = C.get(wsId, c.id); }
-  return { client: c };
-});
-// "Reached out": marks today as the last contact and clears the reminder.
-route('POST', '/api/clients/:id/reached', 'ws', async ({ wsId, params }) => { const C = await clientsLib(); return { client: C.save(wsId, params.id, { last: todayFor(store.loadConfig(wsId)), next: '' }) || bad(404, 'Client not found.') }; });
-route('DELETE', '/api/clients/:id', 'ws', async ({ wsId, params }) => {
-  const C = await clientsLib();
-  if (!C.remove(wsId, params.id)) bad(404, 'Client not found.');
-  // Their keepsakes (their name and the video made for them) go with them; one being made stops.
-  const K = await import('../lib/keepsakes.js'), queue = await import('../lib/queue.js');
-  K.removeFor(wsId, params.id).forEach(j => queue.cancel(wsId, j));
-  return { ok: true };
 });
 }

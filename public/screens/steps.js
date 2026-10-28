@@ -3,19 +3,20 @@
 // how it sounds and what it never says (Voice and rules), how it looks (Look), what runs by itself
 // (Autopilot), and who helps (Team). Each step shows the same panels the Content, Brand and Settings
 // pages always had (those pages still open from older links), so every control works exactly as before.
-import { S, can, canSee, esc, loadCfg, main, roll } from '../app.js';
-import { captionsPanel, endCardPanel, fbPanel, igPanel, libraryPanel, loadBookHook, loadLibrary, loadLogoColors, planPanel, socialReturn, videoPagesPanel, voicePanel } from './brand.js';
-import { awayPanel, loadAway, loadMemory, settingsParts } from './settings.js';
+import { S, can, esc, loadCfg, main, roll } from '../app.js';
+import { captionsPanel, endCardPanel, fbPanel, igPanel, libraryPanel, loadLibrary, loadLogoColors, planPanel, socialReturn, voicePanel } from './brand.js';
+import { loadReplies, repliesPanel } from './replies.js';
+import { loadMemory, settingsParts } from './settings.js';
 import { CONTENT_TABS, contentParts } from './content.js';
 import { loadIg } from './review.js';
 
 // The steps, in order: [view, label, what it's for, can this person see it?]
 const STEPS = [
-  ['profile', 'Profile', 'Who you are: your name and end card, your photo and booking link, and who you serve.', () => can('settings')],
+  ['profile', 'Profile', 'Who you are: your name, end card and booking link, and who you serve.', () => can('settings')],
   ['library', 'Library', 'What you teach: audiences, worries, confirmed facts, solutions and your call to action, and your own clips.', () => can('settings')],
   ['voice', 'Voice and rules', 'How you sound, your own words and stories, and what a video must always or never say.', () => can('settings')],
   ['look', 'Look', 'How a video looks and is built: captions, colors, footage, length and formats.', () => can('settings')],
-  ['autopilot', 'Autopilot', 'What runs by itself: Instagram and Facebook, the posting plan, and time away.', () => can('settings') || can('connect')],
+  ['autopilot', 'Autopilot', 'What runs by itself: Instagram and its keyword replies, Facebook, and the posting plan.', () => can('settings') || can('connect')],
   ['team', 'Team', 'Who helps: assistants and a compliance reviewer, or your done-for-you team.', () => can('people') || can('requests')],
 ];
 const STEP_OF = Object.fromEntries(STEPS.map((x, i) => [x[0], i]));
@@ -41,11 +42,10 @@ function stepFoot(view) {
 async function viewStep({ arg, q } = {}) {
   const v = S.view;
   const loads = [loadCfg()];
-  if (v === 'profile') loads.push(loadBookHook());
   if (v === 'library') loads.push(loadLibrary());
   if (v === 'voice') loads.push(loadMemory());
   if (v === 'look') loads.push(loadLogoColors());
-  if (v === 'autopilot') loads.push(loadIg(), loadAway());
+  if (v === 'autopilot') loads.push(loadIg(), loadReplies());
   await Promise.all(loads);
   if (v === 'look' && !S.picks) S.picks = roll(S.cfg);
   if (v === 'library' && arg) S.contentTab = arg;
@@ -56,15 +56,13 @@ async function viewStep({ arg, q } = {}) {
 // when drawn: the screens load each other, so nothing of another screen is used while loading.)
 const libraryTabs = () => CONTENT_TABS.filter(([k]) => k !== 'voice');
 const PARTS = {
-  profile: () => `${endCardPanel()}${videoPagesPanel()}${settingsParts().profile()}`,
+  profile: () => `${endCardPanel()}${settingsParts().profile()}`,
   library: () => { const P = contentParts(libraryTabs()); return `${P.checks}${P.tabs}${P.sections[P.tab]()}${libraryPanel(S.cfg)}`; },
   voice: () => { const P = contentParts(); return `${voicePanel(S.cfg, { never: false })}${P.sections.voice()}${settingsParts().rules()}${settingsParts().memory()}`; },
   look: () => { const P = settingsParts(); return `${captionsPanel()}${P.video()}${P.versions()}${P.recipe()}`; },
-  autopilot: () => `${can('connect') ? igPanel() + fbPanel() : ''}${can('settings') ? planPanel() : ''}${can('approve') ? awayPanel() : ''}
+  autopilot: () => `${can('connect') ? igPanel() : ''}${repliesPanel()}${can('connect') ? fbPanel() : ''}${can('settings') ? planPanel() : ''}
     <section class="panel"><div class="head"><h2>Also running by itself</h2></div><ul class="list small">
-      <li><i>·</i><span><b>Overnight videos</b> and the Monday plan: <a href="#/create">Create</a>.</span></li>
-      <li><i>·</i><span><b>Keyword replies</b> on Instagram: <a href="#/leads">Leads</a>.</span></li>
-      ${canSee('profile') ? '<li><i>·</i><span><b>Booking confirmations</b>, so each booking traces back to its video: <a href="#/profile">Profile → Your video pages</a>.</span></li>' : ''}</ul></section>`,
+      <li><i>·</i><span><b>Overnight videos</b> and the Monday plan: <a href="#/create">Create</a>.</span></li></ul></section>`,
 };
 function drawStep() {
   const v = S.view;

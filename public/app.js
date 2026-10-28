@@ -6,7 +6,7 @@
 import {
   DEFAULT_CONFIG, LEVELS, LIMITS, VOICES, FONTS, FORMATS, PLATFORM_GUARDRAILS, GOV_TERMS, FACT_REVIEW_DAYS,
   uid, migrate, roll, analyze, countMixes, beatPlan, estimateSeconds, insightStatus, usableRoutes,
-  checkInsightText, checkStoryText, keepsakeLines, roleText, cityOf, whyNoVideos, applySuggestionTo, factNotes, ACCENT_COLORS, accentHex, sayProblems, AI_VOICE_NOTE, MONTHS, seasonsNow, STRUCTURES, shotList, studioPicks, studioChecks, studioFormatFor, structureFits, validateHook, suggestAccent, okBookingUrl, PLATFORMS, nicheOf, SHOT_TYPES, FOOTAGE_MIX, linkChecks, textKey, linkKey, PRODUCT_LINES,
+  checkInsightText, checkStoryText, roleText, cityOf, whyNoVideos, applySuggestionTo, factNotes, ACCENT_COLORS, accentHex, sayProblems, AI_VOICE_NOTE, MONTHS, seasonsNow, STRUCTURES, shotList, studioPicks, studioChecks, studioFormatFor, structureFits, validateHook, suggestAccent, okBookingUrl, PLATFORMS, nicheOf, SHOT_TYPES, FOOTAGE_MIX, linkChecks, textKey, linkKey, PRODUCT_LINES,
 } from './mixer-core.js';
 import { STYLES, STYLE_KEYS, normStyle, styleLabel, PRINCIPLES, SALES, DRILL, WORKSHOP_KINDS, RUBRIC } from './comms-core.js';
 import { BOOKS, SKILLS, PERSUASION, AUTO_HABITS } from './mindset-core.js';
@@ -19,14 +19,13 @@ import { drawStudio, loadStudioList, pollStudio, stBrief, stPicks, stRefreshChec
 import { autoLinkItem, drawContent, factActions, fnotesHTML, viewContent } from './screens/content.js';
 import { drawMindset, habitRows, haptic, loadMind, mindForm, mindSave, viewMindset } from './screens/mindset.js';
 import { drawBrand, loadLibrary, uploadClip, viewBrand } from './screens/brand.js';
-import { awayActions, drawMemory, drawSettings, loadMemory, loadPromptPreview, promptHTML, promptText, viewSettings } from './screens/settings.js';
+import { drawMemory, drawSettings, loadMemory, loadPromptPreview, promptHTML, promptText, viewSettings } from './screens/settings.js';
 import { drawCommunicate, drillPanel, loadCalibration, shuffled, viewCommunicate, workshopPanel, wsItems } from './screens/communicate.js';
-import { drawTeam, loadActivity, viewTeam } from './screens/team.js';
-import { drawDesk, viewDesk, viewGuide } from './screens/desk.js';
+import { drawTeam, viewTeam } from './screens/team.js';
+import { viewGuide } from './screens/guide.js';
 import { drawBilling, viewBilling } from './screens/billing.js';
 import { drawSignoff, signoffActions, soBackForm, viewSignoff } from './screens/signoff.js';
 import { repliesActions, repliesForm } from './screens/replies.js';
-import { drawToday, viewToday } from './screens/today.js';
 import { drawGrow, viewGrow } from './screens/grow.js';
 import { canSetup, drawStep, firstStep, stepView, viewStep } from './screens/steps.js';
 import { drawAccess, drawAdmin, loadAccess, loadAudit, loadEngine, loadManaged, loadRequests, loadSwitches, rulesActions, viewAdmin, viewRules } from './screens/admin.js';
@@ -88,38 +87,6 @@ const S = {
 };
 const short = t => (t.length > 34 ? t.slice(0, 33) + '…' : t);
 
-/* ---------------- Fitted to the person (v15 Phase 8): comfort, dark at sunset, the curtain ---------------- */
-// Per device (it's about this screen and these eyes): { comfort: 'on'|'', theme: 'phone'|'sunset'|'light'|'dark' }.
-const COMFORT_KEY = 'comfort';
-const readComfort = () => { try { return { comfort: '', theme: 'phone', ...JSON.parse(localStorage.getItem(COMFORT_KEY) || '{}') }; } catch { return { comfort: '', theme: 'phone' }; } };
-const saveComfort = c => { try { localStorage.setItem(COMFORT_KEY, JSON.stringify(c)); } catch { /* fine without */ } };
-// Where the sun is, roughly, for the agent's time zone (a city in it): enough for "dark from sunset".
-const TZ_PLACE = { 'America/New_York': [40.7, -74], 'America/Detroit': [42.3, -83], 'America/Indiana/Indianapolis': [39.8, -86.2], 'America/Chicago': [41.9, -87.6], 'America/Denver': [39.7, -105], 'America/Boise': [43.6, -116.2], 'America/Phoenix': [33.4, -112], 'America/Los_Angeles': [34.1, -118.2], 'America/Anchorage': [61.2, -149.9], 'Pacific/Honolulu': [21.3, -157.9], 'America/Puerto_Rico': [18.5, -66.1] };
-// Today's sunrise and sunset as instants (NOAA's simple formula, good to a few minutes). null at the poles.
-function sunTimes(now = Date.now(), tz = tzOf()) {
-  const off = (() => { try { const p = partsIn(now, tz); return Math.round((Date.parse(`${p.date}T${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}:00Z`) - now) / 60000); } catch { return -new Date(now).getTimezoneOffset(); } })();
-  const [lat, lon] = TZ_PLACE[tz] || [38, (off / 60) * 15];
-  const d = new Date(now), start = Date.UTC(d.getUTCFullYear(), 0, 0), n = Math.floor((now - start) / 86400000);
-  const g = (2 * Math.PI / 365) * (n - 1);
-  const eq = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
-  const rad = lat * Math.PI / 180, cosH = (Math.cos(90.833 * Math.PI / 180) / (Math.cos(rad) * Math.cos(decl))) - Math.tan(rad) * Math.tan(decl);
-  if (cosH < -1 || cosH > 1) return null;
-  const ha = Math.acos(cosH) * 180 / Math.PI, noon = 720 - 4 * lon - eq;   // minutes after UTC midnight
-  const day0 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  return { rise: day0 + (noon - 4 * ha) * 60000, set: day0 + (noon + 4 * ha) * 60000 };
-}
-function applyComfort() {
-  const c = readComfort(), root = document.documentElement;
-  if (c.comfort === 'on') root.dataset.comfort = 'on'; else delete root.dataset.comfort;
-  let theme = c.theme === 'light' || c.theme === 'dark' ? c.theme : '';
-  if (c.theme === 'sunset') { const s = sunTimes(); theme = s && (Date.now() < s.rise || Date.now() >= s.set) ? 'dark' : 'light'; }
-  if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
-}
-applyComfort();
-setInterval(applyComfort, 5 * 60000);   // dark comes on at sunset without a reload
-// The privacy curtain: one tap blurs client names, numbers and notes (for showing the screen to someone).
-const curtainOn = () => document.documentElement.dataset.curtain === 'on';
 // Reduced motion: the phone's setting also stops smooth scrolling done from code.
 if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
   const plain = o => (o && typeof o === 'object' && o.behavior === 'smooth' ? { ...o, behavior: 'auto' } : o);
@@ -323,10 +290,8 @@ async function render() {
   if (!ws.onboarded) return view === 'setup' ? page('setup', viewSetup) : go('setup');
   // New or updated terms: accepted once before going on (setup has its own checkbox).
   if (S.me.termsRequired) return page('terms', viewTerms);
-  // (v15 Phase 10) Five daily stops (Today, Review, Create, Leads, Grow) and Setup's steps. Older
-  // addresses still open: the Desk is Leads; Content, Brand and Settings open as the full pages they were.
-  const views = { today: viewToday, studio: viewStudio, review: viewReview, create: viewCreate, leads: viewDesk, grow: viewGrow, content: viewContent, communicate: viewCommunicate, mindset: viewMindset, brand: viewBrand, settings: viewSettings, billing: viewBilling, team: viewTeam, signoff: viewSignoff, profile: viewStep, library: viewStep, voice: viewStep, look: viewStep, autopilot: viewStep };
-  if (view === 'desk') return go('leads');
+  // Daily stops (Review, Create, Grow) and Setup's steps. Content, Brand and Settings open as full pages.
+  const views = { studio: viewStudio, review: viewReview, create: viewCreate, grow: viewGrow, content: viewContent, communicate: viewCommunicate, mindset: viewMindset, brand: viewBrand, settings: viewSettings, billing: viewBilling, team: viewTeam, signoff: viewSignoff, profile: viewStep, library: viewStep, voice: viewStep, look: viewStep, autopilot: viewStep };
   if (view === 'setup') return firstStep() ? go(firstStep()) : go('');
   // Only the pages this person can use (lib/roles.js): a managed agent's portal has no Content or
   // Settings (their team runs those) and gets Your team instead.
@@ -336,17 +301,17 @@ async function render() {
 
 // What this person can do here (from the server, lib/roles.js), and which pages that opens.
 const can = cap => (S.me?.caps || []).includes(cap);
-const PAGE_CAPS = { today: ['view'], review: ['view'], leads: ['clients', 'replies'], desk: ['clients', 'replies'], create: ['make'], studio: ['make'], grow: ['view'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], billing: ['billing'], team: ['requests', 'people'], signoff: ['signoff'],
+const PAGE_CAPS = { review: ['view'], create: ['make'], studio: ['make'], grow: ['view'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], billing: ['billing'], team: ['requests', 'people'], signoff: ['signoff'],
   profile: ['settings'], library: ['settings'], voice: ['settings'], look: ['settings'], autopilot: ['settings', 'connect'] };
 const canSee = view => !PAGE_CAPS[view] || PAGE_CAPS[view].some(can);
-// Where someone lands: the agent on Today, an assistant on Leads, a reviewer on Sign-off.
-const homeView = () => (S.me.role === 'reviewer' ? 'signoff' : S.me.role === 'assistant' && canSee('leads') ? 'leads' : canSee('today') ? 'today' : canSee('review') ? 'review' : firstStep() || 'guide');
+// Where someone lands: the agent on Review, a reviewer on Sign-off.
+const homeView = () => (S.me.role === 'reviewer' ? 'signoff' : canSee('review') ? 'review' : firstStep() || 'guide');
 // Which stop in the top bar a page belongs to.
-const NAV_OF = { today: 'today', review: 'review', create: 'create', studio: 'create', leads: 'leads', grow: 'grow', communicate: 'grow', mindset: 'grow', signoff: 'signoff', admin: 'admin', profile: 'setup', library: 'setup', voice: 'setup', look: 'setup', autopilot: 'setup', team: 'setup', content: 'setup', brand: 'setup', settings: 'setup' };
+const NAV_OF = { review: 'review', create: 'create', studio: 'create', grow: 'grow', communicate: 'grow', mindset: 'grow', signoff: 'signoff', admin: 'admin', profile: 'setup', library: 'setup', voice: 'setup', look: 'setup', autopilot: 'setup', team: 'setup', content: 'setup', brand: 'setup', settings: 'setup' };
 function shell(view) {
   const me = S.me, ws = me.workspace, admin = me.account.role === 'admin';
   const tabs = [];
-  if (ws?.onboarded) tabs.push(...[['today', 'Today'], ['review', 'Review', ws.pending], ['create', 'Create'], ['leads', 'Leads'], ['grow', 'Grow'], ['signoff', 'Sign-off']].filter(([k]) => canSee(k)));
+  if (ws?.onboarded) tabs.push(...[['review', 'Review', ws.pending], ['create', 'Create'], ['grow', 'Grow'], ['signoff', 'Sign-off']].filter(([k]) => canSee(k)));
   if (ws?.onboarded && canSetup()) tabs.push([firstStep(), 'Setup', 0, 'setup']);
   if (ws && !ws.onboarded) tabs.push(['setup', 'Setup']);
   if (admin) tabs.push(['admin', 'Admin', me.alerts || 0]);
@@ -355,18 +320,18 @@ function shell(view) {
   const menu = [['account', 'Account'], ['guide', 'Guide'], ...(ws?.onboarded && me.billing && (!ws.comped || admin) && can('billing') ? [['billing', 'Billing']] : [])];
   const initial = String(me.account.name || me.account.email || '?').trim().charAt(0).toUpperCase();
   const others = (me.workspaces || []).filter(w => !w.current);
-  return `<header class="top"><div class="top-row"><div class="brand"><img src="/icon.svg" alt=""><b>${esc(S.product)}</b>${ws ? (others.length ? `<select class="ctl sm ws-switch" data-ws-switch aria-label="Workspace">${(me.workspaces || []).map(w => `<option value="${esc(w.id)}"${w.current ? ' selected' : ''}>${esc(w.name)}${w.role === 'assistant' ? ' (assistant)' : ''}</option>`).join('')}</select>` : `<span>${esc(ws.name)}</span>`) : ''}</div>${ws?.onboarded && can('clients') ? `<button class="curtain-btn" data-act="curtain" aria-pressed="${curtainOn()}" aria-label="Privacy curtain: hide client names" title="Hide client names and notes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg></button>` : ''}
+  return `<header class="top"><div class="top-row"><div class="brand"><img src="/icon.svg" alt=""><b>${esc(S.product)}</b>${ws ? (others.length ? `<select class="ctl sm ws-switch" data-ws-switch aria-label="Workspace">${(me.workspaces || []).map(w => `<option value="${esc(w.id)}"${w.current ? ' selected' : ''}>${esc(w.name)}${w.role === 'assistant' ? ' (assistant)' : ''}</option>`).join('')}</select>` : `<span>${esc(ws.name)}</span>`) : ''}</div>
       <div class="me-menu"><button class="me-btn" data-act="menu" aria-expanded="false" aria-controls="mePop" aria-label="Account, guide and billing"${['account', 'guide', 'billing'].includes(view) ? ' aria-current="page"' : ''}>${esc(initial)}</button>
         <div class="me-pop" id="mePop" hidden><p class="small muted">${esc(me.account.name || me.account.email)}</p>${menu.map(([k, l]) => `<a href="#/${k}"${k === view ? ' aria-current="page"' : ''}>${esc(l)}</a>`).join('')}<button class="danger" data-act="logout">Log out</button></div></div></div>
     ${me.acting ? `<div class="acting"><span>You’re working in <b>${esc(ws.name)}</b>’s workspace.</span><button class="btn sm" data-act="leave-ws">Back to Admin</button></div>` : ''}
     <nav class="nav" aria-label="Sections">${tabs.map(([k, label, n, key = k]) => `<a href="#/${k}"${key === here ? ' aria-current="page"' : ''}>${label}${n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}</nav></header>
     ${(me.notices || []).length ? `<div class="notices" role="status">${me.notices.map(n => `<div class="note small">${esc(n.text)}</div>`).join('')}</div>` : ''}
-    <div id="helloSlot" class="hello-slot"></div><main id="main"></main><div class="savebar" id="savebar" hidden></div>
+    <main id="main"></main><div class="savebar" id="savebar" hidden></div>
     ${ws?.onboarded && can('coach') ? '<button class="coach-fab" data-act="coach-open" aria-label="Open the coach"><span aria-hidden="true">✦</span> Coach</button>' : ''}`;
 }
 
 let main = null;
-const VIEW_NAMES = { today: 'your day', leads: 'your leads', grow: 'your results', profile: 'your profile', library: 'your library', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', billing: 'billing', admin: 'the admin view', account: 'your account', setup: 'setup' };
+const VIEW_NAMES = { grow: 'your results', profile: 'your profile', library: 'your library', voice: 'your voice and rules', look: 'your look', autopilot: 'Autopilot', team: 'your team', signoff: 'what’s waiting', rules: 'the render rules', review: 'your videos', create: 'Create', studio: 'your draft', content: 'your content', communicate: 'Communicate', mindset: 'Mindset', brand: 'your brand', settings: 'your settings', guide: 'the guide', billing: 'billing', admin: 'the admin view', account: 'your account', setup: 'setup' };
 let pageGen = 0;
 async function page(view, fn, ctx = {}) {
   const gen = ++pageGen;
@@ -374,12 +339,6 @@ async function page(view, fn, ctx = {}) {
   app.innerHTML = shell(view);
   main = document.getElementById('main');
   main.innerHTML = `<p class="empty"><span class="spin"></span> Loading ${esc(VIEW_NAMES[view] || 'the page')}…</p>`;
-  // The greeting goes in above the page before the page is drawn, never after (that would push everything
-  // down under the thumb): straight away when it's already here, or when it arrives while the page is
-  // still loading. If it comes later than the page, it waits for the next one.
-  const fresh = S.today && Date.now() - S.todayAt < 60000;
-  if (fresh) todayBanner();
-  else loadToday().then(() => { if (gen === pageGen && main?.querySelector(':scope > .empty .spin')) todayBanner(); }).catch(() => {});
   try { await fn(ctx); } catch (e) { main.innerHTML = `<div class="note err stack"><span>Couldn’t load ${esc(VIEW_NAMES[view] || 'this page')}. ${esc(e.message)}</span><div class="row"><button class="btn sm" data-act="page-retry">Try again</button></div></div>`; }
   if (gen !== pageGen) return;   // another page opened meanwhile: it finishes the job
   restoreDraft();   // after an update's reload: what was being typed here
@@ -390,137 +349,14 @@ async function page(view, fn, ctx = {}) {
   document.querySelectorAll('.nav [aria-current], .steps [aria-current="step"], .subnav [aria-current]').forEach(cur => cur.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
 }
 
-/* ================= Today: greeting, week ahead, milestones, "ready" cards ================= */
-// Browser storage is only a convenience: if it's blocked, the greeting shows once per page load instead.
+/* ================= Browser storage, the grid, "ready" cards ================= */
+// Browser storage is only a convenience: everything works without it.
 const local = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* fine without */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* fine without */ } },
 };
 const wsKey = k => `${k}:${S.me?.workspace?.id || ''}:${S.me?.account?.id || ''}`;
-async function loadToday(force = false) {
-  if (!S.me?.workspace?.onboarded || S.me.termsRequired || !can('view')) return null;   // (a reviewer has only Sign-off)
-  if (!force && S.today && Date.now() - S.todayAt < 60000) return S.today;
-  try { S.today = await api('/api/today'); S.todayAt = Date.now(); } catch { /* every page works without it */ }
-  return S.today;
-}
-const WEEK_LABEL = { scheduled: 'Scheduled', approved: 'Ready', review: 'In review' };
-function weekStrip(w) {
-  return `<div class="week" role="list" aria-label="The week ahead">${w.days.map(d => `<div role="listitem" class="wk ${d.post ? (d.has ? 'has-' + d.has : 'gap') : 'off'}" title="${esc(d.day)}${d.post ? ': ' + (WEEK_LABEL[d.has] || 'nothing ready yet') : ''}"><b>${esc(d.day.slice(0, 3))}</b><i aria-hidden="true"></i><span class="sr">${d.post ? WEEK_LABEL[d.has] || 'Nothing ready yet' : 'No post'}</span></div>`).join('')}</div>`;
-}
-// The greeting (once a day) and any milestone, at the top of whatever page opens first.
-async function todayBanner() {
-  const slot = document.getElementById('helloSlot'), t = await loadToday();
-  if (!t || !slot || slot !== document.getElementById('helloSlot')) return;
-  slot.innerHTML = '';
-  const parts = [...chauffeurBanner(t)];
-  if (t.milestone) parts.push(`<div class="milestone" data-ms="${esc(t.milestone.id)}"><span class="star" aria-hidden="true">✦</span><div class="stack" style="gap:2px;flex:1"><b>${esc(t.milestone.title)}</b><span class="small">${esc(t.milestone.text)}</span></div><button class="btn sm" data-act="milestone-seen" data-id="${esc(t.milestone.id)}">Nice</button></div>`);
-  if (local.get(wsKey('hello')) !== t.date && S.helloShown !== t.date) {
-    S.helloShown = t.date; local.set(wsKey('hello'), t.date);
-    // Good news first, then the work (or, on a day off, nothing about work at all).
-    const work = t.restart && can('approve') ? esc(t.restart) : [t.pending ? (can('approve') ? `<a href="#/review">${plural(t.pending, 'video')} to review.</a>` : `${plural(t.pending, 'video')} waiting for the agent to approve.`) : '', esc(t.line)].filter(Boolean).join(' ');
-    parts.push(`<div class="hello"><div class="row between"><b>${esc(t.hello)}</b><button class="x" data-act="hello-close" aria-label="Close the greeting">×</button></div>
-      ${(t.good || []).map(g => `<span class="small good">${esc(g)}</span>`).join('')}
-      ${t.away ? `<span class="small">You’re away until ${esc(dateLabel(t.away.backOn))}. Nothing here needs you.</span>` : t.dayOff ? '<span class="small">It’s your day off. Nothing here needs you today.</span>' : `<span class="small">${work || 'Nothing is waiting on you right now.'}</span>`}
-      ${t.valet && !t.dayOff ? `<span class="small">${esc(t.valet.text)}</span>` : ''}
-      ${!t.dayOff && t.week.plan && !t.restart ? weekStrip(t.week) : ''}
-      ${(t.heads || []).map(h => `<span class="small warn-text">${esc(h)}</span>`).join('')}
-      ${t.principle && can('mindset') ? `<span class="small"><b>Today’s principle:</b> ${esc(t.principle.text)} <span class="muted">${esc(t.principle.challenge)}</span> <a href="#/mindset">${t.principle.done ? 'Done ✓' : 'Open Mindset'}</a></span>` : ''}
-      ${t.why ? `<span class="small muted">Why you do this: ${esc(t.why)}</span>` : ''}</div>`);
-  }
-  if (parts.length) slot.innerHTML = `<section id="hello" class="stack" style="gap:8px">${parts.join('')}</section>`;
-}
-// The chauffeur's parts of the greeting (v15 Phase 8), shown until they're done with, not once a day:
-// Away mode while it's on, the welcome back when she's home, and a busy week's progress.
-const dateLabel = d => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
-function chauffeurBanner(t) {
-  const out = [];
-  if (t.away && can('approve')) out.push(`<div class="hello away-note"><div class="row between"><b>You’re away until ${esc(dateLabel(t.away.backOn))}</b><button class="btn sm" data-act="away-back">I’m back</button></div><span class="small">Notifications and nudges are off.${t.away.postingDays ? ` ${t.away.covered} of ${plural(t.away.postingDays, 'posting day')} covered while you’re gone.` : ''}</span></div>`);
-  const w = t.welcome;
-  if (w && can('approve')) {
-    const did = [w.posted ? `${plural(w.posted, 'video')} posted` : '', w.clicks ? `${plural(w.clicks, 'link visit')}` : '', w.leads ? `${plural(w.leads, 'new lead')}` : '', w.handoffsDone ? `${plural(w.handoffsDone, 'thing')} finished in Leads` : ''].filter(Boolean);
-    out.push(`<div class="hello welcome-back"><div class="row between"><b>Welcome back${S.me?.account?.name ? `, ${esc(String(S.me.account.name).split(/\s+/)[0])}` : ''}.</b><button class="x" data-act="away-welcome" aria-label="Close">×</button></div>
-      <span class="small">${did.length ? `While you were away: ${esc(did.join(', '))}.` : 'It was quiet while you were away.'}</span>
-      <span class="small">${w.pending ? `${plural(w.pending, 'video')} ${w.pending === 1 ? 'is' : 'are'} waiting. No catching up needed: one is a fine place to start.` : 'Nothing is waiting on you.'}${w.scheduledAhead ? ` ${plural(w.scheduledAhead, 'post')} still scheduled ahead.` : ''}</span>
-      <div class="row">${w.pending ? '<a class="btn sm primary" href="#/review" data-act="away-welcome">Start reviewing</a>' : ''}<button class="btn sm ghost" data-act="away-welcome">Thanks</button></div></div>`);
-  }
-  const b = t.busy;
-  if (b && (can('make') || can('approve'))) {
-    out.push(b.notified
-      ? `<div class="hello busy-note"><div class="row between"><b>${b.made ? 'Your week is ready' : 'Your busy week'}</b><button class="x" data-act="busy-close" aria-label="Close">×</button></div><span class="small">${b.pending ? `${plural(b.pending, 'video')} to review in one sitting.` : b.total ? 'Everything’s reviewed. You’re set.' : 'Nothing more was needed: your week was already covered.'}</span>${b.pending && can('approve') ? '<div class="row"><button class="btn sm primary" data-act="busy-review">Review them one by one</button></div>' : ''}</div>`
-      : `<div class="hello busy-note"><div class="row between"><b>Busy week: making ${plural(b.total, 'video')}</b><span class="small muted">${b.made} of ${b.total} done</span></div><span class="small">You’ll get one notification when they’re all ready, to review in one sitting.</span></div>`);
-  }
-  // A year in reels (the week after the anniversary of joining), private, once a year.
-  const y = t.year;
-  if (y && local.get(wsKey('yearSeen')) !== y.to) {
-    const bits = [y.made && `${plural(y.made, 'video')} made`, y.posted && `${y.posted} posted`, y.views && `${y.views.toLocaleString()} views`, (y.messages + y.leads) && `${plural(y.messages + y.leads, 'conversation')} started`, y.habitDays && `${plural(y.habitDays, 'day')} you kept your habits`].filter(Boolean);
-    out.push(`<div class="hello year-card"><div class="row between"><b>${y.years === 1 ? 'A year ago' : `${y.years} years ago`} ${y.today ? 'today' : 'this week'}, you started.</b><button class="x" data-act="year-seen" data-v="${esc(y.to)}" aria-label="Close">×</button></div>
-      <span class="small">Your year in reels: ${esc(bits.join(', ') || 'a year of showing up')}.</span>
-      ${y.topTopic ? `<span class="small">What people answered most: <b>${esc(y.topTopic)}</b>.</span>` : ''}${y.best ? `<span class="small muted">Your best one opened with “${esc(y.best)}”</span>` : ''}</div>`);
-  }
-  // The day's quiet wrap (from 5pm, once a day something happened).
-  const wr = t.wrap;
-  if (wr && local.get(wsKey('wrapSeen')) !== wr.date) {
-    const did = [wr.approved && `${wr.approved} approved`, wr.rejected && `${wr.rejected} sent back`, wr.posted && `${wr.posted} posted`, wr.leads && plural(wr.leads, 'new lead'), wr.done && `${wr.done} finished in Leads`, wr.clicks && plural(wr.clicks, 'link visit')].filter(Boolean);
-    const next = { scheduled: 'Tomorrow’s post is scheduled.', approved: 'Tomorrow’s post is ready.', review: 'Tomorrow’s post is waiting for your review.', nothing: 'Nothing is ready for tomorrow’s post yet.' }[wr.tomorrow] || '';
-    out.push(`<div class="hello wrap-card"><div class="row between"><span class="small"><b>Today:</b> ${esc(did.join(', '))}. ${esc(next)}</span><button class="x" data-act="wrap-seen" data-v="${esc(wr.date)}" aria-label="Close">×</button></div></div>`);
-  }
-  return out;
-}
-// Coming up (Review): the few things that will run out in the next weeks, each with where to fix it.
-function aheadPanel() {
-  const a = S.today?.ahead;
-  if (!a?.length) return '';
-  const when2 = x => (x.days <= 0 ? 'now' : x.days === 1 ? 'tomorrow' : x.days < 14 ? `in ${x.days} days` : `by ${new Date(`${x.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`);
-  return `<details class="panel ahead"${a.some(x => x.days <= 7) ? ' open' : ''}><summary><b>Coming up</b> <span class="small muted">${plural(a.length, 'thing')} in the next few weeks</span></summary>
-    <ul class="list small">${a.map(x => `<li class="${x.days <= 7 ? 'bad' : ''}"><i>${x.days <= 7 ? '!' : '·'}</i><span>${esc(x.what)} ${esc(when2(x))}. <a href="#/${esc(x.go)}">${esc(x.action)}</a></span></li>`).join('')}</ul></details>`;
-}
-// Week ahead (Review): what each posting day already has, and one tap to fill the gaps.
-function weekPanel() {
-  const w = S.today?.week;
-  if (!w || (!w.plan && !w.ready && !w.scheduled)) return '';
-  const head = w.plan ? (w.whole ? 'You’re set for the whole week.' : w.through ? `You’re set through ${esc(w.through)}.` : 'Your next posting day has nothing ready yet.')
-    : `${plural(w.ready, 'video')} ready to post${w.scheduled ? `, ${w.scheduled} scheduled` : ''}.`;
-  const n = Math.min(5, w.short);
-  return `<section class="panel"><div class="row between"><h2>Week ahead</h2><span class="small muted">${w.plan ? 'Your posting plan' : `Your goal: ${esc(String(w.goal))} a week`}</span></div>
-    <p style="margin:0">${head}${w.review && !w.whole ? ` ${plural(w.review, 'video')} in review could fill ${w.review === 1 ? 'a gap' : 'gaps'} once approved.` : ''}</p>
-    ${w.plan ? weekStrip(w) : ''}
-    ${n ? `<div class="row"><button class="btn sm primary" data-act="week-make" data-n="${n}">Make ${n} for the week</button><button class="btn sm" data-act="busy-start" title="Makes them and tells you once, when they’re all ready">Busy week: make them, tell me once</button><span class="small muted">${plural(w.short, 'posting day')} still ${w.short === 1 ? 'needs' : 'need'} a video.</span></div>` : ''}</section>`;
-}
-// Three or more rejections in a row: a question instead of more of the same. Each answer leads to the
-// one place that fixes it. Dismissed until the next streak.
-const STREAK_FIXES = [
-  ['The openings', 'Setup → Voice and rules: paste a few of your own captions. New openings learn from them.', 'voice', 'voice'],
-  ['The footage', 'Setup → Look → Footage mix: lean toward more people or more scenery, or turn off kinds of shots.', 'look', ''],
-  ['It sounds salesy', 'Setup → Voice and rules: a calmer energy, and add the words you’d never say.', 'voice', ''],
-  ['It doesn’t sound like me', 'Setup → Voice and rules: your own captions change the wording more than any setting.', 'voice', 'voice'],
-  ['The facts or topics', 'Setup → Library → Routes: see which worries and facts videos use, and turn off what doesn’t fit.', 'library', 'routes'],
-];
-function streakPanel() {
-  const q = S.today?.streak;
-  if (!q || local.get(wsKey('streakSeen')) === q.since) return '';
-  const a = S.streakAnswer;
-  return `<section class="panel"><div class="row between"><h2>The last ${q.count} videos missed</h2><button class="x" data-act="streak-close" data-v="${esc(q.since)}" aria-label="Close">×</button></div>
-    <p class="small" style="margin:0">Rather than make more of the same: what feels most off?${q.reasons.length ? ` <span class="muted">(Your reasons: ${esc(q.reasons.join(', '))}.)</span>` : ''}</p>
-    <div class="chips">${STREAK_FIXES.map(([l], k) => `<button class="toggle" data-act="streak-answer" data-k="${k}" aria-pressed="${a === k}">${esc(l)}</button>`).join('')}</div>
-    ${a != null ? `<div class="row"><span class="small" style="flex:1 1 220px">${esc(STREAK_FIXES[a][1])}</span><a class="btn sm primary" href="#/${STREAK_FIXES[a][2]}" data-act="${STREAK_FIXES[a][3] ? 'goto-tab' : 'nav'}" data-v="${esc(STREAK_FIXES[a][3])}">Take me there</a><button class="btn sm ghost" data-act="ask-rejections">Ask the coach</button></div>` : ''}</section>`;
-}
-// The month in review, shown in the first week of the next month (once there was something to recap).
-function recapPanel() {
-  const r = S.recap;
-  if (!r || (!r.made && !r.posted) || local.get(wsKey('recapSeen')) === r.month) return '';
-  const stat = (n, l) => `<div class="stat"><b>${esc(String(n))}</b><span>${esc(l)}</span></div>`;
-  return `<section class="panel"><div class="row between"><h2>Your ${esc(r.label.split(' ')[0])}</h2><button class="x" data-act="recap-close" data-v="${esc(r.month)}" aria-label="Close">×</button></div>
-    <div class="stats">${stat(r.made, 'videos made')}${stat(r.posted, 'posted')}${stat(r.messages, r.messages === 1 ? 'message' : 'messages')}${r.views ? stat(r.views.toLocaleString(), 'views') : ''}${r.habitDays ? stat(r.habitDays, 'days with habits done') : ''}</div>
-    ${r.best?.messages || r.best?.views ? `<p class="small" style="margin:0"><b>Best video:</b> “${esc(r.best.hook)}” (${r.best.messages ? plural(r.best.messages, 'message') : `${Number(r.best.views).toLocaleString()} views`}).</p>` : ''}
-    ${r.topTopic ? `<p class="small" style="margin:0"><b>Topic that brought the most messages:</b> ${esc(r.topTopic.label)} (${r.topTopic.messages}).</p>` : ''}
-    <p class="small muted" style="margin:0">${r.posted ? 'Showing up is most of it. Same again this month?' : 'Nothing went out last month. Approving and posting one this week is a good start.'}</p></section>`;
-}
-async function loadRecap() {
-  const t = S.today;
-  if (!t || Number(t.date.slice(8, 10)) > 7) { S.recap = null; return; }
-  try { S.recap = (await api('/api/recap')).recap; } catch { S.recap = null; }
-}
 // The grid (Review): how the profile will look once the ready videos go out. Instagram crops reels to
 // 3:4 on the grid, so the tiles do too.
 function gridPanel() {
@@ -555,7 +391,7 @@ async function watchJobs() {
       since = r.now;
       const fresh = r.done.filter(j => !seen.has(j.id));
       fresh.forEach(j => { seen.add(j.id); if (!first) readyCard(j); });
-      if (fresh.length && !first) { refreshMe().then(badgeFromMe); const t = loadToday(true); if (['review', 'today'].includes(S.view)) Promise.all([loadVideos(), t]).then(() => { if (S.view === 'review') drawReview(); else if (S.view === 'today') drawToday(); }).catch(() => {}); }
+      if (fresh.length && !first) { refreshMe().then(badgeFromMe); if (S.view === 'review') loadVideos().then(() => drawReview()).catch(() => {}); }
       first = false;
       if (!r.active) break;
     }
@@ -581,7 +417,7 @@ function freshAfterLogin() {
   let join = ''; try { join = sessionStorage.getItem('joinToken') || ''; } catch { /* none */ }
   if (join) { try { sessionStorage.removeItem('joinToken'); } catch { /* fine */ } location.hash = `#/invite/${join}`; location.reload(); return true; }
   if (S.prevAccount && S.prevAccount !== S.me?.account?.id) { location.hash = '#/'; location.reload(); return true; }
-  S.today = null; S.todayAt = 0; pushCheck(); watchJobs();
+  pushCheck(); watchJobs();
   return false;
 }
 
@@ -589,7 +425,7 @@ function freshAfterLogin() {
 // Buttons that need the AI or a video from this month's allowance are turned off, with the reason,
 // when they can't work (budget used up, no plan, all videos made), instead of failing on tap.
 const AI_ACTS = ['rewrite', 'test', 'st-hooks', 'st-fill', 'st-ideas', 'st-foot', 'st-hear', 'gen', 'link-all', 'check-links', 'autolink', 'mind-advice', 'coach-starter', 'comms-starter', 'ws-run', 'weekly-refresh', 'aud-style', 'drill-next'];
-const MAKE_ACTS = ['make', 'make-topic', 'next-make', 'week-make', 'plan-make', 'st-render', 'managed-make', 'job-again'];
+const MAKE_ACTS = ['make', 'make-topic', 'next-make', 'plan-make', 'st-render', 'managed-make', 'job-again'];
 const AI_FORMS = ['footage', 'mind-lens', 'coach', 'coach-reply'];
 // Controls that change the workspace's settings: off (with the reason) for people who can't.
 const SETTINGS_ACTS = ['keep-ready', 'auto-plan', 'aud-style-set', 'ws-use', 'weekly-apply', 'save-search', 'season'];
@@ -752,7 +588,7 @@ document.addEventListener('play', e => { if (e.target.matches?.('#main video.pla
 // needs), so they can be watched and decided on with no connection. Decisions made offline wait here
 // and go out by themselves when the connection is back; the server checks each one as usual.
 const offlineOK = () => 'serviceWorker' in navigator && 'caches' in window;
-const OFFLINE_DATA = ['/api/me', '/api/videos', '/api/config', '/api/today'];
+const OFFLINE_DATA = ['/api/me', '/api/videos', '/api/config'];
 async function saveOffline() {
   await navigator.serviceWorker.register('/sw.js');
   await navigator.serviceWorker.ready;
@@ -1050,7 +886,6 @@ S.st = null;   // the open draft: { d, foot: {}, rw: {}, busy: '', saveTimer }
 /* ================= Settings: public/screens/settings.js ================= */
 /* ================= Communicate: public/screens/communicate.js ================= */
 /* ================= Team: public/screens/team.js ================= */
-/* ================= Desk: public/screens/desk.js ================= */
 /* ================= Billing: public/screens/billing.js ================= */
 /* ================= Admin: public/screens/admin.js ================= */
 // What stays here from it: it runs as the page loads (the screen file loads before this one runs).
@@ -1084,10 +919,9 @@ const actions = {
     try { const r = await api('/api/data/delete-request', { method: 'DELETE' }); S.me.workspace = r.workspace; await viewAccount(); toast('Request canceled. Nothing was deleted.'); }
     catch (e) { toast(e.message); el.disabled = false; }
   },
-  // A different person or workspace starts from a fresh page, so nothing from the last one (clients,
-  // drafts, coach chats) stays in memory.
+  // A different person or workspace starts from a fresh page, so nothing from the last one (drafts,
+  // coach chats) stays in memory.
   async logout() { await softNow(); try { Object.keys(sessionStorage).filter(k => k.startsWith('coach.')).forEach(k => sessionStorage.removeItem(k)); } catch { /* nothing kept */ } await pushOffHere(); await clearOffline(); local.del(draftKey()); local.del(oldDraftKey()); local.del(wsKey('offlineAt')); await api('/api/logout', { method: 'POST', body: {} }).catch(() => {}); location.hash = '#/login'; location.reload(); },
-  'today-retry'(el) { el.disabled = true; render(); },   // through page(), so it never draws over another page
   async 'leave-ws'() { await api('/api/admin/open', { method: 'POST', body: { workspaceId: null } }); location.hash = '#/admin'; location.reload(); },
   async save() { try { await saveCfg(); if (SETTINGS_VIEWS[S.view] || S.view === 'create') redraw(); } catch (e) { toast(e.message); } },
   discard() { S.cfg = JSON.parse(S.saved); resetEdits(); local.del(draftKey()); saveBar(); redraw(); },
@@ -1128,69 +962,20 @@ const actions = {
     try { await api('/api/link/join', { method: 'POST', body: { token: el.dataset.token } }); try { sessionStorage.removeItem('joinToken'); } catch { /* fine */ } location.hash = '#/'; location.reload(); }
     catch (e) { el.disabled = false; status(document.querySelector('[data-st]'), e.message, 'err'); }
   },
-  'activity-retry'() { loadActivity(); },
-  // An assistant's drafted reply goes to the agent to read and send (replies come from the licensed agent).
-  async 'coach-handoff'(el) {
-    const r = S.coach.reply, x = r.out?.replies?.[+el.dataset.k];
-    if (!x) return;
-    el.disabled = true;
-    try { await api('/api/desk/handoffs', { method: 'POST', body: { kind: 'reply', title: `Reply to a message (${x.label})`, message: r.message, draft: x.text } }); el.textContent = 'Handed off ✓'; toast('Handed to the agent. It’s in their Leads.'); }
-    catch (e) { el.disabled = false; toast(e.message); }
-  },
-  async seats(el) { el.disabled = true; try { S.people = { ...S.people, ...(await api('/api/billing/seats', { method: 'POST', body: { seats: Number(el.dataset.v) } })) }; drawTeam(); loadActivity(); toast('Seats updated'); } catch (e) { el.disabled = false; toast(e.message); } },
+  async seats(el) { el.disabled = true; try { S.people = { ...S.people, ...(await api('/api/billing/seats', { method: 'POST', body: { seats: Number(el.dataset.v) } })) }; drawTeam(); toast('Seats updated'); } catch (e) { el.disabled = false; toast(e.message); } },
   async 'person-del'(el) {
     if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; setTimeout(() => { if (document.contains(el)) { el.dataset.confirm = ''; el.textContent = 'Remove'; } }, 3000); return; }
-    try { S.people = { ...S.people, ...(await api(`/api/people/${el.dataset.id}`, { method: 'DELETE' })) }; drawTeam(); loadActivity(); toast('Removed. Their seat is free.'); } catch (e) { toast(e.message); }
+    try { S.people = { ...S.people, ...(await api(`/api/people/${el.dataset.id}`, { method: 'DELETE' })) }; drawTeam(); toast('Removed. Their seat is free.'); } catch (e) { toast(e.message); }
   },
   // The initial's menu (v15 Phase 10): Account, Guide, Billing, Log out.
   menu(el) { const pop = document.getElementById('mePop'); if (!pop) return; pop.hidden = !pop.hidden; el.setAttribute('aria-expanded', String(!pop.hidden)); if (!pop.hidden) pop.querySelector('a')?.focus(); },
   'copy-text'(el) { copy(el.dataset.text || '', el.dataset.what || 'Address'); },
-  async 'book-rotate'(el) { el.disabled = true; try { S.bookHook = await api('/api/bookings/hook', { method: 'POST', body: { rotate: true } }); S.bookHookOpen = true; drawBrand(); toast('New address made. Give it to your booking tool.'); } catch (e) { el.disabled = false; toast(e.message); } },
-  async 'book-key-clear'() { try { S.bookHook = await api('/api/bookings/hook', { method: 'POST', body: { key: '' } }); S.bookHookOpen = true; drawBrand(); toast('Signing key removed'); } catch (e) { toast(e.message); } },
   async 'signoff-on'(el) {
     el.disabled = true;
-    try { S.people = { ...S.people, ...(await api('/api/people/signoff', { method: 'POST', body: { on: el.dataset.v === '1' } })) }; await refreshMe(); drawTeam(); loadActivity(); toast(el.dataset.v === '1' ? 'Approved videos now wait for sign-off' : 'Sign-off turned off'); }
+    try { S.people = { ...S.people, ...(await api('/api/people/signoff', { method: 'POST', body: { on: el.dataset.v === '1' } })) }; await refreshMe(); drawTeam(); toast(el.dataset.v === '1' ? 'Approved videos now wait for sign-off' : 'Sign-off turned off'); }
     catch (e) { el.disabled = false; toast(e.message); }
   },
-  async 'invite-del'(el) { try { S.people = { ...S.people, ...(await api('/api/people/invites/revoke', { method: 'POST', body: { email: el.dataset.email } })) }; drawTeam(); loadActivity(); toast('Invite taken back'); } catch (e) { toast(e.message); } },
-  'handoff-new'() { S.handoffNew = { kind: 'reply' }; drawDesk(); },
-  'handoff-cancel'() { S.handoffNew = null; drawDesk(); },
-  async 'handoff-done'(el) { el.disabled = true; try { S.desk.handoffs = (await api(`/api/desk/handoffs/${el.dataset.id}/done`, { method: 'POST', body: {} })).handoffs; drawDesk(); } catch (e) { el.disabled = false; toast(e.message); } },
-  async 'handoff-del'(el) { try { S.desk.handoffs = (await api(`/api/desk/handoffs/${el.dataset.id}`, { method: 'DELETE' })).handoffs; drawDesk(); } catch (e) { toast(e.message); } },
-  'handoff-copy'(el) { const h = S.desk.handoffs.find(x => x.id === el.dataset.id); if (h) copy(h.draft, 'Reply'); },
-  async 'lead-reached'(el) { el.disabled = true; try { await api(`/api/clients/${el.dataset.id}/reached`, { method: 'POST', body: {} }); await viewDesk(); toast('Logged'); } catch (e) { el.disabled = false; toast(e.message); } },
-  async 'care-done'(el) { el.disabled = true; try { S.desk.care = (await api(`/api/clients/${el.dataset.id}/care`, { method: 'POST', body: { key: el.dataset.key } })).care; drawDesk(); } catch (e) { el.disabled = false; toast(e.message); } },
-  // Client care (v15): a note in the agent's voice, drafted right on the item; and keepsake videos.
-  async 'care-draft'(el) {
-    const key = el.dataset.key; (S.deskNotes ||= {})[key] = 'busy'; drawDesk();
-    try { S.deskNotes[key] = await api(`/api/clients/${el.dataset.id}/note`, { method: 'POST', body: { kind: el.dataset.kind } }); }
-    catch (e) { S.deskNotes[key] = { error: e.message, notes: [] }; }
-    drawDesk();
-  },
-  'care-copy'(el) { const n = S.deskNotes?.[el.dataset.key]?.notes?.[+el.dataset.k]; if (n) copy(n.text, 'Note'); },
-  'keepsake-open'(el) { S.keepsakeEdit = { key: el.dataset.key, id: el.dataset.id, kind: el.dataset.kind, lines: keepsakeLines(el.dataset.kind, el.dataset.name) }; drawDesk(); document.querySelector('.keepsake-edit input')?.focus(); },
-  'keepsake-cancel'() { S.keepsakeEdit = null; drawDesk(); },
-  async 'keepsake-make'(el) {
-    const ed = S.keepsakeEdit; if (!ed) return;
-    const lines = [...document.querySelectorAll('[data-keepsake-line]')].map(i => i.value.trim()).filter(Boolean);
-    el.disabled = true;
-    try { await api('/api/keepsakes', { method: 'POST', body: { kind: ed.kind, clientId: ed.id, lines } }); S.keepsakeEdit = null; S.desk = await api('/api/desk'); drawDesk(); pollKeepsakes(); toast('Being made. It’ll be here in a few minutes.'); }
-    catch (e) { el.disabled = false; toast(e.message); }
-  },
-  async 'keepsake-share'(el) {
-    const k = (S.desk?.keepsakes || []).find(x => x.id === el.dataset.id); if (!k) return;
-    const name = `${k.kind === 'birthday' ? 'Happy birthday' : 'Welcome'} ${k.name}.mp4`;
-    el.disabled = true;
-    try {
-      const blob = await (await fetch(`/media/${k.file}`, { credentials: 'same-origin' })).blob();
-      const file = new File([blob], name, { type: 'video/mp4' });
-      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
-      else { const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); toast('Downloaded. Text it from your phone.'); }
-    } catch (e) { if (e.name !== 'AbortError') toast('Couldn’t share it here. Use Download instead.'); }
-    el.disabled = false;
-  },
-  async 'keepsake-del'(el) { try { await api(`/api/keepsakes/${el.dataset.id}`, { method: 'DELETE' }); S.desk.keepsakes = S.desk.keepsakes.filter(k => k.id !== el.dataset.id); drawDesk(); } catch (e) { toast(e.message); } },
-  'care-note'(el) { openCoach(`Write a short, warm ${el.dataset.kind === 'birthday' ? 'happy birthday note' : el.dataset.kind === 'anniversary' ? 'note offering a quick policy review on their anniversary' : 'check-in note'} I can send to my client ${el.dataset.name}. No selling, no prices.`, null, 'comms'); },
+  async 'invite-del'(el) { try { S.people = { ...S.people, ...(await api('/api/people/invites/revoke', { method: 'POST', body: { email: el.dataset.email } })) }; drawTeam(); toast('Invite taken back'); } catch (e) { toast(e.message); } },
   'page-reload'() { location.reload(); },
   'access-retry'() { loadAccess(); },
   'requests-retry'() { loadRequests(); },
@@ -1237,29 +1022,8 @@ const actions = {
     makeVideos(1, d.topic || '');
   },
   async 'outage-retry'(el) { el.disabled = true; try { await api('/api/me'); outage(false); flushOffline(); render(); } catch { el.disabled = false; } },
-  'hello-close'(el) { el.closest('.hello')?.remove(); },
   'day-off'(el) { const k = +el.dataset.v, d = S.cfg.profile.daysOff || []; S.cfg.profile.daysOff = d.includes(k) ? d.filter(x => x !== k) : [...d, k].sort(); if (S.cfg.profile.daysOff.length > 6) S.cfg.profile.daysOff = d; drawSettings(); saveBar(); },
-  'streak-answer'(el) { S.streakAnswer = +el.dataset.k; drawReview(); },
-  'streak-close'(el) { local.set(wsKey('streakSeen'), el.dataset.v); S.streakAnswer = null; drawReview(); },
-  'recap-close'(el) { local.set(wsKey('recapSeen'), el.dataset.v); drawReview(); },
   nav(el) { location.hash = el.getAttribute('href'); },
-  async 'milestone-seen'(el) { el.closest('.milestone')?.remove(); if (S.today) S.today.milestone = null; await api(`/api/milestones/${el.dataset.id}/seen`, { method: 'POST', body: {} }).catch(() => {}); },
-  async 'week-make'(el) { el.disabled = true; await makeVideos(+el.dataset.n || 1); if (document.contains(el)) el.disabled = false; },
-  // The chauffeur (v15 Phase 8): back from Away, the welcome back seen, the busy week.
-  async 'away-back'(el) { el.disabled = true; try { await api('/api/away', { method: 'DELETE' }); await loadToday(true); S.awayState = null; render(); toast('Welcome back. Notifications are on again.'); } catch (e) { el.disabled = false; toast(e.message); } },
-  async 'away-welcome'(el) { try { await api('/api/away/welcome', { method: 'POST', body: {} }); } catch { /* it shows again next time */ } if (S.today) S.today.welcome = null; document.querySelector('.welcome-back')?.remove(); if (el.tagName === 'A') go('review'); },
-  async 'busy-start'(el) {
-    el.disabled = true;
-    try { const r = await api('/api/busy-week', { method: 'POST', body: {} }); await loadToday(true); todayBanner(); toast(r.queued ? `Making ${plural(r.queued, 'video')}. You’ll hear once, when they’re all ready.` : 'Your week is already covered.'); if (r.queued) watchJobs(); }
-    catch (e) { el.disabled = false; toast(e.message); }
-  },
-  async 'busy-close'() { try { await api('/api/busy-week', { method: 'DELETE' }); } catch { /* shows again next time */ } if (S.today) S.today.busy = null; document.querySelector('.busy-note')?.remove(); },
-  async 'busy-review'() { try { await api('/api/busy-week', { method: 'DELETE' }); } catch { /* fine */ } if (S.today) S.today.busy = null; go('review', 'focus'); },
-  // Fitted to the person (v15): the curtain; comfort and dark mode (Account → Comfort, this device).
-  curtain() { const on = !curtainOn(); if (on) document.documentElement.dataset.curtain = 'on'; else delete document.documentElement.dataset.curtain; document.querySelectorAll('[data-act="curtain"]').forEach(b => { b.setAttribute('aria-pressed', String(on)); }); toast(on ? 'Client names and notes are hidden. Tap the eye to show them.' : 'Shown again.'); },
-  'comfort-set'(el) { const c = readComfort(); c[el.dataset.k] = el.dataset.v; saveComfort(c); applyComfort(); render(); },
-  'year-seen'(el) { local.set(wsKey('yearSeen'), el.dataset.v); el.closest('.year-card')?.remove(); },
-  'wrap-seen'(el) { local.set(wsKey('wrapSeen'), el.dataset.v); el.closest('.wrap-card')?.remove(); },
   'keys-close'() { local.set(wsKey('keys'), 'done'); drawCreate(); },
   async 'keys-make'(el) { el.disabled = true; await makeVideos(1); drawCreate(); },
   'ready-close'(el) { document.querySelector(`[data-ready="${el.dataset.id}"]`)?.remove(); if (el.tagName === 'A') go('review'); },
@@ -1331,8 +1095,6 @@ const actions = {
   },
   'reject-open'(el) { S.open = { reject: el.dataset.id, reason: '' }; S.fix = null; drawReview(); },
   'reject-cancel'() { S.open = {}; drawReview(); },
-  'changes-open'(el) { S.open = { changes: el.dataset.id }; S.fix = null; drawReview(); main.querySelector('[data-form="changes"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); },
-  'changes-cancel'() { S.open = {}; drawReview(); },
   reason(el) { const note = el.closest('.box').querySelector('[data-reject-note]').value; S.open.reason = el.dataset.v; drawReview(); const n = main.querySelector('[data-reject-note]'); if (n) n.value = note; },
   reject(el) {
     const box = el.closest('.box'), note = box.querySelector('[data-reject-note]').value, never = box.querySelector('[data-reject-never]')?.value || '';
@@ -1699,18 +1461,6 @@ const actions = {
   async 'mind-habit-del'(el) { const r = habitRows(); await mindSave({ identity: r.identity, habits: r.habits.filter(h => h.id !== el.dataset.id) }, 'Removed'); },
   async 'mind-habit-add'() { const r = habitRows(); await mindSave({ identity: r.identity, habits: [...r.habits, { text: 'New habit (tap to rename)' }] }, ''); },
   async 'mind-habit-auto'(el) { const r = habitRows(); await mindSave({ identity: r.identity, habits: [...r.habits, { text: AUTO_HABITS[el.dataset.v].label.replace('{n}', 3), auto: el.dataset.v, target: 3 }] }, ''); },
-  'mind-client-open'(el) { S.clientOpen = el.dataset.id; S.mindOpen.notes = true; drawMindset(); },
-  'mind-client-close'() { S.clientOpen = null; drawMindset(); },
-  async 'mind-reached'(el) { try { await api(`/api/clients/${el.dataset.id}/reached`, { method: 'POST', body: {} }); await loadMind(); drawMindset(); toast('Noted. Set when to reach out next in their notes.'); } catch (e) { toast(e.message); } },
-  'mind-client-del'(el) {
-    const id = el.dataset.id;
-    softly(`client:${id}`, {
-      label: 'Client deleted',
-      hide: () => { S.clientOpen = null; if (S.mind) S.mind = { ...S.mind, clients: S.mind.clients.filter(c => c.id !== id) }; drawMindset(); },
-      run: async o => { await api('/api/clients/' + id, { method: 'DELETE', ...o }); S.replyClients = undefined; },
-      after: async () => { await loadMind(); if (S.view === 'mindset') drawMindset(); },
-    });
-  },
   async 'mind-advice'(el) { el.disabled = true; el.innerHTML = '<span class="spin"></span> Looking…'; try { S.advice = (await api('/api/mindset/audit/advice', { method: 'POST', body: {} })).advice; } catch (e) { toast(e.message); } drawMindset(); },
   async 'mind-practice-del'(el) { try { S.mind = await api('/api/mindset/practice/' + el.dataset.id, { method: 'DELETE' }); drawMindset(); } catch (e) { toast(e.message); } },
   async 'mind-strat-del'(el) { const st = { ...S.mind.mindset.strategy }; st[el.dataset.k] = st[el.dataset.k].filter((_, i) => i !== +el.dataset.i); await mindSave({ strategy: st }, ''); },
@@ -2027,10 +1777,6 @@ const actions = {
     catch (e) { toast(e.message); }
   },
   async 'ap-cancel'(el) { try { await api(`/api/videos/${el.dataset.id}/autopost`, { method: 'DELETE' }); await loadVideos(); drawReview(); toast('Canceled'); } catch (e) { toast(e.message); } },
-  async 'photo-del'(el) {
-    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; setTimeout(() => { el.dataset.confirm = ''; el.textContent = 'Remove'; }, 3000); return; }
-    try { await api('/api/brand/photo', { method: 'DELETE' }); S.me.workspace.photo = false; drawBrand(); } catch (e) { toast(e.message); }
-  },
   async 'logo-del'(el) {
     if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; setTimeout(() => { el.dataset.confirm = ''; el.textContent = 'Remove'; }, 3000); return; }
     await api('/api/brand/logo', { method: 'DELETE' });
@@ -2120,30 +1866,6 @@ async function uploadLogo(file) {
   } catch (e) { toast(e.message); main.querySelector('[data-logo-busy]')?.remove(); if (input) input.disabled = false; }
   finally { URL.revokeObjectURL(url); }
 }
-// Keepsakes being made: the Desk checks every 8 seconds until they're ready (only while it's open).
-function pollKeepsakes() {
-  if (S.keepsakePoll) return;
-  S.keepsakePoll = setInterval(async () => {
-    if (S.view !== 'leads' || !(S.desk?.keepsakes || []).some(k => k.status === 'making')) { clearInterval(S.keepsakePoll); S.keepsakePoll = null; return; }
-    try { const d = await api('/api/desk'); S.desk = { ...S.desk, keepsakes: d.keepsakes, care: d.care }; drawDesk(); } catch { /* next time */ }
-  }, 8000);
-}
-// The agent's photo for their video pages (v15): shrunk in the browser, squared and re-encoded on the server.
-async function uploadPhoto(file) {
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast('Use a JPEG or PNG photo.');
-  const url = URL.createObjectURL(file), input = main.querySelector('[data-photo]');
-  if (input) { input.disabled = true; input.closest('label')?.insertAdjacentHTML('afterend', '<span class="small muted" data-photo-busy><span class="spin"></span> Uploading your photo…</span>'); }
-  try {
-    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('That photo couldn’t be read.')); i.src = url; });
-    const k = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight));
-    const c = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(img.naturalWidth * k)), height: Math.max(1, Math.round(img.naturalHeight * k)) });
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    await api('/api/brand/photo', { method: 'POST', body: { image: c.toDataURL('image/jpeg', 0.88) } });
-    S.me.workspace.photo = true; S.photoV = Date.now();
-    drawBrand(); toast('Photo saved. It’s on your video pages now.');
-  } catch (e) { toast(e.message); main.querySelector('[data-photo-busy]')?.remove(); if (input) input.disabled = false; }
-  finally { URL.revokeObjectURL(url); }
-}
 function showLink(box, link, label) {
   if (!box) { if (link) copy(link, 'Invite link'); return; }   // (its box not on screen: the link is copied instead)
   const div = document.createElement('div');
@@ -2164,7 +1886,6 @@ function updateBadge() {
 // information: DISC styles, behavior, selling). Each keeps its own conversation.
 S.coach = { open: false, mode: 'content', msgs: [], focus: null, busy: false, ws: null, loaded: '', tab: 'ask', notes: null, reply: { busy: false, out: null, message: '', note: '' } };
 Object.assign(actions, rulesActions);   // Admin → Render rules (public/screens/admin.js)
-Object.assign(actions, awayActions);   // Setup → Autopilot → Going away? (public/screens/settings.js)
 Object.assign(actions, signoffActions);
 Object.assign(actions, repliesActions);   // Keyword replies on Instagram (public/screens/replies.js)   // Sign-off, the compliance reviewer's page (public/screens/signoff.js)
 // The initial's menu is a disclosure: a tap elsewhere, Tab out of it, or Escape closes it. Escape puts
@@ -2184,22 +1905,15 @@ document.addEventListener('click', e => {
 
 document.addEventListener('change', e => {
   const t = e.target;
-  // The weekly plan's ticks survive a redraw (new videos arriving redraw Today and Review).
+  // The weekly plan's ticks survive a redraw (new videos arriving redraw Create).
   if (t.dataset.plan !== undefined) { const at = S.weekly?.weekly?.at || ''; if (S.planOff?.at !== at) S.planOff = { at, off: {} }; S.planOff.off[t.dataset.plan] = !t.checked; return; }
   if (t.dataset.act === 'accept') return actions.accept(t);
   if (t.dataset.personEdit !== undefined) { api(`/api/people/${t.dataset.personEdit}`, { method: 'PUT', body: { canEdit: t.checked } }).then(r => { S.people = { ...S.people, ...r }; toast(t.checked ? 'They can edit content and settings now' : 'They can’t edit settings anymore'); }).catch(e => { t.checked = !t.checked; toast(e.message); }); return; }
   if (t.dataset.personPost !== undefined) { api(`/api/people/${t.dataset.personPost}`, { method: 'PUT', body: { canPost: t.checked } }).then(r => { S.people = { ...S.people, ...r }; toast(t.checked ? 'They can post for you now' : 'They can’t post anymore'); }).catch(e => { t.checked = !t.checked; toast(e.message); }); return; }
-  if (t.dataset.leadStage !== undefined) { api(`/api/clients/${t.dataset.leadStage}`, { method: 'PUT', body: { stage: t.value } }).then(() => viewDesk()).catch(e => toast(e.message)); return; }
-  if (t.dataset.leadNext !== undefined) { api(`/api/clients/${t.dataset.leadNext}`, { method: 'PUT', body: { next: t.value } }).then(() => toast('Saved')).catch(e => toast(e.message)); return; }
   if (t.dataset.wsSwitch !== undefined) { if (dirty() && !confirm('You have unsaved changes. Switch anyway?')) { t.value = S.me.workspace.id; return; } api('/api/workspaces/switch', { method: 'POST', body: { workspaceId: t.value } }).then(() => { location.hash = '#/'; location.reload(); }).catch(e => toast(e.message)); return; }
   if (t.dataset.act === 'accept-terms' && S.setup) { S.setup.acceptTerms = t.checked; return; }
   if (t.dataset.audit) { S.auditF[t.dataset.audit] = t.value; S.auditF.limit = 30; loadAudit(); return; }
   if (t.dataset.gen) { S.genFor = { ...(S.genFor || {}), [t.dataset.gen]: t.value }; return; }
-  if (t.dataset.replyClient !== undefined) {
-    const c = (S.replyClients || []).find(x => x.id === t.value), note = t.form?.elements.note;
-    if (c && note) note.value = [`Client ${c.name}`, c.family && `family: ${c.family}`, c.interests && `interests: ${c.interests}`, c.wins && `wins: ${c.wins}`].filter(Boolean).join('; ').slice(0, 300);
-    return;
-  }
   if (t.dataset.mindCheck !== undefined && S.mind) { api('/api/mindset/check', { method: 'POST', body: { habitId: t.dataset.mindCheck, done: t.checked } }).then(r => { S.mind = r; drawMindset(); if (t.checked) haptic(); }).catch(e => { t.checked = !t.checked; toast(`Not saved: ${e.message}`); }); return; }
   if (t.dataset.mindShow !== undefined && S.mind) { mindSave({ profile: { why: { ...S.mind.profile.why, show: t.checked ? 'on' : 'off' } } }, ''); return; }
   if (t.dataset.mindPersuasion !== undefined && S.mind) { mindSave({ profile: { persuasion: t.checked ? 'on' : 'off' } }, ''); return; }
@@ -2217,13 +1931,6 @@ document.addEventListener('change', e => {
     }
     if (k === 'painId') patch.insightIds = [];
     stBrief(patch); return;
-  }
-  // A "Needs changes" checklist item ticked (on the Desk, or in Studio's panel).
-  if (t.dataset.handoffCheck) {
-    api(`/api/desk/handoffs/${t.dataset.handoffCheck}/check`, { method: 'POST', body: { k: t.dataset.k, done: t.checked } })
-      .then(r => { if (S.desk) S.desk.handoffs = S.desk.handoffs.map(h => (h.id === r.handoff.id ? r.handoff : h)); if (S.st?.d.changes?.handoffId === r.handoff.id) S.st.d.changes.checklist = r.handoff.checklist; })
-      .catch(err => { t.checked = !t.checked; toast(err.message); });
-    return;
   }
   if (t.dataset.stnofact !== undefined && S.st) { stBrief({ noFact: t.checked, insightIds: [] }); return; }
   if (t.dataset.stfact && S.st) { stBrief({ insightIds: [...document.querySelectorAll('[data-stfact]')].filter(x => x.checked).map(x => x.dataset.stfact) }); return; }
@@ -2244,7 +1951,6 @@ document.addEventListener('change', e => {
   if (t.dataset.ans && t.tagName === 'SELECT') S.setup.answers[t.dataset.ans] = t.value;
   if (t.dataset.bind && t.tagName === 'SELECT') { setPath(S.cfg, t.dataset.bind, t.value); saveBar(); if (S.view === 'brand' || stepView()) drawBrand(); }
   if (t.dataset.logo !== undefined && t.files?.[0]) uploadLogo(t.files[0]);
-  if (t.dataset.photo !== undefined && t.files?.[0]) uploadPhoto(t.files[0]);
   if (t.dataset.libup !== undefined && t.files?.[0]) uploadClip(t.files[0]);
   if (t.dataset.libdesc) api(`/api/library/${t.dataset.libdesc}`, { method: 'POST', body: { description: t.value } }).then(r => { S.lib.clips = r.clips; toast('Saved'); }).catch(err => toast(err.message));
   if (t.dataset.wsf && t.tagName === 'SELECT' && S.workshop) {
@@ -2321,12 +2027,12 @@ document.addEventListener('submit', async e => {
     if (kind === 'login') {
       const r = await api('/api/login', { method: 'POST', body: { email: data.email, password: data.password } });
       if (r.twofa) { S.ticket = r.ticket; return viewTwofaLogin(); }
-      await refreshMe(); await loadToday(); registerSw(); if (freshAfterLogin()) return; go(''); return;
+      await refreshMe(); registerSw(); if (freshAfterLogin()) return; go(''); return;
     }
     if (kind === 'login2fa') {
       const r = await api('/api/login/2fa', { method: 'POST', body: { ticket: S.ticket, code: data.code } });
       S.ticket = null; S.ticketMsg = '';
-      await refreshMe(); await loadToday(); registerSw();
+      await refreshMe(); registerSw();
       if (r.usedBackup) toast(`Backup code used. ${r.backupLeft} left${r.backupLeft <= 3 ? ': make new ones under Account' : ''}.`);
       if (freshAfterLogin()) return; go(''); return;
     }
@@ -2391,27 +2097,18 @@ document.addEventListener('submit', async e => {
     if (kind.startsWith('mind-')) { await mindForm(kind, f, data); return; }
     if (kind === 'so-back') { await soBackForm(f, data); return; }
     if (kind.startsWith('reply-') && await repliesForm(kind, f, data)) return;
-    if (kind === 'book-key') { S.bookHook = await api('/api/bookings/hook', { method: 'POST', body: { key: data.key || '' } }); S.bookHookOpen = true; drawBrand(); toast(data.key ? 'Signing key saved. Every call must now be signed.' : 'Signing key removed'); return; }
     if (kind === 'reviewer-invite') {
       const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, role: 'reviewer' } });
-      S.people = { ...S.people, ...r }; drawTeam(); loadActivity();
+      S.people = { ...S.people, ...r }; drawTeam();
       showLink(document.getElementById('reviewerOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too:` : `Send this invite link to ${data.email} (valid 7 days, single use):`);
       return;
     }
     if (kind === 'person-invite') {
       const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, canPost: !!data.canPost } });
-      S.people = { ...S.people, ...r }; drawTeam(); loadActivity();
+      S.people = { ...S.people, ...r }; drawTeam();
       showLink(document.getElementById('inviteOut'), r.link, r.emailed ? `Invite emailed to ${data.email} (valid 7 days, single use). The link is here too:` : `Send this invite link to ${data.email} (valid 7 days, single use):`);
       return;
     }
-    // Needs changes (v15): the ticked items and the note, to the Desk.
-    if (kind === 'changes') {
-      const items = [...f.querySelectorAll('[data-change-what]:checked')].map(x => ({ what: x.dataset.changeWhat, ...(x.dataset.changeI !== undefined ? { i: +x.dataset.changeI } : {}) }));
-      await api(`/api/videos/${f.dataset.id}/changes`, { method: 'POST', body: { items, note: data.note || '' } });
-      S.open = {}; await loadVideos(); drawReview(); toast('Sent for changes. The new version will replace this one.'); return;
-    }
-    if (kind === 'handoff') { S.desk.handoffs = (await api('/api/desk/handoffs', { method: 'POST', body: data })).handoffs; S.handoffNew = null; drawDesk(); toast('Handed off'); return; }
-    if (kind === 'lead-add') { await api('/api/clients', { method: 'POST', body: { name: data.name, phone: /@/.test(data.phone) ? '' : data.phone, email: /@/.test(data.phone) ? data.phone : '', source: data.source, stage: 'lead', next: S.desk?.today || '' } }); await viewDesk(); toast('Lead added. Follow up today.'); return; }
     if (kind === 'request-done') { await api(`/api/admin/requests/${f.dataset.ws}/${f.dataset.id}`, { method: 'POST', body: { reply: data.reply } }); toast('Marked done. They’ll see your reply.'); loadRequests(); return; }
     if (kind === 'request') { S.requests = { ...S.requests, ...(await api('/api/requests', { method: 'POST', body: { text: data.text, area: data.area } })) }; drawTeam(); toast('Sent to your team'); return; }
     if (kind === 'add') {
@@ -2455,7 +2152,6 @@ function registerSw() { if (offlineOK()) navigator.serviceWorker.register('/sw.j
   if (back) history.replaceState(null, '', '/#/billing' + (back === 'done' ? '?done=1' : ''));
   await refreshMe();
   if (!S.me) S.me = { account: null };
-  await loadToday();   // the greeting arrives with the first page, not after it
   render();
   watchJobs();   // picks up videos already being made
   pushCheck();
@@ -2477,4 +2173,4 @@ document.addEventListener('keydown', e => {
 
 // What the screens use from here (public/screens/*.js).
 export { canSee };
-export { softGone, prunePreload, preloadMedia, ACCENT_COLORS, AI_VOICE_NOTE, AUTO_HABITS, BOOKS, DEFAULT_CONFIG, DRILL, FACT_REVIEW_DAYS, FONTS, FOOTAGE_MIX, FORMATS, GOV_TERMS, LEVELS, LIMITS, MONTHS, PERSUASION, PLATFORMS, PRINCIPLES, PRODUCT_LINES, PRODUCT_NAMES, REJECT_TIPS, RUBRIC, S, SALES, SERVER_TROUBLE, SHOT_TYPES, SKILLS, STRUCTURES, STYLES, STYLE_KEYS, VOICES, WORKSHOP_KINDS, accentHex, actions, ago, analyze, api, app, applySuggestionTo, badgeFromMe, beatPlan, calm, can, cantNow, checkInsightText, checkStoryText, checkingLinks, cityOf, copy, countMixes, day, dirty, esc, estimateSeconds, factNotes, fetchError, getPath, go, gridPanel, insightStatus, later, linkChecks, loadCfg, loadPush, loadRecap, loadToday, local, main, nicheOf, normStyle, offlineOK, okBookingUrl, outage, overlayQueue, page, pageWs, plural, pollKeepsakes, readComfort, sunTimes, pushInner, readQueue, aheadPanel, recapPanel, refreshMe, render, roleText, roll, saveBar, saveCfg, saveOneChange, seasonsNow, short, shotList, status, stopTimers, streakPanel, structureFits, studioChecks, studioFormatFor, studioPicks, styleLabel, suggestAccent, toast, updateBadge, usableRoutes, watchJobs, watching, weekPanel, when, whyNoVideos, wsHeaders, wsKey, wsParam };
+export { softGone, prunePreload, preloadMedia, ACCENT_COLORS, AI_VOICE_NOTE, AUTO_HABITS, BOOKS, DEFAULT_CONFIG, DRILL, FACT_REVIEW_DAYS, FONTS, FOOTAGE_MIX, FORMATS, GOV_TERMS, LEVELS, LIMITS, MONTHS, PERSUASION, PLATFORMS, PRINCIPLES, PRODUCT_LINES, PRODUCT_NAMES, REJECT_TIPS, RUBRIC, S, SALES, SERVER_TROUBLE, SHOT_TYPES, SKILLS, STRUCTURES, STYLES, STYLE_KEYS, VOICES, WORKSHOP_KINDS, accentHex, actions, ago, analyze, api, app, applySuggestionTo, badgeFromMe, beatPlan, calm, can, cantNow, checkInsightText, checkStoryText, checkingLinks, cityOf, copy, countMixes, day, dirty, esc, estimateSeconds, factNotes, fetchError, getPath, go, gridPanel, insightStatus, later, linkChecks, loadCfg, loadPush,   local, main, nicheOf, normStyle, offlineOK, okBookingUrl, outage, overlayQueue, page, pageWs, plural,    pushInner, readQueue,   refreshMe, render, roleText, roll, saveBar, saveCfg, saveOneChange, seasonsNow, short, shotList, status, stopTimers,  structureFits, studioChecks, studioFormatFor, studioPicks, styleLabel, suggestAccent, toast, updateBadge, usableRoutes, watchJobs, watching,  when, whyNoVideos, wsHeaders, wsKey, wsParam };

@@ -16,7 +16,6 @@ const P = await import('../lib/prompts.js');
 const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const memory = await import('../lib/memory.js');
-const todayLib = await import('../lib/today.js');
 const push = await import('../lib/push.js');
 const queue = await import('../lib/queue.js');
 const { DIRS } = await import('../lib/paths.js');
@@ -114,26 +113,6 @@ test('week ahead: posting days filled by scheduled, then approved, then in-revie
   const off = M.weekAhead(cfg, vs, mon, { goal: 5 });
   assert.equal(off.plan, false); assert.equal(off.ready, 2); assert.equal(off.short, 1, '5 − 2 ready − 1 scheduled − 1 in review'); assert.equal(off.goal, 5);
   assert.equal(M.weekAhead(cfg, both, mon, { goal: 4 }).whole, false, '2 ready + 1 scheduled (counted once) is short of 4');
-});
-
-test('greeting and milestones: old ones quietly marked seen, new ones shown once', async () => {
-  const w2 = store.createWorkspace({ name: 'Milestones', comped: true });
-  store.addVideo(w2.id, vid('p1', 'posted', { posted: { at: new Date().toISOString() } }));
-  assert.equal(todayLib.nextMilestone(w2.id), null, 'the first look marks what’s already reached');
-  assert.ok(memory.read(w2.id).milestones.seen.first_post);
-  store.updateVideo(w2.id, 'p1', { results: { messages: 1 } });
-  assert.equal(todayLib.nextMilestone(w2.id).id, 'first_message');
-  assert.equal(todayLib.seeMilestone(w2.id, 'first_message'), true);
-  assert.equal(todayLib.nextMilestone(w2.id), null);
-  assert.equal(todayLib.seeMilestone(w2.id, 'nope'), false);
-  // The endpoint: a greeting with the agent's name and their why.
-  const cfg = store.loadConfig(ws.id); cfg.mindset = { ...cfg.mindset, why: { ...cfg.mindset.why, why: 'No family should be left guessing' } }; store.saveConfig(ws.id, cfg);
-  const t = await c.get('/api/today');
-  assert.equal(t.status, 200, JSON.stringify(t.data));
-  assert.match(t.data.hello, /^(Good (morning|afternoon|evening)|Hi), Dana\.$/);
-  assert.equal(t.data.why, 'No family should be left guessing');
-  assert.ok(t.data.week && Array.isArray(t.data.week.days));
-  assert.equal((await c.post('/api/milestones/zzz/seen', {})).status, 404);
 });
 
 test('honest progress: the step a job is on, a retry, and how long videos usually take', async () => {

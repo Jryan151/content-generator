@@ -103,10 +103,7 @@ test('an assistant: works on videos, never approves, never sees the agent’s ow
   // The agent's why (Mindset) never reaches them, through any door.
   const owner = await login('solo@example.com', 'solopass1234');
   await owner.put('/api/mindset', { profile: { why: { why: 'My mom had nothing in place', how: '', what: '', show: 'off' } } });
-  assert.equal((await owner.get('/api/today')).data.why, 'My mom had nothing in place');
   assert.equal((await c.get('/api/config')).data.config.mindset.why.why, '');
-  const t = (await c.get('/api/today')).data;
-  assert.equal(t.why, ''); assert.equal(t.principle, null);
   assert.equal((await c.get('/api/me')).data.workspace.billing.plan, '');
   assert.equal((await c.post('/api/videos/av1/posted', {})).status, 403, 'no posting in the solo workspace');
   // Switch to the managed workspace, where the agent let them post.
@@ -135,7 +132,7 @@ test('a page loaded for one workspace can’t act on another after a switch in a
   const other = me.workspaces.find(w => !w.current);
   await c.post('/api/workspaces/switch', { workspaceId: other.id });
   // The old tab still sends the workspace it was loaded for.
-  const res = await fetch(`http://127.0.0.1:${port}/api/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie: c.cookie, 'X-Workspace': me.workspace.id }, body: JSON.stringify({ name: 'Rosa' }) });
+  const res = await fetch(`http://127.0.0.1:${port}/api/studio`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie: c.cookie, 'X-Workspace': me.workspace.id }, body: JSON.stringify({}) });
   assert.equal(res.status, 409); assert.equal((await res.json()).wsChanged, true);
   assert.equal(store.listAccounts().length > 0, true);
 });

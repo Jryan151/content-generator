@@ -1,4 +1,4 @@
-// v15 Phase 10 in a real browser: five daily stops (Today, Review, Create, Leads, Grow) and Setup's six
+// In a real browser: three daily stops (Review, Create, Grow) and Setup's six
 // steps; Account, Guide and Billing under the initial; where each person lands; older addresses still
 // open; every Setup step shows its panels and saves like the pages they came from. Runs in Chromium
 // when Playwright is around (PLAYWRIGHT_DIR, or /opt/node-tools/node_modules), and is skipped otherwise.
@@ -21,7 +21,6 @@ test.before(async () => {
   stubs = await startStubs();
   store = await import('../lib/store.js');
   const auth = await import('../lib/auth.js');
-  const clients = await import('../lib/clients.js');
   const { starterStory } = await import('../templates.js');
   const S = await import('../server.js');
   server = await S.start({ port: 0, scheduler: false, worker: false });
@@ -34,7 +33,6 @@ test.before(async () => {
   store.saveConfig(ws.id, cfg);
   store.updateWorkspace(ws.id, { onboarded: true, limits: { assistantSeats: 1 } });
   for (let i = 0; i < 2; i++) store.addVideo(ws.id, { id: 'tv' + i, status: 'pending', version: 1, file: `video_tv${i}.mp4`, createdAt: new Date().toISOString(), scenes: [{ text: `Video ${i} line`, keyword: 'family' }], meta: { painPoint: 'Funeral costs' }, post: 'p', preflight: [] });
-  clients.add(ws.id, { name: 'Maria Lopez', stage: 'lead', next: new Date().toISOString().slice(0, 10) });
   store.createAccount({ email: 'ten@example.com', name: 'Dana Agent', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('tenpass12345') });
   const a = store.createAccount({ email: 'tena@example.com', name: 'Sam Helper', role: 'agent', workspaceId: ws.id, hash: await auth.hashPassword('tenapass1234') });
   store.setMembership(a.id, ws.id, { role: 'assistant' });
@@ -61,13 +59,11 @@ const tabs = page => page.$$eval('.nav a', a => a.map(x => x.textContent.replace
 const current = page => page.$eval('.nav a[aria-current="page"]', a => a.textContent.replace(/\d+$/, '').trim()).catch(() => '');
 const headings = page => page.$$eval('main h2', h => h.map(x => x.textContent.trim()));
 
-test('the agent: lands on Today; five stops and Setup; the menu under the initial; old addresses still open', { skip, timeout: 180000 }, async () => {
+test('the agent: lands on Review; three stops and Setup; the menu under the initial; old addresses still open', { skip, timeout: 180000 }, async () => {
   const { page, errors } = await open('ten@example.com', 'tenpass12345');
-  await page.waitForSelector('.stops');
-  assert.equal(await page.evaluate(() => location.hash), '#/today');
-  assert.deepEqual(await tabs(page), ['Today', 'Review', 'Create', 'Leads', 'Grow', 'Setup']);
-  assert.match(await page.$eval('.stops', e => e.innerText.replace(/\s+/g, ' ')), /2 videos to review.*1 follow-up due/);
-  // All six fit across a phone.
+  await page.waitForFunction(() => location.hash === '#/review' && document.querySelector('main h1'));
+  assert.deepEqual(await tabs(page), ['Review', 'Create', 'Grow', 'Setup']);
+  // They all fit across a phone.
   assert.ok(await page.$eval('.nav', n => n.scrollWidth <= n.clientWidth + 1), 'no scrolling the tabs');
   // The initial's menu: Account, Guide (no Billing for a comped workspace), Log out; closes on a tap elsewhere.
   await page.click('.me-btn');
@@ -75,22 +71,16 @@ test('the agent: lands on Today; five stops and Setup; the menu under the initia
   await page.mouse.click(30, 500);
   assert.equal(await page.$eval('#mePop', e => e.hidden), true);
   // Where each page sits in the bar.
-  for (const [hash, tab] of [['#/review', 'Review'], ['#/leads', 'Leads'], ['#/grow', 'Grow'], ['#/communicate', 'Grow'], ['#/mindset', 'Grow'], ['#/profile', 'Setup'], ['#/team', 'Setup'], ['#/brand', 'Setup']]) {
+  for (const [hash, tab] of [['#/review', 'Review'], ['#/create', 'Create'], ['#/grow', 'Grow'], ['#/communicate', 'Grow'], ['#/mindset', 'Grow'], ['#/profile', 'Setup'], ['#/team', 'Setup'], ['#/brand', 'Setup']]) {
     await goto(page, hash);
     assert.equal(await current(page), tab, hash);
-  }
-  // The daily chain: each stop ends with the way to the next.
-  for (const [hash, next] of [['#/today', 'Start with Review →'], ['#/review', 'Next stop: Create →'], ['#/create', 'Next stop: Leads →'], ['#/leads', 'Next stop: Grow →'], ['#/grow', null]]) {
-    await goto(page, hash);
-    assert.equal(await page.$eval('.chain-next a', a => a.textContent).catch(() => null), next, hash);
   }
   // Grow's tabs.
   await goto(page, '#/grow');
   assert.deepEqual(await page.$$eval('.subnav a', a => a.map(x => x.textContent)), ['Results', 'Communicate', 'Mindset']);
-  // Older addresses: the Desk is Leads; Setup opens its first step; Content, Brand and Settings still open whole.
-  await goto(page, '#/desk');
-  assert.equal(await page.evaluate(() => location.hash), '#/leads');
-  assert.ok((await headings(page)).includes('Keyword replies'), 'keyword replies live on Leads');
+  // Older addresses: Today and Leads open Review; Setup opens its first step; Content, Brand and Settings still open whole.
+  await goto(page, '#/today');
+  assert.equal(await page.evaluate(() => location.hash), '#/review');
   await goto(page, '#/setup');
   assert.equal(await page.evaluate(() => location.hash), '#/profile');
   for (const [hash, h1] of [['#/content', 'Content'], ['#/brand', 'Brand'], ['#/settings', 'Settings']]) { await goto(page, hash); assert.equal(await page.$eval('main h1', e => e.textContent), h1); }
@@ -101,12 +91,12 @@ test('the agent: lands on Today; five stops and Setup; the menu under the initia
 test('Setup’s six steps: each shows its panels, in order, with the way on; a change saves like before', { skip, timeout: 180000 }, async () => {
   const { page, errors } = await open('ten@example.com', 'tenpass12345');
   const expect = {
-    profile: ['End card', 'Your video pages', 'Profile'],
+    profile: ['End card', 'Profile'],
     library: ['Checks', 'Your own clips'],
     voice: ['Voice', 'Your voice', 'Rules', 'What the app remembers'],
     look: ['Captions and footage', 'Video', 'Saved versions'],
-    autopilot: ['Going away?', 'Also running by itself'],
-    team: ['Assistants', 'Compliance reviewer', 'What’s been done'],
+    autopilot: ['Keyword replies', 'Also running by itself'],
+    team: ['Assistants', 'Compliance reviewer'],
   };
   for (const [step, want] of Object.entries(expect)) {
     await goto(page, `#/${step}`, '.steps');
@@ -132,7 +122,7 @@ test('Setup’s six steps: each shows its panels, in order, with the way on; a c
   await page.close();
 });
 
-test('the steps behave like their old pages: autolink, save redraws, one Never use, the connect return, the menu, phone strips, Today’s edges', { skip, timeout: 240000 }, async () => {
+test('the steps behave like their old pages: autolink, save redraws, one Never use, the connect return, the menu, phone strips', { skip, timeout: 240000 }, async () => {
   const { page, errors } = await open('ten@example.com', 'tenpass12345');
   // Library: adding a worry links it automatically and shows what it did (not a spinner left turning).
   const aud = store.loadConfig(ws.id).story.audiences[0].id;
@@ -169,28 +159,14 @@ test('the steps behave like their old pages: autolink, save redraws, one Never u
   await page.click('.me-btn');
   for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
   assert.equal(await page.$eval('#mePop', e => e.hidden), true, 'tabbing out closes the menu');
-  // Today when the day's list can't load: it says so (not "Nothing needs you today"), and Try again works.
-  await page.route('**/api/desk', r => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' }));
-  await goto(page, '#/today', '.stops');
-  assert.match(await page.$eval('main', m => m.innerText), /Couldn’t load your list/);
-  await page.unroute('**/api/desk');
-  await page.click('[data-act="today-retry"]');
-  await page.waitForFunction(() => /Maria Lopez|Nothing needs you today/.test(document.getElementById('main').innerText));
-  // Away shows as away, not as a day off.
-  const from = new Date().toISOString().slice(0, 10), until = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
-  store.updateWorkspace(ws.id, { away: { from, until, covered: 0, postingDays: 0 } });
-  await goto(page, '#/review'); await goto(page, '#/today', '.stops');
-  const lede = await page.$eval('main .lede', e => e.textContent);
-  store.updateWorkspace(ws.id, { away: null });
-  if (/away|day off/.test(lede)) assert.match(lede, /you’re away/);
-  assert.deepEqual(errors.filter(e => !/api\/desk/.test(e)), []);
+  assert.deepEqual(errors, []);
   await page.close();
 });
 
-test('an assistant lands on Leads (no Setup); a reviewer on Sign-off', { skip, timeout: 120000 }, async () => {
+test('an assistant lands on Review (no Setup); a reviewer on Sign-off', { skip, timeout: 120000 }, async () => {
   let { page, errors } = await open('tena@example.com', 'tenapass1234');
-  await page.waitForFunction(() => location.hash === '#/leads');
-  assert.deepEqual(await tabs(page), ['Today', 'Review', 'Create', 'Leads', 'Grow']);
+  await page.waitForFunction(() => location.hash === '#/review');
+  assert.deepEqual(await tabs(page), ['Review', 'Create', 'Grow']);
   assert.deepEqual(errors, []);
   await page.close();
   ({ page, errors } = await open('tenr@example.com', 'tenrpass1234'));

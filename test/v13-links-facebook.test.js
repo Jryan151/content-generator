@@ -120,13 +120,13 @@ test('tracking links: each video gets a random code; clicks go to the booking pa
   assert.match(code, /^[a-f0-9]{10}$/);
   assert.equal(links.codeFor(ws.id, v.id), code, 'the same code every time');
   assert.notEqual(code, v.id);
-  // No booking link yet: (v15) the agent's page shows, with just the short form.
+  // No booking link yet: the link isn't active.
   let r = await hit(code);
-  assert.equal(r.status, 200); assert.match(await r.text(), /Leave your number/);
-  // With "go straight to my booking page" (v15: the page is the default), the link goes there.
-  setLook({ bookingUrl: 'https://calendly.com/melanie', landing: 'direct' });
+  assert.equal(r.status, 404);
+  // With a booking link, the link goes there.
+  setLook({ bookingUrl: 'https://calendly.com/melanie' });
   r = await hit(code);
-  assert.equal(r.status, 302); assert.equal(r.headers.get('location'), `https://calendly.com/melanie?utm_source=agentreels&utm_medium=video&utm_content=${code}`, '(v15 Phase 9) the code rides along');
+  assert.equal(r.status, 302); assert.equal(r.headers.get('location'), 'https://calendly.com/melanie');
   assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
   await hit(code);                                         // the same person again: not counted
   await hit(code, { ip: '198.51.100.7' });                 // someone else

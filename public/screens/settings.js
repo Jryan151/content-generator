@@ -1,34 +1,14 @@
 // public/screens/settings.js — Settings.
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
-import { FOOTAGE_MIX, FORMATS, GOV_TERMS, S, SHOT_TYPES, STRUCTURES, api, app, beatPlan, can, cityOf, copy, day, esc, estimateSeconds, loadCfg, loadToday, main, nicheOf, plural, roll, short, toast, when } from '../app.js';
+import { FOOTAGE_MIX, FORMATS, GOV_TERMS, S, SHOT_TYPES, STRUCTURES, api, app, beatPlan, can, cityOf, copy, day, esc, estimateSeconds, loadCfg, main, nicheOf, plural, roll, short, toast, when } from '../app.js';
 import { statesList, zoneOptions } from './setup.js';
 import { onOff, seg } from './brand.js';
 import { describe } from './coach.js';
 import { drawStep, stepView } from './steps.js';
 
 /* ================= Settings ================= */
-async function viewSettings() { await Promise.all([loadCfg(), loadMemory(), loadAway()]); if (!S.picks) S.picks = roll(S.cfg); drawSettings(); }
-// Away mode (v15 Phase 8): the agent's own.
-async function loadAway() { if (!can('approve')) { S.awayState = null; return; } try { const r = await api('/api/away'); S.awayState = { ...(S.awayState || {}), away: r.away }; } catch { S.awayState = null; } }
-const dayName = d => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
-const plusDays = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
-const COVER_HOW = { plan: 'your posting plan posts it', scheduled: 'scheduled', 'will-schedule': 'gets scheduled' };
-function awayPanel() {
-  const A = S.awayState;
-  if (!A) return '';
-  const a = A.away && !A.away.endedAt ? A.away : null;
-  const today = S.today?.date || new Date().toISOString().slice(0, 10);
-  if (a && a.until >= today) return `<section class="panel" id="awayPanel"><div class="head"><h2><span class="dot"></span>Away</h2></div>
-    <div class="note">You’re away until ${esc(dayName(plusDays(a.until, 1)))}. Notifications, nudges and review emails are off${a.postingDays ? `, and ${a.covered} of ${plural(a.postingDays, 'posting day')} are covered` : ''}. <button class="btn sm" data-act="away-back">I’m back</button></div></section>`;
-  const p = A.preview, back = A.back || plusDays(today, 7);
-  const how = p ? ({ plan: 'Your posting plan posts these by itself.', schedule: `These get scheduled for ${esc(p.time)} on the days below.`, none: 'Nothing is connected to post from here: connect Instagram in Setup → Autopilot, or post these yourself when you’re back.' })[p.mode] : '';
-  return `<section class="panel" id="awayPanel"><div class="head"><h2><span class="dot"></span>Going away?</h2><p>Away mode turns off notifications, nudges and review emails until you’re back. Your approved videos cover your posting days, your assistant is told, and a short welcome back is waiting when you return.</p></div>
-    <div class="row" style="align-items:flex-end"><label class="field" style="flex:0 1 220px"><span>I’m back on</span><input class="ctl" type="date" data-away-back min="${plusDays(today, 1)}" max="${plusDays(today, 61)}" value="${esc(back)}"></label><button class="btn" data-act="away-preview">See what happens</button></div>
-    ${p ? `${p.days.length ? `<ul class="list small">${p.days.map(d => `<li class="${d.video && d.how ? 'ok' : 'bad'}"><i>${d.video && d.how ? '✓' : '!'}</i><span><b>${esc(d.label)}</b> · ${d.video ? `“${esc(d.video.hook)}”${d.how ? `, ${COVER_HOW[d.how]}` : ' (nothing to post it from)'}` : 'nothing approved for this day'}</span></li>`).join('')}</ul>` : '<p class="small muted" style="margin:0">No posting days fall while you’re away.</p>'}
-      <p class="small" style="margin:0">${how}${p.empty ? ` ${plural(p.empty, 'day')} ${p.empty === 1 ? 'has' : 'have'} nothing approved: approve more before you go, or leave ${p.empty === 1 ? 'it' : 'them'} quiet.` : ''}</p>
-      <div class="row"><button class="btn primary" data-act="away-start">Go away until ${esc(dayName(back))}</button></div>` : ''}</section>`;
-}
+async function viewSettings() { await Promise.all([loadCfg(), loadMemory()]); if (!S.picks) S.picks = roll(S.cfg); drawSettings(); }
 // What the app has learned from rejections (Memory): shown so it can be undone, never needed to work.
 async function loadMemory() { try { S.memory = await api('/api/memory'); } catch { S.memory = null; } }
 function memoryInner() {
@@ -79,7 +59,6 @@ function drawSettings() {
   if (stepView()) return drawStep();   // (v15 Phase 10) on a Setup step, that step is redrawn
   const P = settingsParts();
   main.innerHTML = `<div class="head"><h1>Settings</h1><p class="lede">Timing, formats, your rules and your profile.</p></div>
-    ${awayPanel()}
     ${P.video()}
     ${P.profile()}
     ${P.rules()}
@@ -106,23 +85,4 @@ async function loadPromptPreview() {
   return S.promptPreview;
 }
 
-export { awayPanel, drawMemory, drawSettings, loadAway, loadMemory, loadPromptPreview, promptHTML, promptText, settingsParts, viewSettings };
-// Away mode's actions, registered by app.js (screens can't use app.js exports at load time).
-export const awayActions = {
-  async 'away-preview'(el) {
-    const back = document.querySelector('[data-away-back]')?.value || '';
-    el.disabled = true;
-    try { const r = await api(`/api/away?back=${encodeURIComponent(back)}`); S.awayState = { ...(S.awayState || {}), back, preview: r.preview, away: r.away }; drawSettings(); document.getElementById('awayPanel')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
-    catch (e) { el.disabled = false; toast(e.message); }
-  },
-  async 'away-start'(el) {
-    const back = S.awayState?.back;
-    el.disabled = true;
-    try {
-      const r = await api('/api/away', { method: 'POST', body: { back } });
-      S.awayState = { away: r.away };
-      await loadToday(true); drawSettings();
-      toast(`You’re away until ${dayName(back)}. Enjoy it.`);
-    } catch (e) { el.disabled = false; toast(e.message); }
-  },
-};
+export { drawMemory, drawSettings, loadMemory, loadPromptPreview, promptHTML, promptText, settingsParts, viewSettings };

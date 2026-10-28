@@ -13,7 +13,6 @@ async function viewTeam() {
   if (can('requests')) { try { S.requests = await api('/api/requests'); } catch { S.requests = { failed: true, requests: [], areas: {} }; } }
   if (can('people')) await loadPeople();
   drawTeam();
-  if (can('people')) loadActivity();
 }
 function teamManagesHTML(c) {
   if (!c) return '';
@@ -58,8 +57,7 @@ function peopleHTML() {
     ${P.invites.map(i => `<div class="row between small"><span class="muted">Invited ${esc(i.email)} ${esc(ago(i.at))} (not accepted yet)</span><button class="btn sm ghost" data-act="invite-del" data-email="${esc(i.email)}">Take back</button></div>`).join('')}
     ${seat.free ? `<form class="row" data-form="person-invite"><input class="ctl sm" name="email" type="email" required placeholder="Their email" style="flex:1 1 220px" aria-label="Their email"><label class="check small"><input type="checkbox" name="canPost"> <span>Can post for me</span></label><button class="btn sm primary">Invite</button></form><div id="inviteOut" data-out></div>` : assistants.length || P.invites.length ? '' : ''}
     <p class="small muted" style="margin:0">Assistants never see your Mindset, billing or data, can’t approve or reject videos, and log in with two-factor.</p></section>
-    ${reviewerHTML(P)}
-    <section class="panel" id="activityPanel"><h2>What’s been done</h2><p class="small muted"><span class="spin"></span> Loading the activity…</p></section>`;
+    ${reviewerHTML(P)}`;
 }
 // The compliance reviewer (v15): someone (often at your carrier or marketing organization) who signs off
 // each approved video before it posts. Free; they see only the Sign-off page.
@@ -75,13 +73,4 @@ function reviewerHTML(P) {
       <button class="btn sm${R.on ? ' ghost' : ' primary'}" data-act="signoff-on" data-v="${R.on ? '0' : '1'}">${R.on ? 'Turn off' : 'Turn on'}</button></div>` : '<p class="small muted" style="margin:0">Once your reviewer joins, you can turn on sign-off before posting.</p>'}
   </section>`;
 }
-async function loadActivity() {
-  const box = document.getElementById('activityPanel');
-  if (!box) return;
-  try {
-    const a = (await api('/api/desk/activity')).activity;
-    box.innerHTML = `<h2>What’s been done</h2>${a.length ? `<ul class="list small">${a.map(e => `<li><i>·</i><span><b>${esc(e.who)}</b> ${esc(e.what)}${e.detail ? ` <span class="muted">(${esc(e.detail)})</span>` : ''} <span class="muted">${esc(ago(e.at))}</span></span></li>`).join('')}</ul>` : '<p class="empty">Nothing yet.</p>'}`;
-  } catch { box.innerHTML = '<h2>What’s been done</h2><p class="small muted">Couldn’t load the activity. <button class="btn sm ghost" data-act="activity-retry">Try again</button></p>'; }
-}
-
-export { drawTeam, loadActivity, viewTeam };
+export { drawTeam, viewTeam };

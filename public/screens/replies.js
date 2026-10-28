@@ -1,5 +1,5 @@
 // public/screens/replies.js — Keyword replies on Instagram (v15 Phase 9, lib/replies.js): a word in a
-// comment or message ("PLAN") gets the reply the agent wrote, in a private message. Shown on Communicate.
+// comment or message ("PLAN") gets the reply the agent wrote, in a private message. Shown in Setup → Autopilot.
 import { S, api, can, esc, toast, when } from '../app.js';
 
 async function loadReplies() {
@@ -13,7 +13,7 @@ function ruleForm(r = {}) {
     <div class="fields"><label class="field"><span>Keyword</span><input class="ctl" name="keyword" maxlength="20" required value="${esc(r.keyword || '')}" placeholder="PLAN" autocapitalize="characters"><small>One word. Say it in the video: “Comment PLAN and I’ll send it to you.”</small></label>
       <label class="field"><span>Answer it in</span><select class="ctl" name="where">${Object.entries(P).map(([k, l]) => `<option value="${k}"${(r.where || 'both') === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
     <label class="field"><span>The reply</span><textarea class="ctl" name="text" rows="4" maxlength="900" required placeholder="Hi {name}! Here’s the checklist I mentioned: {link} Any questions, just ask. – Dana">${esc(r.text || '')}</textarea>
-      <small>{name} becomes their first name; {link} becomes the video’s page (or your booking link). Held to your rules: no prices, promises or government wording.</small></label>
+      <small>{name} becomes their first name; {link} becomes your booking link. Held to your rules: no prices, promises or government wording.</small></label>
     <div class="row"><button class="btn primary">${isAgent() ? (r.id ? 'Save and approve' : 'Add and approve') : 'Save for the agent to approve'}</button><button class="btn ghost" type="button" data-act="reply-cancel">Cancel</button><span class="status" data-st></span></div></form>`;
 }
 function repliesPanel() {
@@ -22,9 +22,9 @@ function repliesPanel() {
   if (R.failed) return `<section class="panel" id="repliesPanel"><h2>Keyword replies</h2><p class="small muted">${esc(R.error || 'Couldn’t load them.')} <button class="btn sm ghost" data-act="page-retry">Try again</button></p></section>`;
   const rd = R.ready, approved = R.rules.filter(r => r.status === 'approved');
   const status = !rd.server ? '<div class="note small">Keyword replies aren’t set up on this server yet. Your admin turns them on (SETUP.md, section AS). You can write and approve your replies now.</div>'
-    : !rd.connected ? '<div class="note small">Connect Instagram in Setup → Autopilot first.</div>'
-    : !rd.allowed ? '<div class="note warn small">Your Instagram connection was made before replies were possible. Connect Instagram again in Setup → Autopilot and allow messages.</div>' : '';
-  return `<section class="panel" id="repliesPanel"><div class="row between"><div class="head"><h2><span class="dot"></span>Keyword replies</h2><p>When someone comments or messages a word you name in a video, they get your reply in a private message, right away. They show up in Leads as a new lead.</p></div>
+    : !rd.connected ? '<div class="note small">Connect Instagram above first.</div>'
+    : !rd.allowed ? '<div class="note warn small">Your Instagram connection was made before replies were possible. Connect Instagram again above and allow messages.</div>' : '';
+  return `<section class="panel" id="repliesPanel"><div class="row between"><div class="head"><h2><span class="dot"></span>Keyword replies</h2><p>When someone comments or messages a word you name in a video, they get your reply in a private message, right away, and your phone hears about it.</p></div>
       ${isAgent() ? `<button class="btn sm${R.on ? ' ghost' : ' primary'}" data-act="replies-on" data-v="${R.on ? '0' : '1'}" ${!R.on && !approved.length ? 'disabled title="Approve a reply first"' : ''}>${R.on ? 'Turn off' : 'Turn on'}</button>` : `<span class="pill${R.on ? ' ok' : ''}">${R.on ? 'On' : 'Off'}</span>`}</div>
     ${status}
     ${R.rules.length ? `<div class="stack" style="gap:8px">${R.rules.map(r => S.replyEdit === r.id ? ruleForm(r) : `<div class="box" style="gap:6px"><div class="row between"><b>${esc(r.keyword)}</b><span class="small muted">${esc(R.places[r.where])}${r.sent ? ` · sent ${r.sent}×${r.lastAt ? `, last ${esc(when(r.lastAt))}` : ''}` : ''}</span></div>

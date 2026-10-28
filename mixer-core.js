@@ -1578,13 +1578,6 @@ export function withTrackingLink(text, cfg, link) {
 // What a posted video brought in: messages count fully, clicks on its booking link count half
 // (a click is interest; a message is a conversation).
 // Clicks are capped at 20 per video here, so a burst of clicks (or someone clicking on purpose) can't steer topics.
-// Keepsakes (v15): the words a private birthday or welcome video starts with (the agent can change them).
-export function keepsakeLines(kind, name) {
-  const n = String(name || '').trim().split(/\s+/)[0].slice(0, 30) || 'friend';
-  return kind === 'birthday'
-    ? [`Happy birthday, ${n}!`, 'Wishing you a year full of good days.', 'Thinking of you today.']
-    : [`Welcome, ${n}!`, 'I’m so glad we’re working together.', 'Call or text me anytime you have a question.'];
-}
 export const resultValue = v => (v.results?.messages || 0) + Math.min(20, v.leads?.total || 0) + Math.min(20, v.clicks?.total || 0) / 2 + 3 * Math.min(10, v.bookings?.total || 0);   // (v15: a lead from the video's page counts like a message, a booking like three)
 // Posting plan: a video can go out when none of the plan's places has it already (scheduled, posting,
 // posted, or failed there: a failed post isn't retried automatically).

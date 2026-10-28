@@ -126,7 +126,7 @@ const LIMP_AFTER_TRIES = () => (Number(process.env.LIMP_AFTER_TRIES) > 0 ? Numbe
 // `replace` (v15, Studio): the video this draft was submitted as before. While it's still waiting for review
 // (or rejected), the new render replaces it as its next version, so the agent always sees the latest,
 // marked "Updated", with what changed; an approved or posted one is a record and stays (a new video is
-// made instead). `by`: who submitted it. `studio.changes`: the checklist from the agent's "Needs changes".
+// made instead). `by`: who submitted it.
 export async function makeVideo({ ws, force = {}, source = 'manual', log = console.log, studio = null, checkpoint = null, limp = false, replace = '', by = '' }) {
   const cfg = store.loadConfig(ws);
   if (studio) cfg.output.scenes = studio.scenes.length;
@@ -293,11 +293,10 @@ export async function makeVideo({ ws, force = {}, source = 'manual', log = conso
       const changed = rec.scenes.map((x, i) => (fields(x) !== fields(into.scenes?.[i]) ? i : -1)).filter(i => i >= 0);
       const byName = by ? (store.getAccount(by)?.name || store.getAccount(by)?.email || '') : '';
       const first = { v: into.version || 1, at: into.createdAt, by: into.by || '', byName: into.by ? (store.getAccount(into.by)?.name || '') : '', src: into.id, changed: [], before: [] };
-      const entry = { v: (into.version || 1) + 1, at: new Date().toISOString(), by, byName, src: id, changed, before: changed.map(i => ({ i, text: into.scenes?.[i]?.text || '', say: into.scenes?.[i]?.say || '', accent: into.scenes?.[i]?.accent || '', keyword: into.scenes?.[i]?.keyword || '' })),
-        ...(studio?.changes ? { asked: { byName: into.needsChanges?.byName || '', note: into.needsChanges?.note || '', items: (studio.changes.checklist || []).map(({ k, label, done }) => ({ k, label, done: !!done })) } } : {}) };
+      const entry = { v: (into.version || 1) + 1, at: new Date().toISOString(), by, byName, src: id, changed, before: changed.map(i => ({ i, text: into.scenes?.[i]?.text || '', say: into.scenes?.[i]?.say || '', accent: into.scenes?.[i]?.accent || '', keyword: into.scenes?.[i]?.keyword || '' })) };
       saved = store.updateVideo(ws, into.id, old => ({
         ...rec, createdAt: old.createdAt, version: entry.v, versions: [...(old.versions?.length ? old.versions : [first]), entry].slice(-20),
-        needsChanges: null, updated: true, approval: null, rejection: null, fixes: old.fixes || 0, fixLog: old.fixLog || [],
+        updated: true, approval: null, rejection: null, fixes: old.fixes || 0, fixLog: old.fixLog || [],
         cost: Math.round(((old.cost || 0) + rec.cost) * 1000) / 1000, link: old.link, clicks: old.clicks,
       }));
       store.removeVideoFiles(ws, into);
@@ -523,42 +522,4 @@ export async function fixVideo({ ws, videoId, edits = [], swaps = [], picks = {}
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
-}
-
-/* ---------------- Keepsakes: a private video for one client (v15 Phase 8) ---------------- */
-// A birthday or welcome video: the agent's lines as captions (no voice, no AI), over their own clips (or
-// warm stock footage for a birthday), with their end card and music. Kept in lib/keepsakes.js, never in
-// the agent's videos: it isn't reviewed, posted or counted. Returns the keepsake record.
-export async function makeKeepsake({ ws, id, log = console.log }) {
-  const keepsakes = await import('./lib/keepsakes.js');
-  // Deleted from the Desk before or while it's made: it just stops (no retry, no alert, no files left).
-  const gone = () => Object.assign(permanent('That keepsake was deleted.'), { quiet: true });
-  const k = keepsakes.get(ws, id);
-  if (!k) throw gone();
-  const base = store.loadConfig(ws);
-  const cfg = { ...base, output: { ...base.output, mode: 'captions' } };
-  const plan = keepsakes.footageFor(ws, k.kind, k.lines.length);
-  const scenes = k.lines.map((text, i) => ({ text, accent: i === 0 ? k.name : '', keyword: plan[i].keyword || plan[i].own?.description || 'family home', manual: true }));
-  const own = Object.fromEntries(plan.map((p, i) => [i, p.own ? { ...p.own, file: library.fileOf(ws, p.own.id) } : null]).filter(([, c]) => c?.file));
-  const workDir = path.join(DIRS.work, `keepsake-${id}-${crypto.randomBytes(3).toString('hex')}`);
-  fs.mkdirSync(workDir, { recursive: true });
-  try {
-    flightStep('footage');
-    log('Getting the footage…');
-    const clips = await findClips(scenes, { own, log });
-    flightStep('render');
-    log('Rendering…');
-    const music = cfg.output.music === 'library' ? pickMusic(log, memory.read(ws).music) : null;
-    const logo = cfg.look?.logo === 'on' && store.hasLogo(ws) ? store.logoPath(ws) : null;
-    const file = `video_${id}.mp4`, cover = `cover_${id}.jpg`;
-    await renderVideo({ scenes, clips: clips.map(c => c.file), cfg, outFile: store.videoPath(ws, file), workDir, voice: null, music, logo, log });
-    let coverOk = true;
-    await makeCover(store.videoPath(ws, file), store.videoPath(ws, cover)).catch(e => { if (e.aborted) throw e; coverOk = false; });
-    checkStopped();
-    const saved = keepsakes.save(ws, id, { status: 'ready', file, cover: coverOk ? cover : '', error: '', readyAt: new Date().toISOString() });
-    if (!saved) { for (const f of [file, cover]) fs.rmSync(store.videoPath(ws, f), { force: true }); throw gone(); }
-    library.markUsed(ws, Object.values(own).map(c => c.id));
-    log('Ready to send.');
-    return saved;
-  } finally { fs.rmSync(workDir, { recursive: true, force: true }); }
 }

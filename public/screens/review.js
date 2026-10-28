@@ -1,11 +1,10 @@
 // public/screens/review.js — Review.
 // Split out of app.js by screen (v15). It uses the portal's shared parts from app.js (which loads it),
 // and app.js and the other screens use what it exports. The code is as it was in app.js.
-import { FORMATS, PERSUASION, REJECT_TIPS, S, STRUCTURES, actions, aheadPanel, api, app, can, cantNow, copy, day, esc, go, gridPanel, later, loadCfg, loadRecap, loadToday, local, main, offlineOK, overlayQueue, page, pageWs, plural, preloadMedia, prunePreload, readQueue, recapPanel, render, short, softGone, status, stopTimers, streakPanel, toast, updateBadge, watchJobs, weekPanel, when, wsKey, wsParam } from '../app.js';
-import { lowNote, planSkipHTML, spendNote } from './create.js';
+import { FORMATS, PERSUASION, REJECT_TIPS, S, STRUCTURES, actions, api, app, can, cantNow, copy, day, esc, go, gridPanel, later, loadCfg, local, main, offlineOK, overlayQueue, page, pageWs, plural, preloadMedia, prunePreload, readQueue, render, short, softGone, status, stopTimers, toast, updateBadge, watchJobs, when, wsKey, wsParam } from '../app.js';
+import { drawCreate, lowNote, planSkipHTML, spendNote } from './create.js';
 import { describe } from './coach.js';
 import { signedOff } from '../mixer-core.js';
-import { chainFoot, drawToday } from './today.js';
 import { drawGrow } from './grow.js';
 
 /* ================= Review ================= */
@@ -19,12 +18,12 @@ async function loadVideos() {
 async function loadIg() { [S.ig, S.fb] = await Promise.all([S.me.instagram ? api('/api/instagram').catch(() => null) : null, S.me.facebook ? api('/api/facebook').catch(() => null) : null]); }
 async function viewReview({ arg = '' } = {}) {
   S.focus = null;
-  await Promise.all([loadVideos(), loadCfg().catch(() => {}), loadIg(), loadToday(true)]);
+  await Promise.all([loadVideos(), loadCfg().catch(() => {}), loadIg()]);
   drawReview();
   // Preloading (app.js): only videos still waiting stay kept; the first one waiting is fetched ahead.
   const waiting = S.videos.filter(v => v.status === 'pending' && v.media);
   prunePreload(new Set(waiting.map(v => v.media)));
-  // A busy week's notification (#/review/focus): straight into reviewing them one by one.
+  // #/review/focus: straight into reviewing them one by one.
   if (arg === 'focus' && can('approve') && S.videos.filter(v => v.status === 'pending').length > 1) actions['focus-on']();
   // Opened from a notification (#/review/<id>): that exact video, brought into view and loaded first.
   const want = arg && S.videos.find(v => v.id === arg);
@@ -47,11 +46,11 @@ async function viewReview({ arg = '' } = {}) {
 async function loadWeekly(fresh = false, auto = false) {
   try {
     if (!fresh) { S.weekly = await api('/api/coach/weekly'); return; }
-    S.weeklyAsked = true; S.weeklyBusy = true; if (['review', 'today'].includes(S.view)) drawReview();
+    S.weeklyAsked = true; S.weeklyBusy = true; if (S.view === 'create') drawCreate();
     S.weekly = await api('/api/coach/weekly', { method: 'POST', body: {} });
   } catch (e) { if (fresh && !auto) toast(e.message); }
   S.weeklyBusy = false;
-  if (fresh && ['review', 'today'].includes(S.view)) drawReview();
+  if (fresh && S.view === 'create') drawCreate();
 }
 function weeklyPanel() {
   if (S.weeklyBusy) return '<section class="panel"><h2>This week</h2><p class="small muted"><span class="spin"></span> The coach is looking at your videos and results…</p></section>';
@@ -93,9 +92,8 @@ const STEPS_POST = mode => [
 ].filter(Boolean);
 
 function drawReview() {
-  // (v15 Phase 10) The week, the coach's check-in and the nudges moved to Today, and results to Grow:
-  // their buttons redraw whichever of those pages is open.
-  if (S.view === 'today') return drawToday();
+  // The coach's check-in lives on Create and results on Grow: their buttons redraw whichever page is open.
+  if (S.view === 'create') return drawCreate();
   if (S.view === 'grow') return drawGrow();
   // (A video waiting for its Undo stays off the screen whichever way the list was refreshed.)
   const vids = S.videos.filter(v => !softGone(`video:${v.id}`)), st = S.stats;
@@ -109,8 +107,8 @@ function drawReview() {
       <div class="stat"><b>${approved.length}</b><span>ready to post</span></div>
       <div class="stat"><b>${st.month.posted}</b><span>posted this month</span></div>
       <div class="stat"><b>${st.totals.messages}</b><span>messages from videos</span></div>
-      ${S.cfg?.look?.bookingUrl || st.totals.clicks ? `<div class="stat"><b>${st.totals.clicksMonth || 0}</b><span>link visits this month</span></div>` : ''}${st.totals.bookings ? `<div class="stat"><b>${st.totals.bookings}</b><span>bookings from videos</span></div>` : ''}</div></section>`}
-    ${S.today?.week?.plan ? '' : lowNote(S.low)}
+      ${S.cfg?.look?.bookingUrl || st.totals.clicks ? `<div class="stat"><b>${st.totals.clicksMonth || 0}</b><span>link visits this month</span></div>` : ''}</div></section>`}
+    ${lowNote(S.low)}
     ${st.needResults?.length ? `<div class="note warn">${plural(st.needResults.length, 'posted video')} ${st.needResults.length > 1 ? 'are' : 'is'} ready for results. Add views and messages under Posted: they teach the system which topics bring people to you.</div>` : ''}
     <section class="stack"><div class="row between"><h2>To review</h2><span class="row">${pending.length && offlineOK() ? `<button class="btn sm ghost" data-act="offline-save" title="${local.get(wsKey('offlineAt')) ? `Last saved ${esc(when(local.get(wsKey('offlineAt'))))}` : 'Watch and decide with no connection'}">Save for offline</button>` : ''}${pending.length > 1 && can('approve') ? '<button class="btn sm" data-act="focus-on">Review one by one</button>' : ''}</span></div>${readQueue().length ? `<div class="note small">${plural(readQueue().length, 'decision')} made offline will be sent when you’re back online.</div>` : ''}${pending.length ? `<div class="vids">${pending.map(cardPending).join('')}</div>` : S.making ? `<p class="empty"><span class="spin"></span> ${plural(S.making, 'video is', 'videos are')} being made. They’ll show up here in a few minutes.</p>` : `<p class="empty">Nothing waiting. <a href="#/create">Make a video</a>.</p>`}</section>
     ${approved.length ? `<section class="stack"><h2>Ready to post</h2><div class="vids">${approved.map(cardApproved).join('')}</div></section>` : ''}
@@ -120,7 +118,7 @@ function drawReview() {
     ${rejected.length ? `<details><summary>Rejected (${rejected.length}) · removed after a couple of weeks</summary><div class="vids">${rejected.map(cardRejected).join('')}</div></details>` : ''}
     ${!vids.some(v => v.approval) || !can('data') ? '' : `<section class="panel"><div class="row between"><div class="head"><h3>Approval records</h3><p>Who approved each video, what they checked, the fact used and a fingerprint of the exact file.</p></div>
       <div class="row"><a class="btn sm" href="/api/records.html${wsParam()}">Download (HTML)</a><a class="btn sm" href="/api/records.csv${wsParam()}">Spreadsheet (CSV)</a></div></div></section>`}
-    ${chainFoot('review')}`;
+`;
   pollReview();
 }
 // Review one by one: a single video at a time, big. Swipe or ←/→ (J/K) to move, 1–9 to tick the
@@ -160,10 +158,10 @@ function cardPending(v) {
   const fixing = S.fixing.includes(v.id);
   const studioMade = !!v.meta?.draftId;
   return `<article class="vid" data-vid="${v.id}">${player(v)}<div class="info">
-    <div class="row"><span class="pill warn">${studioMade && can('approve') ? 'Waiting for you' : 'To review'}</span>${v.updated ? '<span class="pill">Updated</span>' : ''}${v.needsChanges ? '<span class="pill">Changes asked for</span>' : ''}<span class="small muted">${esc(sub(v))}</span></div>
+    <div class="row"><span class="pill warn">${studioMade && can('approve') ? 'Waiting for you' : 'To review'}</span>${v.updated ? '<span class="pill">Updated</span>' : ''}<span class="small muted">${esc(sub(v))}</span></div>
     ${factLine(v)}
     ${v.signoff?.status === 'back' ? `<div class="note warn small"><b>${esc(v.signoff.byName || 'Your reviewer')} sent this back</b> ${esc(when(v.signoff.at))}: “${esc(v.signoff.note)}”. Fix it, then approve it again; it goes back to them.</div>` : ''}
-    ${changedHTML(v)}${v.needsChanges ? `<div class="note small">You asked for changes${v.needsChanges.items?.length ? ` (${esc(v.needsChanges.items.map(x => x.label).join(', '))})` : ''}${v.needsChanges.note ? `: “${esc(v.needsChanges.note)}”` : ''}. It’s in Leads; the new version will replace this one.</div>` : ''}
+    ${changedHTML(v)}
     ${v.preflight?.length ? `<div class="box"><h3>Automatic checks</h3><ul class="list">${v.preflight.map(p => `<li class="${p.ok ? 'ok' : 'bad'}"><i>${p.ok ? '✓' : '!'}</i><span>${esc(p.label)}</span></li>`).join('')}</ul></div>` : '<div class="note">Made by an older version, so it has no automatic checks. Look it over closely.</div>'}
     <details><summary>Script</summary>${scriptList(v)}<div class="row" style="margin-top:8px"><button class="btn sm ghost" data-act="prompter-video" data-id="${v.id}">Read it on camera</button></div></details>
     ${v.post ? `<details><summary>Post text</summary>${cutoffHTML(v.post)}<p class="post">${esc(v.post)}</p><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copy-post" data-id="${v.id}">Copy post text</button></div></details>` : ''}
@@ -175,8 +173,8 @@ function cardPending(v) {
     <div class="box approve"><h3>Before you approve</h3>${S.me.checklist.map(([k, label]) => `<label class="check"><input type="checkbox" data-chk="${v.id}" value="${k}"> <span>${esc(label)}</span></label>`).join('')}
       <p class="small muted" style="margin:0">${esc(S.me.approvalNote || 'You stay responsible for final approval of this video and for any review your carriers or state require.')}</p>
       <div class="row"><button class="btn primary" data-act="approve" data-id="${v.id}" disabled>Approve</button><span class="status" data-st="${v.id}"></span></div></div>
-    <div class="row"><button class="btn" data-act="fix-open" data-id="${v.id}">Fix a scene</button>${studioMade ? `<button class="btn" data-act="changes-open" data-id="${v.id}">Needs changes</button>` : ''}<button class="btn" data-act="reject-open" data-id="${v.id}">Reject</button><button class="btn ghost" data-act="ask-coach" data-id="${v.id}">Ask the coach</button><button class="btn ghost danger" data-act="delete" data-id="${v.id}">Delete</button></div>
-    ${S.open.reject === v.id ? rejectForm(v) : ''}${S.open.changes === v.id ? changesForm(v) : ''}${S.fix?.id === v.id ? fixForm(v) : ''}`}
+    <div class="row"><button class="btn" data-act="fix-open" data-id="${v.id}">Fix a scene</button><button class="btn" data-act="reject-open" data-id="${v.id}">Reject</button><button class="btn ghost" data-act="ask-coach" data-id="${v.id}">Ask the coach</button><button class="btn ghost danger" data-act="delete" data-id="${v.id}">Delete</button></div>
+    ${S.open.reject === v.id ? rejectForm(v) : ''}${S.fix?.id === v.id ? fixForm(v) : ''}`}
   </div></article>`;
 }
 // What changed since the last version (v15): each changed scene before and after, and the agent's
@@ -187,15 +185,6 @@ function changedHTML(v) {
   const rows = (last.before || []).map(b => { const now = v.scenes?.[b.i] || {}; return `<li><b>Scene ${b.i + 1}</b>${b.text !== now.text ? `<br><span class="muted">Before:</span> ${esc(b.text)}<br><span class="muted">Now:</span> ${esc(now.text)}` : ''}${(b.say || '') !== (now.say || '') && now.say ? `<br><span class="muted">Spoken before:</span> ${esc(b.say)}<br><span class="muted">Spoken now:</span> ${esc(now.say)}` : ''}${(b.accent || '') !== (now.accent || '') ? `<br><span class="muted">Highlight:</span> ${esc(b.accent || '—')} → ${esc(now.accent || '—')}` : ''}${(b.keyword || '') !== (now.keyword || '') ? `<br><span class="muted">Footage:</span> ${esc(b.keyword || '—')} → ${esc(now.keyword || '—')}` : ''}</li>`; }).join('');
   const asked = last.asked?.items?.length ? `<p class="small" style="margin:6px 0 0"><b>Your checklist:</b> ${last.asked.items.map(x => `${x.done ? '✓' : '○'} ${esc(x.label)}`).join(' · ')}</p>` : '';
   return `<details class="box" open><summary><b>What changed in version ${last.v}</b>${last.byName ? ` <span class="muted">· by ${esc(last.byName)}</span>` : ''}</summary>${rows ? `<ul class="script small">${rows}</ul>` : '<p class="small muted" style="margin:0">The same scenes, rendered again.</p>'}${asked}</details>`;
-}
-// Needs changes (v15): tick what needs work in each scene, and the music; add a note. It goes to the Desk.
-function changesForm(v) {
-  const voice = v.mode === 'voiceover', what = [['caption', 'Caption'], ...(voice ? [['say', 'Spoken line']] : []), ['accent', 'Highlighted word'], ['footage', 'Footage']];
-  return `<form class="box stack" data-form="changes" data-id="${v.id}"><h3>What needs changes?</h3><p class="small muted" style="margin:0">Tick what needs work. It goes to Leads with your note; the new version comes back here, showing what changed. Only you can approve it.</p>
-    ${(v.scenes || []).map((s, i) => `<div class="stack" style="gap:4px"><span class="small"><b>Scene ${i + 1}</b> · ${esc(s.text)}</span><div class="chips">${what.map(([k, l]) => `<label class="toggle"><input type="checkbox" name="c-${i}-${k}" data-change-i="${i}" data-change-what="${k}"> ${esc(l)}</label>`).join('')}</div></div>`).join('')}
-    ${v.meta?.music ? '<label class="check"><input type="checkbox" data-change-what="music"> <span>The music</span></label>' : ''}
-    <label class="field"><span>Note</span><textarea class="ctl" name="note" rows="2" maxlength="600" placeholder="What would make it right?"></textarea></label>
-    <div class="row"><button class="btn primary">Send for changes</button><button type="button" class="btn ghost" data-act="changes-cancel">Cancel</button></div><div class="status" data-st="changes"></div></form>`;
 }
 function rejectForm(v) {
   const r = S.open.reason || '';
@@ -317,11 +306,9 @@ function fbpostHTML(v, quiet = false) {
     <small class="muted">Posts to ${esc(acc.pageName || 'your Page')} as a Reel with the post text${S.cfg?.look?.bookingUrl ? ' and this video’s booking link (links can be tapped on Facebook)' : ''}. <button class="btn sm ghost" data-act="fb-text" data-id="${v.id}">See the Facebook text</button></small>
     ${S.fbText?.[v.id] ? `<p class="post">${esc(S.fbText[v.id])}</p>` : ''}</div>`;
 }
-// What the video's link brought (v15): visits to its page, leads from its form, bookings traced to it
-// (lib/bookings.js), and Facebook.
+// What the video's link brought (visits to the booking page), and Facebook.
 function linkResults(v) {
-  const parts = [v.clicks?.total ? `<b>${v.clicks.total}</b> link visit${v.clicks.total === 1 ? '' : 's'}` : '', v.leads?.total ? `<b>${v.leads.total}</b> lead${v.leads.total === 1 ? '' : 's'}` : '',
-    v.bookings?.total ? `<b>${v.bookings.total}</b> booking${v.bookings.total === 1 ? '' : 's'}${v.bookings.canceled ? ` <span class="muted">(${v.bookings.canceled} canceled)</span>` : ''}` : '',
+  const parts = [v.clicks?.total ? `<b>${v.clicks.total}</b> link visit${v.clicks.total === 1 ? '' : 's'}` : '',
     v.fbpost?.status === 'posted' ? `On Facebook${v.fbpost.url ? ` · <a href="${esc(v.fbpost.url)}" target="_blank" rel="noopener">View</a>` : ''}` : ''].filter(Boolean);
   return parts.length ? `<span class="small">${parts.join(' · ')}</span>` : '';
 }

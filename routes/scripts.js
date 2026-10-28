@@ -11,7 +11,6 @@ import * as usage from '../lib/usage.js';
 import * as switches from '../lib/switches.js';
 import * as studio from '../lib/studio.js';
 import * as memory from '../lib/memory.js';
-import * as today from '../lib/today.js';
 import { stampFacts } from '../lib/onboarding.js';
 import { migrate, whyNoVideos, FORMATS, boostsFrom, tasteFrom, winnersFrom, roll, applySuggestionTo, usableRoutes, studioChecks, shortReason, hiddenNote } from '../mixer-core.js';
 

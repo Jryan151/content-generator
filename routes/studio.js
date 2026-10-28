@@ -16,15 +16,13 @@ import * as insights from '../lib/insights.js';
 import * as library from '../lib/library.js';
 import * as studio from '../lib/studio.js';
 import * as memory from '../lib/memory.js';
-import * as today from '../lib/today.js';
 import * as spell from '../lib/spell.js';
-import * as desk from '../lib/desk.js';
 import { FORMATS, winnersFrom, gaps, studioPicks, studioChecks, suggestAccent, nicheOf, shortReason, hiddenNote, beatPlan, lineFindings, applyAutoFixes, rulesOf, spellFixed, seriesProgress } from '../mixer-core.js';
 
 // A Studio video's versions (each resubmit of its draft while it's in review is one).
 export const MAX_VERSIONS = 10;
 export default function mount(ctx) {
-const { BASE_HEADERS, busyCheck, MAX_PER_REQUEST, TESTS_PER_DAY, api, autoPlanState, bad, clip, coach, coachGate, draftCfg, draftPicks, enqueueVideos, fixing, jobView, lowFor, plainError, route, spendGate, typicalSeconds, usedThisMonth, wsSummary } = ctx;
+const { BASE_HEADERS, MAX_PER_REQUEST, TESTS_PER_DAY, api, autoPlanState, bad, clip, coach, coachGate, draftCfg, draftPicks, enqueueVideos, fixing, jobView, lowFor, plainError, route, spendGate, typicalSeconds, usedThisMonth, wsSummary } = ctx;
 /* ----- Studio: videos built by hand ----- */
 // Each AI helper (openings, write the rest, rewrites, footage scores, voice preview) counts like a test
 // script; only rendering uses one of the month's videos.
@@ -49,12 +47,10 @@ function draftView(wsId, d0, cfg = store.loadConfig(wsId)) {
   const d = liveStatus(wsId, d0);
   const picks = draftPicks(wsId, cfg, d);
   const check = d.scenes.length ? studioChecks(d.scenes, draftCfg(cfg, d), picks) : null;
-  // The video it was submitted as (v15), and any changes the agent asked for, with the checklist so far.
+  // The video it was submitted as (v15).
   const v = d.videoId ? store.getVideo(wsId, d.videoId) : null;
-  const h = v?.needsChanges?.handoffId ? desk.list(wsId).find(x => x.id === v.needsChanges.handoffId && x.status === 'open') : null;
   const submitted = v ? { id: v.id, status: v.status, version: v.version || 1, approved: !!v.approval } : null;
-  const changes = h ? { handoffId: h.id, note: v.needsChanges.note, byName: v.needsChanges.byName, at: v.needsChanges.at, checklist: h.checklist || [] } : null;
-  return { ...d, submitted, changes, picks: { audience: picks.audience, painPoint: picks.painPoint, insights: picks.insights, solutions: picks.solutions, question: picks.question, format: picks.format, structure: picks.structure, scenes: picks.scenes, bridgeStyle: picks.bridgeStyle, ctaStyle: picks.ctaStyle, series: picks.series || null, story: picks.story, askQuestion: picks.askQuestion, problems: picks.problems }, check };
+  return { ...d, submitted, picks: { audience: picks.audience, painPoint: picks.painPoint, insights: picks.insights, solutions: picks.solutions, question: picks.question, format: picks.format, structure: picks.structure, scenes: picks.scenes, bridgeStyle: picks.bridgeStyle, ctaStyle: picks.ctaStyle, series: picks.series || null, story: picks.story, askQuestion: picks.askQuestion, problems: picks.problems }, check };
 }
 route('GET', '/api/studio', 'ws', ({ wsId }) => {
   const cfg = store.loadConfig(wsId);
@@ -219,8 +215,8 @@ route('GET', '/api/overview', 'ws', ({ wsId, caps }) => ({
   workspace: wsSummary(wsId, caps),
   // What to make next (gaps), and whether the posting plan is about to run dry.
   ...(() => { const cfg = store.loadConfig(wsId), vids = store.readVideos(wsId); return { next: gaps(cfg, vids), low: lowFor(wsId, cfg, vids), plan: autoPlanState(wsId, cfg) }; })(),
-  jobs: queue.listJobs(wsId).filter(j => j.kind !== 'keepsake').slice(-20).reverse().map(jobView),   // (keepsakes show on the Desk)
-  typical: typicalSeconds(queue.listJobs(wsId).filter(j => j.kind !== 'keepsake')),
+  jobs: queue.listJobs(wsId).slice(-20).reverse().map(jobView),
+  typical: typicalSeconds(queue.listJobs(wsId)),
   usage: caps.includes('billing') ? usage.monthUsage(wsId) : null,
   testsLeft: Math.max(0, TESTS_PER_DAY - usage.scriptsToday(wsId)),
 }));
@@ -231,7 +227,6 @@ route('POST', '/api/jobs', 'ws', ({ wsId, body, me }) => {
 });
 route('DELETE', '/api/jobs/:id', 'ws', ({ wsId, params }) => {
   if (!queue.cancel(wsId, params.id)) bad(404, 'Only videos still waiting in line can be canceled.');
-  busyCheck(wsId).catch(e => console.error('[push]', e.message));   // the busy week's last one canceled: its one notification goes now
   return { ok: true };
 });
 }

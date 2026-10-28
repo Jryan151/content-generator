@@ -14,7 +14,6 @@ const stubs = await startStubs();
 const store = await import('../lib/store.js');
 const auth = await import('../lib/auth.js');
 const queue = await import('../lib/queue.js');
-const desk = await import('../lib/desk.js');
 const studio = await import('../lib/studio.js');
 const rules = await import('../lib/rules.js');
 const spell = await import('../lib/spell.js');
@@ -161,26 +160,6 @@ test('a video has at most MAX_VERSIONS versions', async () => {
   studio.save(ws.id, d.id, { status: 'done', videoId: 'mv1' });
   const r = await asst.post(`/api/studio/${d.id}/render`);
   assert.equal(r.status, 409); assert.match(r.data.error, new RegExp(`${MAX_VERSIONS} versions`));
-});
-
-test('changes requests: a new one replaces the last in one save (even with the Desk full); the assistant can’t close one, the agent can withdraw it', async () => {
-  const d = (await asst.post('/api/studio', { brief })).data.draft;
-  video('ch1', { source: 'studio', by: sam.id, meta: { painPoint: 'Funeral costs', madeIn: 'studio', draftId: d.id } });
-  const first = (await agent.post('/api/videos/ch1/changes', { items: [{ i: 1, what: 'caption' }] })).data.handoff;
-  const open = desk.list(ws.id).filter(h => h.status === 'open').length;
-  for (let k = open; k < desk.MAX_OPEN; k++) desk.add(ws.id, { title: `Filler ${k}`, by: sam.id });
-  const second = await agent.post('/api/videos/ch1/changes', { items: [{ i: 2, what: 'footage' }], note: 'And the footage' });
-  assert.equal(second.status, 200, JSON.stringify(second.data));
-  assert.equal(desk.list(ws.id).find(h => h.id === first.id).status, 'done');
-  assert.equal((await asst.post(`/api/desk/handoffs/${second.data.handoff.id}/done`)).status, 409, 'closes by itself on resubmit');
-  assert.equal((await agent.post(`/api/desk/handoffs/${second.data.handoff.id}/done`)).status, 200);
-  assert.equal(store.getVideo(ws.id, 'ch1').needsChanges, null, 'the review card no longer says changes were asked for');
-  // While a new version is being made, changes wait for it (the request would have nothing to close it).
-  const job = queue.enqueue({ ws: ws.id, kind: 'studio', opts: { draftId: d.id, replace: 'ch1', scenes: good(), brief }, by: sam.id, source: 'studio' });
-  const r = await agent.post('/api/videos/ch1/changes', { items: [{ i: 1, what: 'caption' }] });
-  assert.equal(r.status, 409); assert.match(r.data.error, /new version/);
-  assert.deepEqual((await agent.get('/api/videos')).data.versioning, ['ch1'], 'Review says a new version is being made');
-  queue.cancel(ws.id, job.id);
 });
 
 test('render rules: unknown and inherited names are dropped; restoring another workspace’s version shows that workspace', async () => {
