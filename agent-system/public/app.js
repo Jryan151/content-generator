@@ -11,9 +11,9 @@ import { todoFor } from './src/routines.js';
 import { totalsFor, whereItBroke } from './src/timeframes.js';
 import { redList, actionsFor } from './src/paths.js';
 import { duplication, RECRUIT_STAGES } from './src/ladder.js';
-import { quality, CHECKPOINTS } from './src/quality.js';
+import { quality, showRate, CHECKPOINTS } from './src/quality.js';
 import { LEAD_STAGES, moveLead, nextRecruitStage, moveRecruit, addRecruit } from './src/pipeline.js';
-import { CALL_OUTCOMES, MEETING_OUTCOMES, logCall, logMeeting, queueFor, addDays } from './src/calls.js';
+import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, addDays, dayText } from './src/calls.js';
 import { migrate, readBackup, writeBackup, backupAge } from './src/store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -187,6 +187,12 @@ function backupNudge(c) {
 }
 
 // ── Today ───────────────────────────────────────────────────────────
+/** Replace a person's fields with the engine's version (fields it removed are removed). */
+function replaceLead(lead, next) {
+  for (const k of Object.keys(lead)) if (!(k in next)) delete lead[k];
+  Object.assign(lead, next);
+}
+
 function renderToday() {
   const c = ctx();
   const screen = $('screen-today');
@@ -219,80 +225,117 @@ function renderToday() {
 
   fill(screen, top,
     backupNudge(c),
+    q.saves.map((l) => careCard(c, l, 'save')),
     q.meetings.map((m) => meetingCard(c, m)),
+    q.care.map(({ lead, kind }) => careCard(c, lead, kind)),
     next ? callCard(c, next, calls.length) : allSkipped
       ? h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('div', { class: 'who-big quiet' }, `You skipped all ${q.calls.length}`), h('button', { type: 'button', class: 'go', onclick: () => { ui.skip.clear(); renderToday(); } }, 'Start the list again'))
       : emptyQueue(c),
     quickCall(c),
     meter(c, plan),
+    sendMyDay(c),
     focusCard(urgent ? 'NEEDS YOU TODAY' : `YOUR FOCUS · ${L.name.toUpperCase()}`, urgent ? urgent.text : L.nextAction),
     recruitingTap(c, L),
     addPeople(c),
     dayBlocks(c, L, plan));
 }
 
+// The extra step some outcomes need: a day and time, or the premium and the kitchen-table check.
+function outcomeStep(c, lead, outcome, onDone) {
+  const id = (k) => `${k}-${lead.id}`;
+  const back = h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Back');
+  if (outcome === 'booked' || outcome === 'callback') {
+    const isMeeting = outcome === 'booked';
+    return h('div', { class: 'stepper' },
+      h('label', { for: id('day') }, isMeeting ? `Meeting with ${lead.name}` : `Call ${lead.name} back`),
+      h('div', { class: 'inline' },
+        h('input', { id: id('day'), type: 'date', min: c.dayKey, value: addDays(c.dayKey, 1), 'aria-label': 'Day' }),
+        h('input', { id: id('time'), type: 'time', step: '900', 'aria-label': 'Time (optional)' })),
+      h('span', { class: 'muted' }, 'Time is optional.'),
+      h('button', { type: 'button', class: 'go', onclick: () => onDone({ [isMeeting ? 'meetingOn' : 'callbackOn']: $(id('day')).value, [isMeeting ? 'meetingAt' : 'callbackAt']: $(id('time')).value || null }) }, isMeeting ? 'Book it' : 'Set the call-back'),
+      back);
+  }
+  // applied: premium plus the four kitchen-table checks
+  return h('div', { class: 'stepper' },
+    h('label', { for: id('prem') }, 'Yearly premium on the application'),
+    h('span', { class: 'money-in' }, h('span', {}, '$'), h('input', { id: id('prem'), type: 'number', inputmode: 'numeric', min: '1', placeholder: '720' })),
+    h('fieldset', { class: 'checks' },
+      h('legend', {}, 'Before you send it, check all four:'),
+      KITCHEN_CHECK.map((k) => h('label', { class: 'check' }, h('input', { type: 'checkbox', id: id(`k-${k.id}`), 'data-check': k.id }), h('span', {}, k.label)))),
+    h('button', { type: 'button', class: 'go', onclick: () => {
+      const premium = Number($(id('prem')).value);
+      const checks = Object.fromEntries(KITCHEN_CHECK.map((k) => [k.id, $(id(`k-${k.id}`)).checked]));
+      onDone({ premium, checks });
+    } }, 'Send the application'),
+    back);
+}
+
+const NEXT_TEXT = {
+  no_answer: 'Back in your list soon.', talked: 'Follow up in 2 days.', not_interested: 'Closed out.', bad_number: 'Removed from your calls.',
+};
+
 function callCard(c, lead, count) {
   const status = lead.stage === 'new'
     ? (lead.tries ? `New · no answer ${lead.tries === 1 ? 'once' : `${lead.tries} times`}` : 'New · never called')
-    : `${stageLabel(lead.stage)} · follow-up due ${lead.nextOn && lead.nextOn < c.dayKey ? `since ${dayShort(lead.nextOn)}` : 'today'}`;
-  const booking = ui.open === `book:${lead.id}`;
-  const pick = (outcome) => {
-    if (outcome === 'booked') { ui.open = `book:${lead.id}`; return renderToday(); }
-    ui.open = null;
-    const label = CALL_OUTCOMES.find((o) => o.id === outcome).label;
-    act(c, `${lead.name}: ${label.toLowerCase()}. ${outcome === 'no_answer' ? 'Back in your list soon.' : outcome === 'talked' ? `Follow up ${dayShort(addDays(c.dayKey, 2))}.` : 'Closed out.'}`, () => {
-      const r = logCall(lead, outcome, { agentId: c.me, at: c.at(), today: c.dayKey });
-      Object.assign(lead, r.lead); if (!r.lead.nextOn) delete lead.nextOn;
-      return r.rows;
-    });
+    : `${stageLabel(lead.stage)} · ${lead.callbackAt && lead.nextOn === c.dayKey ? `call back at ${clock(lead.callbackAt, true)}` : `follow-up due ${lead.nextOn && lead.nextOn < c.dayKey ? `since ${dayShort(lead.nextOn)}` : 'today'}`}`;
+  const step = ['booked', 'callback', 'applied'].find((o) => ui.open === `${o}:${lead.id}`);
+  const save = (outcome, extra = {}) => {
+    const msg = {
+      booked: () => `Meeting booked with ${lead.name} for ${dayShort(extra.meetingOn)}${extra.meetingAt ? ` at ${clock(extra.meetingAt, true)}` : ''}.`,
+      callback: () => `Call ${lead.name} back ${dayShort(extra.callbackOn)}${extra.callbackAt ? ` at ${clock(extra.callbackAt, true)}` : ''}.`,
+      applied: () => `${lead.name}: application sent. Mark the insurer’s answer in Pipeline.`,
+    }[outcome]?.() ?? `${lead.name}: ${CALL_OUTCOMES.find((o) => o.id === outcome).label.toLowerCase()}. ${NEXT_TEXT[outcome] ?? ''}`;
+    const was = ui.open; ui.open = null;
+    if (!act(c, msg, () => { const r = logCall(lead, outcome, { agentId: c.me, at: c.at(), today: c.dayKey, ...extra }); replaceLead(lead, r.lead); return r.rows; })) { ui.open = was; }
   };
-  const dateId = `meet-${lead.id}`;
+  const pick = (outcome) => {
+    if (['booked', 'callback', 'applied'].includes(outcome)) { ui.open = `${outcome}:${lead.id}`; return renderToday(); }
+    save(outcome);
+  };
   return h('section', { class: 'card call', 'aria-label': `Call ${lead.name}` },
     h('div', { class: 'row' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('span', { class: 'muted' }, `${count} to call today`)),
     h('div', { class: 'who-big' }, lead.name),
     h('div', { class: 'muted' }, status),
-    h('div', { class: 'ask' }, 'After the call, tap what happened:'),
-    booking
-      ? h('div', { class: 'stepper' },
-          h('label', { for: dateId }, `Meeting with ${lead.name} on`),
-          h('div', { class: 'inline' },
-            h('input', { id: dateId, type: 'date', min: c.dayKey, value: addDays(c.dayKey, 1) }),
-            h('button', { type: 'button', class: 'go', onclick: () => {
-              const meetingOn = $(dateId).value; ui.open = null;
-              act(c, `Meeting booked with ${lead.name} for ${meetingOn ? dayShort(meetingOn) : 'that day'}.`, () => {
-                const r = logCall(lead, 'booked', { agentId: c.me, at: c.at(), today: c.dayKey, meetingOn });
-                Object.assign(lead, r.lead); return r.rows;
-              });
-            } }, 'Book it')),
-          h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Back'))
-      : replies(CALL_OUTCOMES, pick),
-    count > 1 && !booking ? h('button', { type: 'button', class: 'link', onclick: () => { ui.skip.add(lead.id); renderToday(); } }, 'Skip for now') : null);
+    h('div', { class: 'ask' }, step ? CALL_OUTCOMES.find((o) => o.id === step).label : 'After the call, tap what happened:'),
+    step ? outcomeStep(c, lead, step, (extra) => save(step, extra))
+      : [replies(CALL_OUTCOMES.filter((o) => !o.minor), pick),
+         h('div', { class: 'row' },
+           count > 1 ? h('button', { type: 'button', class: 'link', onclick: () => { ui.skip.add(lead.id); renderToday(); } }, 'Skip for now') : h('span'),
+           h('button', { type: 'button', class: 'link quiet-link', onclick: () => save('bad_number') }, 'Wrong or bad number'))]);
 }
 
 function meetingCard(c, lead) {
-  const open = ui.open === `apply:${lead.id}`;
-  const premId = `prem-${lead.id}`;
-  const done = (outcome, premium) => {
-    ui.open = null;
-    const msg = { applied: `${lead.name}: application sent. Watch for the insurer’s answer in Pipeline.`, no_sale: `${lead.name}: met, no sale yet. Follow up ${dayShort(addDays(c.dayKey, 3))}.`, no_show: `${lead.name}: no-show. They’re back on tomorrow’s calls.` }[outcome];
-    act(c, msg, () => { const r = logMeeting(lead, outcome, { at: c.at(), today: c.dayKey, premium }); Object.assign(lead, r.lead); if (!r.lead.meetingOn) delete lead.meetingOn; if (!r.lead.nextOn) delete lead.nextOn; return r.rows; });
+  const open = ui.open === `applied:${lead.id}`;
+  const done = (outcome, extra = {}) => {
+    const msg = { applied: `${lead.name}: application sent. Mark the insurer’s answer in Pipeline.`, no_sale: `${lead.name}: met, no sale yet. Follow up ${dayShort(addDays(c.dayKey, 3))}.`, no_show: `${lead.name}: no-show. They’re back on tomorrow’s calls.` }[outcome];
+    const was = ui.open; ui.open = null;
+    if (!act(c, msg, () => { const r = logMeeting(lead, outcome, { at: c.at(), today: c.dayKey, ...extra }); replaceLead(lead, r.lead); return r.rows; })) { ui.open = was; }
   };
   return h('section', { class: 'card call meeting', 'aria-label': `Meeting with ${lead.name}` },
-    h('div', { class: 'kicker' }, 'MEETING TODAY'),
+    h('div', { class: 'kicker' }, lead.meetingAt ? `MEETING TODAY · ${clock(lead.meetingAt, true)}` : 'MEETING TODAY'),
     h('div', { class: 'who-big' }, lead.name),
-    h('div', { class: 'ask' }, 'After the meeting, tap what happened:'),
-    open
-      ? h('div', { class: 'stepper' },
-          h('label', { for: premId }, 'Yearly premium on the application'),
-          h('div', { class: 'inline' },
-            h('span', { class: 'money-in' }, h('span', {}, '$'), h('input', { id: premId, type: 'number', inputmode: 'numeric', min: '1', placeholder: '720' })),
-            h('button', { type: 'button', class: 'go', onclick: () => {
-              const p = Number($(premId).value);
-              if (!(p > 0)) { toast('Enter the yearly premium in dollars, then tap Save.', null, true); return; }
-              done('applied', p);
-            } }, 'Save')),
-          h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Back'))
-      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `apply:${lead.id}`; renderToday(); } else done(o); }));
+    h('div', { class: 'ask' }, open ? 'Application sent' : 'After the meeting, tap what happened:'),
+    open ? outcomeStep(c, lead, 'applied', (extra) => done('applied', extra))
+      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `applied:${lead.id}`; renderToday(); } else done(o); }));
+}
+
+// Calls that protect an approved policy: welcome, before the first draft, and the save.
+function careCard(c, lead, kind) {
+  const spec = CARE_CALLS[kind];
+  const left = kind === 'save' ? graceDaysLeft(lead, c.dayKey) : null;
+  const sub = kind === 'save'
+    ? (left === null ? 'Grace period end not entered. Check the carrier’s notice.' : left >= 0 ? `${left} day${left === 1 ? '' : 's'} left in the grace period` : 'The grace period has ended. Call the carrier too.')
+    : kind === 'pre_draft' && lead.draftOn ? `First payment drafts ${dayShort(lead.draftOn)}` : `Approved ${lead.approvedOn ? dayShort(lead.approvedOn) : ''}`.trim();
+  const pick = (outcome) => {
+    const msg = { reached: `${lead.name}: ${spec.label.toLowerCase()} done.`, no_answer: `${lead.name}: no answer. Back tomorrow.`, payment_problem: `${lead.name}: payment problem. A save call is now at the top of Today.`, fixed: `${lead.name}: payment fixed. Policy saved.`, canceling: `${lead.name}: policy lost.` }[outcome];
+    act(c, msg, () => { const r = logCareCall(lead, kind, outcome, { at: c.at(), today: c.dayKey }); replaceLead(lead, r.lead); return r.rows; });
+  };
+  return h('section', { class: `card call ${kind === 'save' ? 'save' : 'care'}`, 'aria-label': `${spec.label}: ${lead.name}` },
+    h('div', { class: 'row' }, h('div', { class: 'kicker' }, spec.label.toUpperCase()), lead.premium ? h('span', { class: 'muted' }, `${usd(lead.premium)} a year`) : null),
+    h('div', { class: 'who-big' }, lead.name),
+    h('div', { class: kind === 'save' && left !== null && left <= 7 ? 'countdown' : 'muted' }, sub),
+    h('div', { class: 'muted' }, spec.why),
+    replies(spec.outcomes.map((id) => ({ id, ...CARE_OUTCOMES[id] })), pick));
 }
 
 function emptyQueue(c) {
@@ -315,27 +358,46 @@ function quickCall(c) {
   const nameId = 'quick-name';
   const pick = (outcome) => {
     const name = $(nameId).value.trim();
-    if (outcome === 'booked' && !name) { toast('Add their name to book a meeting, so it has someone to belong to.', null, true); return; }
-    let lead = null;
-    if (outcome === 'booked') {
+    const needsStep = ['booked', 'callback', 'applied'].includes(outcome);
+    if (needsStep && !name) { toast('Add their name first, so it has someone to belong to.', null, true); return; }
+    if (needsStep) {
       const id = uid();
-      ui.open = `book:${id}`; ui.priority = id;
-      act(c, `${name} added. Pick the meeting day.`, () => { c.leads.unshift({ id, agent_id: c.me, name, stage: 'new', premium: null }); });
+      ui.open = `${outcome}:${id}`; ui.priority = id;
+      act(c, `${name} added. Finish the details on their card.`, () => { c.leads.unshift({ id, agent_id: c.me, name, stage: 'new', premium: null }); });
       return;
     }
+    let lead = null;
     act(c, name ? `${name}: ${CALL_OUTCOMES.find((o) => o.id === outcome).label.toLowerCase()}.` : 'Call logged.', () => {
       if (name) { lead = { id: uid(), agent_id: c.me, name, stage: 'new', premium: null }; c.leads.unshift(lead); }
       ui.open = null;
       const r = logCall(lead, outcome, { agentId: c.me, at: c.at(), today: c.dayKey });
-      if (lead) { Object.assign(lead, r.lead); if (!r.lead.nextOn) delete lead.nextOn; }
+      if (lead) replaceLead(lead, r.lead);
       return r.rows;
     });
   };
   return h('section', { class: 'card' },
     h('div', { class: 'row' }, h('b', {}, 'Quick call'), h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Close')),
-    h('label', { class: 'muted', for: nameId }, 'Their name (optional)'),
+    h('label', { class: 'muted', for: nameId }, 'Their name (optional unless you booked or sold)'),
     h('input', { id: nameId, class: 'text-in', type: 'text', autocomplete: 'off', placeholder: 'Leave blank if you don’t have it' }),
-    replies(CALL_OUTCOMES, pick));
+    replies(CALL_OUTCOMES.filter((o) => !o.minor), pick));
+}
+
+// The day, as a text for the upline: works today, with no shared database.
+function sendMyDay(c) {
+  const open = ui.open === 'sendday';
+  if (!open) return h('button', { type: 'button', class: 'card quick', onclick: () => { ui.open = 'sendday'; renderToday(); } },
+    h('b', {}, 'Send my day to my upline'), h('span', { class: 'muted' }, 'A ready-to-send text'));
+  const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
+  const text = dayText(t, { name: c.demo ? c.myName : (state.setup?.name || null), dayKey: c.dayKey });
+  return h('section', { class: 'card' },
+    h('div', { class: 'row' }, h('b', {}, 'Your day, ready to send'), h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Close')),
+    h('pre', { id: 'day-text', class: 'day-text' }, text),
+    h('div', { class: 'inline' },
+      h('button', { type: 'button', class: 'go', onclick: () => {
+        const fallback = () => { const r = document.createRange(); r.selectNodeContents($('day-text')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Copying is blocked here. The text is selected: copy it.'); };
+        try { navigator.clipboard.writeText(text).then(() => toast('Copied. Paste it into your text to your upline.'), fallback); } catch (e) { fallback(); }
+      } }, 'Copy text'),
+      h('a', { class: 'mini as-btn', href: `sms:?&body=${encodeURIComponent(text)}` }, 'Open Messages')));
 }
 
 function addPeople(c) {
@@ -414,17 +476,42 @@ function weekKey(dayKey) {
 let pipeTab = 'clients';
 
 function clientCard(c, lead) {
-  const move = (to, label) => act(c, `${lead.name}: ${label}.`, () => { const r = moveLead(lead, to, { at: c.at() }); Object.assign(lead, r.lead); return r.rows; });
-  const acts = [];
-  if (lead.stage === 'application') acts.push(h('button', { type: 'button', class: 'mini', onclick: () => move('issued', 'insurer approved') }, 'Insurer approved'));
-  if (lead.stage === 'issued') acts.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => move('lapse_risk', 'payment missed') }, 'Payment missed'));
-  if (lead.stage === 'lapse_risk') acts.push(h('button', { type: 'button', class: 'mini', onclick: () => move('issued', 'paid again') }, 'Paid'));
-  if (!['lost', 'new', 'contacted', 'appointment'].includes(lead.stage)) acts.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => move('lost', lead.stage === 'application' ? 'declined' : 'policy lapsed') }, lead.stage === 'application' ? 'Declined' : 'Lapsed'));
-  const when = lead.stage === 'appointment' && lead.meetingOn ? `Meeting ${dayShort(lead.meetingOn)}`
-    : ['new', 'contacted'].includes(lead.stage) ? (lead.nextOn ? `Call ${lead.nextOn <= c.dayKey ? 'today' : dayShort(lead.nextOn)}` : 'In today’s calls') : null;
+  const step = ui.open && ui.open.endsWith(`:${lead.id}`) ? ui.open.split(':')[0] : null;
+  const id = (k) => `${k}-${lead.id}`;
+  const run = (msg, fn) => { const was = ui.open; ui.open = null; if (!act(c, msg, fn)) { ui.open = was; } };
+  const move = (to, label) => run(`${lead.name}: ${label}.`, () => { const r = moveLead(lead, to, { at: c.at() }); replaceLead(lead, r.lead); return r.rows; });
+  const open = (k) => { ui.open = `${k}:${lead.id}`; renderPipeline(); };
+  const back = h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderPipeline(); } }, 'Back');
+  let actions = [];
+  if (step === 'approve') {
+    actions = [h('div', { class: 'stepper' },
+      h('label', { for: id('draft') }, 'Date of the first payment draft'),
+      h('input', { id: id('draft'), type: 'date', min: c.dayKey }),
+      h('span', { class: 'muted' }, 'A welcome call tomorrow and a call 3 days before the draft go on Today by themselves.'),
+      h('button', { type: 'button', class: 'go', onclick: () => run(`${lead.name}: approved. Welcome call queued for tomorrow.`, () => { const r = approvePolicy(lead, { at: c.at(), today: c.dayKey, draftOn: $(id('draft')).value }); replaceLead(lead, r.lead); return r.rows; }) }, 'Save'),
+      back)];
+  } else if (step === 'missed') {
+    actions = [h('div', { class: 'stepper' },
+      h('label', { for: id('grace') }, 'When does the grace period end? (from the carrier’s notice)'),
+      h('input', { id: id('grace'), type: 'date' }),
+      h('span', { class: 'muted' }, 'Leave it blank if you don’t know yet. A save call goes to the top of Today.'),
+      h('button', { type: 'button', class: 'go', onclick: () => run(`${lead.name}: payment missed. A save call is at the top of Today.`, () => { const r = markPaymentMissed(lead, { at: c.at(), today: c.dayKey, graceEndsOn: $(id('grace')).value || null }); replaceLead(lead, r.lead); return r.rows; }) }, 'Start the save'),
+      back)];
+  } else {
+    if (lead.stage === 'application') actions.push(h('button', { type: 'button', class: 'mini', onclick: () => open('approve') }, 'Insurer approved'));
+    if (lead.stage === 'issued') actions.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => open('missed') }, 'Payment missed'));
+    if (lead.stage === 'lapse_risk') actions.push(h('button', { type: 'button', class: 'mini', onclick: () => move('issued', 'payment back on') }, 'Paid'));
+    if (['application', 'issued', 'lapse_risk'].includes(lead.stage)) actions.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => move('lost', lead.stage === 'application' ? 'declined' : 'policy lapsed') }, lead.stage === 'application' ? 'Declined' : 'Lapsed'));
+  }
+  const left = lead.stage === 'lapse_risk' ? graceDaysLeft(lead, c.dayKey) : null;
+  const when = lead.stage === 'appointment' && lead.meetingOn ? `Meeting ${dayShort(lead.meetingOn)}${lead.meetingAt ? ` at ${clock(lead.meetingAt, true)}` : ''}`
+    : ['new', 'contacted'].includes(lead.stage) ? (lead.nextOn ? `Call ${lead.nextOn <= c.dayKey ? 'today' : dayShort(lead.nextOn)}${lead.callbackAt ? ` at ${clock(lead.callbackAt, true)}` : ''}` : 'In today’s calls')
+    : lead.stage === 'issued' && lead.draftOn ? `Drafts ${dayShort(lead.draftOn)}`
+    : lead.stage === 'lapse_risk' ? (left === null ? 'Save call due' : `${left} day${left === 1 ? '' : 's'} of grace left`)
+    : lead.stage === 'lost' && lead.lostReason === 'bad_number' ? 'Bad number' : null;
   return h('div', { class: 'item' },
     h('div', { class: 'who' }, h('b', {}, lead.name), h('div', { class: 'muted' }, [lead.premium ? `${usd(lead.premium)} a year` : null, when].filter(Boolean).join(' · '))),
-    acts.length ? h('div', { class: 'acts' }, acts) : null);
+    actions.length ? h('div', { class: 'acts' }, actions) : null);
 }
 
 function renderPipeline() {
@@ -442,10 +529,10 @@ function renderPipeline() {
 
   if (pipeTab === 'clients') {
     const mineLeads = c.leads.filter((l) => l.agent_id === c.me);
-    const order = ['appointment', 'application', 'issued', 'lapse_risk', 'contacted', 'new', 'lost'];
+    const order = ['lapse_risk', 'appointment', 'application', 'issued', 'contacted', 'new', 'lost'];
     const groups = order.map((id) => ({ id, list: mineLeads.filter((l) => l.stage === id) })).filter((g) => g.list.length);
     fill(screen, top, seg,
-      h('p', { class: 'muted' }, 'Calls and meetings are logged on Today. Here you mark what happens after: the insurer’s answer and payments.'),
+      h('p', { class: 'muted' }, 'Calls and meetings are logged on Today. Here you mark what happens after: the insurer’s answer and missed payments.'),
       groups.length ? groups.map(({ id, list }) => h('div', { class: 'card' },
         h('div', { class: 'stage-h' }, h('span', {}, stageLabel(id)), h('span', { class: 'count' }, list.length)),
         list.map((l) => clientCard(c, l))))
@@ -489,6 +576,13 @@ function addForm(id, placeholder, buttonLabel, onAdd) {
 }
 
 // ── Ladder ──────────────────────────────────────────────────────────
+function showCard(sr) {
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('b', {}, 'Show rate'), h('span', { class: 'muted' }, 'Last 30 days')),
+    h('div', { class: 'row' }, h('span', { class: 'big-num' }, pct(sr.rate)), h('span', { class: 'muted' }, sr.booked ? `${sr.held} of ${sr.booked} past meetings actually happened` : 'Needs data: no past meetings yet')),
+    sr.booked >= 3 && sr.rate < 0.6 ? h('div', { class: 'muted' }, 'Lots of no-shows. Confirm each meeting the day before, and book closer to the call.') : null);
+}
+
 function qualityCard(q, title) {
   return h('div', { class: 'card' },
     h('div', { class: 'row' }, h('b', {}, title), h('span', { class: 'muted' }, 'Only business that sticks counts')),
@@ -516,6 +610,7 @@ function renderLadder() {
         h('td', {}, r.label), h('td', { class: 'n2' }, r.need === '—' ? r.have : `${r.have} / ${r.need}`), h('td', { class: 'n2' }, h('span', { class: `pill ${r.met ? 'green' : 'grey'}` }, r.met ? 'DONE' : 'NOT YET')))))),
       h('div', {}, h('b', {}, 'Next: '), L.nextAction))
       : null,
+    L.stage === 'licensing' ? null : showCard(showRate({ activities: c.activities, agentIds: [c.me], dayKey: c.dayKey })),
     L.stage === 'licensing' ? null : qualityCard(q, 'Your business'));
 }
 
@@ -543,7 +638,8 @@ function renderTeam() {
     const r = red?.find((x) => x.id === a.id);
     const q = quality({ activities: c.qualityActs, agentIds: [a.id], dayKey: c.dayKey });
     const status = !red ? h('span', { class: 'pill grey' }, 'NEEDS TARGETS') : r ? h('span', { class: 'pill red' }, `BEHIND · ${r.appts}/${r.pace} MEETINGS`) : h('span', { class: 'pill green' }, 'ON PACE');
-    return { a, p, r, q, status };
+    const sr = showRate({ activities: c.activities, agentIds: [a.id], dayKey: c.dayKey });
+    return { a, p, r, q, sr, status };
   }).sort((x, y) => Number(!!y.r) - Number(!!x.r));
   fill(screen, top,
     broke.down && broke.agent ? focusCard('WHERE THIS MONTH BROKE', `Check in with ${names[broke.agent.agent_id] ?? 'this agent'} first`,
@@ -553,9 +649,9 @@ function renderTeam() {
         h('div', { class: 'stat' }, h('b', {}, `${dup.producingAgents}/${c.team.length}`), h('span', {}, 'agents with a sale in 30 days')),
         h('div', { class: 'stat' }, h('b', {}, dup.daysToFirstSale ?? '—'), h('span', {}, 'median days to first sale')),
         h('div', { class: 'stat' }, h('b', {}, pct(teamQ.placeRate)), h('span', {}, 'of their applications approved')))),
-    members.map(({ a, p, q, status }) => h('div', { class: 'card' },
+    members.map(({ a, p, q, sr, status }) => h('div', { class: 'card' },
       h('div', { class: 'row' }, h('b', {}, a.name), status),
-      h('div', { class: 'muted' }, `${p.name} · ${q.placed} approved, ${q.lapsed} lapsed`),
+      h('div', { class: 'muted' }, `${p.name} · ${q.placed} approved, ${q.lapsed} lapsed · show rate ${pct(sr.rate)}`),
       h('div', {}, p.nextAction))));
 }
 
@@ -639,8 +735,9 @@ function renderAll() {
   try { RENDER[tab](); } catch (e) { fill($(`screen-${tab}`), h('p', { class: 'err' }, `This screen hit an error: ${e.message}`)); }
 }
 
-$('mode-mine').addEventListener('click', () => { ui.open = null; ui.skip.clear(); setMode('mine'); });
-$('mode-demo').addEventListener('click', () => { ui.open = null; ui.skip.clear(); setMode('demo'); });
+const switchMode = (m) => { ui.open = null; ui.skip.clear(); clearTimeout(undo?.timer); undo = null; hideToast(); setMode(m); };
+$('mode-mine').addEventListener('click', () => switchMode('mine'));
+$('mode-demo').addEventListener('click', () => switchMode('demo'));
 onMode(renderAll);
 onSystem(() => { if (currentTab() !== 'setup') renderAll(); });
 addEventListener('hashchange', () => { ui.open = null; renderAll(); scrollTo(0, 0); });

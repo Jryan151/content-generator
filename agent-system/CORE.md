@@ -2,6 +2,8 @@
 
 **Focus: producer to builder.** Build only what moves a producer to builder without their sales dropping. Everything else waits for real data. The same thing lives in code in `src/core.js`, and `test/core.test.js` fails if any of it points at code that doesn't exist.
 
+**Starting product: final expense.** Built for final expense agents first: a short sales cycle, frequent applications, and payment drafts as the main risk. Other products (IUL, term) wait until this works.
+
 ## Core values
 
 | Value | What it means | Enforced by |
@@ -35,7 +37,7 @@ All five are built in `public/` (`index.html`, `app.js`, `setup.js`) and run on 
 | Screen | Who | What it does | Reads |
 | --- | --- | --- | --- |
 | Setup | Leader, once | Three answers: agents selling now, start of day, what she wants to earn | `buildSystem` |
-| Today | Every agent | One chain: who to call next → one tap for what happened → the next step set for you. Meetings due come first. Before licensing, a study day | `queueFor`, `logCall`, `logMeeting`, `todoFor`, `productionRed` |
+| Today | Every agent | One chain: who to call next → one tap for what happened → the next step set for you. Order: missed-payment saves, meetings, welcome and pre-draft calls, then calls. Applications pass the four-point kitchen-table check. "Send my day" drafts the text for the upline. Before licensing, a study day | `queueFor`, `logCall`, `logMeeting`, `todoFor`, `productionRed` |
 | Pipeline | Every agent | Clients: contacted → appointment → submitted → placed. Recruits: name → interviewed → studying → licensed → first sale | lead stages, `RECRUIT_STAGES`, `isUnlocked` |
 | Ladder | Every agent | Current stage, why, and the one gate to the next | `placeOnLadder` |
 | Team | Leader | Each recruit's stage, production on track or not, how much of their business sticks, who needs help today | `placeOnLadder`, `redList`, `duplication`, `quality`, `whereItBroke` |

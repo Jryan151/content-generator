@@ -4,6 +4,9 @@
 // Anything that doesn't is PARKED until there's real data from a real team.
 // See CORE.md for the same thing in plain words.
 
+/** The product the system is built for first. Others wait until this works. */
+export const FOCUS_PRODUCT = Object.freeze({ id: 'final_expense', name: 'Final expense' });
+
 /** The five core values, each with the code that enforces it. */
 export const CORE_VALUES = Object.freeze([
   {
@@ -48,17 +51,17 @@ export const SCREENS = Object.freeze([
   {
     id: 'today', name: 'Today', who: 'Every agent',
     job: 'One chain: who to call next, one tap for what happened, the next step set for you. Before licensing, a study day instead.',
-    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'paths.actionsFor', 'store.migrate'],
+    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'paths.actionsFor', 'store.migrate'],
   },
   {
     id: 'pipeline', name: 'Pipeline', who: 'Every agent',
     job: 'Clients: contacted, appointment, submitted, placed. Recruits: name, interviewed, studying, licensed, first sale.',
-    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'career.isUnlocked'],
+    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'calls.approvePolicy', 'calls.markPaymentMissed', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'career.isUnlocked'],
   },
   {
     id: 'ladder', name: 'Ladder', who: 'Every agent',
     job: 'Current stage, why it’s the focus, and the one gate to the next.',
-    reads: ['career.placeOnLadder', 'quality.quality'],
+    reads: ['career.placeOnLadder', 'quality.quality', 'quality.showRate'],
   },
   {
     id: 'team', name: 'Team', who: 'Leader',

@@ -25,6 +25,7 @@ export const ACTIVITY_TYPES = Object.freeze([
   'study_session',       // studied for the licensing exam; value = minutes
   'practice_test',       // took a practice licensing exam; value = score (0-100)
   'license_passed',      // passed the state licensing exam
+  'care_call',           // a welcome, pre-draft or save call on an approved policy (never a sales dial)
 ]);
 
 /** Every recruiting action a builder takes. Counts toward the daily recruiting step. */
@@ -61,6 +62,7 @@ export const METRICS = Object.freeze({
   studyMinutes:   { label: 'Minutes studied',   type: 'study_session',  kind: 'sum',   level: 'input' },
   practiceTests:  { label: 'Practice tests',    type: 'practice_test',  kind: 'count', level: 'input' },
   licensesPassed: { label: 'Exam passed',       type: 'license_passed', kind: 'count', level: 'outcome' },
+  careCalls:      { label: 'Policy care calls', type: 'care_call',      kind: 'count', level: 'input' },
 });
 
 const matches = (m, type) => (m.types ? m.types.includes(type) : m.type === type);

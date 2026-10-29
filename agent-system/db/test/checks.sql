@@ -52,6 +52,15 @@ do $$ begin
   end if;
 end $$;
 
+-- A missed payment, then fixed: no second "placed" row.
+update leads set stage = 'lapse_risk' where id = '10000000-0000-4000-8000-000000000002';
+update leads set stage = 'issued' where id = '10000000-0000-4000-8000-000000000002';
+do $$ begin
+  if (select count(*) from activities where type = 'policy_issued') <> 1 then
+    raise exception 'a fixed missed payment must not log the policy as placed again';
+  end if;
+end $$;
+
 -- It lapses → a chargeback on the same lead, so it stops counting as active.
 update leads set stage = 'lost' where id = '10000000-0000-4000-8000-000000000002';
 do $$ begin
