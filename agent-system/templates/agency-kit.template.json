@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "agency": "",
+  "ladder": {
+    "producerToCoach": {
+      "steadyWeeks": null
+    },
+    "coachToDirector": {
+      "agentsSelling": null,
+      "agentsProducer": null
+    },
+    "directorToUpline": {
+      "coachesBuilt": null
+    }
+  },
+  "eliteGroup": {
+    "name": "",
+    "requirements": ""
+  },
+  "compensation": {
+    "advancePercent": null,
+    "advanceDueDays": null
+  },
+  "playbook": [
+    {
+      "title": "Opening the call",
+      "goal": "",
+      "say": [],
+      "objections": []
+    },
+    {
+      "title": "Finding the need",
+      "goal": "",
+      "say": [],
+      "objections": []
+    },
+    {
+      "title": "Presenting options",
+      "goal": "",
+      "say": [],
+      "objections": []
+    },
+    {
+      "title": "Handling objections",
+      "goal": "",
+      "say": [],
+      "objections": []
+    },
+    {
+      "title": "Closing and follow-up",
+      "goal": "",
+      "say": [],
+      "objections": []
+    }
+  ],
+  "training": null,
+  "messages": null
+}
