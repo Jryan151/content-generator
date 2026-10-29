@@ -654,6 +654,11 @@ const STATIC = {
   '/data-deletion.html': ['public/data-deletion.html', 'text/html; charset=utf-8'],
   // The service worker that shows "your video is ready" notifications.
   '/sw.js': ['public/sw.js', 'text/javascript; charset=utf-8'],
+  // Agent System (agent-system/): the producer-to-builder system, shown here so it can be seen on this domain.
+  // Its own code and tests live in agent-system/; only its public page is served.
+  '/agent-system': ['agent-system/public/index.html', 'text/html; charset=utf-8'],
+  '/agent-system/': ['agent-system/public/index.html', 'text/html; charset=utf-8'],
+  '/agent-system/setup.js': ['agent-system/public/setup.js', 'text/javascript; charset=utf-8'],
 };
 // Where people write to about their data: SUPPORT_EMAIL.
 export const supportEmail = () => [process.env.SUPPORT_EMAIL].map(x => String(x || '').trim()).find(x => /^[^\s@<>"'&]+@[^\s@<>"'&]+\.[^\s@<>"'&]+$/.test(x)) || '';

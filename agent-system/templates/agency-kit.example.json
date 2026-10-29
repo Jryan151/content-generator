@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "agency": "Example Agency",
+  "ladder": {
+    "producerToCoach": {
+      "steadyWeeks": 6
+    },
+    "coachToDirector": {
+      "agentsSelling": 4,
+      "agentsProducer": 1
+    },
+    "directorToUpline": {
+      "coachesBuilt": 3
+    }
+  },
+  "eliteGroup": {
+    "name": "Example elite group",
+    "requirements": "Example: team production level set by the agency"
+  },
+  "compensation": {
+    "advancePercent": 75,
+    "advanceDueDays": 14
+  },
+  "playbook": [
+    {
+      "title": "Opening the call",
+      "goal": "Get permission to keep going.",
+      "say": [
+        "Hi [Name], this is [Agent]. You asked about final expense coverage, and I just need two minutes to see what you qualify for."
+      ],
+      "objections": [
+        {
+          "ifTheySay": "I don't remember filling that out.",
+          "answer": "That's okay. It was about covering final costs so family isn't stuck with the bill. Still on your mind?"
+        }
+      ]
+    },
+    {
+      "title": "Finding the need",
+      "goal": "Hear who they're protecting, in their words.",
+      "say": [
+        "If something happened tomorrow, who would be handling everything?"
+      ],
+      "objections": []
+    },
+    {
+      "title": "Presenting options",
+      "goal": "Three options, monthly prices.",
+      "say": [
+        "Here are three ways to do it. Which one feels comfortable every month?"
+      ],
+      "objections": [
+        {
+          "ifTheySay": "That's more than I thought.",
+          "answer": "Let's look at the smaller one. Coverage you can keep beats the biggest number."
+        }
+      ]
+    },
+    {
+      "title": "Handling objections",
+      "goal": "Agree, ask, answer.",
+      "say": [
+        "That makes sense. What part feels off?"
+      ],
+      "objections": [
+        {
+          "ifTheySay": "I need to talk to my family.",
+          "answer": "Of course. When can we all get on a quick call?"
+        }
+      ]
+    },
+    {
+      "title": "Closing and follow-up",
+      "goal": "Set the next step before hanging up.",
+      "say": [
+        "Great, let's start the application. I'll check in on [date] to make sure it went through."
+      ],
+      "objections": []
+    }
+  ],
+  "training": null,
+  "messages": null
+}
