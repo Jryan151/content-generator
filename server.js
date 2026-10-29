@@ -656,16 +656,23 @@ const STATIC = {
   '/sw.js': ['public/sw.js', 'text/javascript; charset=utf-8'],
   // Agent System (agent-system/): the producer-to-builder system, shown here so it can be seen on this domain.
   // The page runs the real engine in the browser, so its modules are served as they are (no copied math).
+  // test/agent-system-static.test.js fails if the page imports a file that isn't listed here.
   '/agent-system/': ['agent-system/public/index.html', 'text/html; charset=utf-8'],
   '/agent-system/setup.js': ['agent-system/public/setup.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/app.js': ['agent-system/public/app.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/state.js': ['agent-system/public/state.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/setup.js': ['agent-system/src/setup.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/routines.js': ['agent-system/src/routines.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/paths.js': ['agent-system/src/paths.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/ladder.js': ['agent-system/src/ladder.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/career.js': ['agent-system/src/career.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/quality.js': ['agent-system/src/quality.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/pipeline.js': ['agent-system/src/pipeline.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/timeframes.js': ['agent-system/src/timeframes.js', 'text/javascript; charset=utf-8'],
-  '/agent-system/src/commissions.js': ['agent-system/src/commissions.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/metrics.js': ['agent-system/src/metrics.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/parked/commissions.js': ['agent-system/src/parked/commissions.js', 'text/javascript; charset=utf-8'],
   '/agent-system/seed/sample.js': ['agent-system/seed/sample.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/seed/demo-pipeline.js': ['agent-system/seed/demo-pipeline.js', 'text/javascript; charset=utf-8'],
 };
 // Where people write to about their data: SUPPORT_EMAIL.
 export const supportEmail = () => [process.env.SUPPORT_EMAIL].map(x => String(x || '').trim()).find(x => /^[^\s@<>"'&]+@[^\s@<>"'&]+\.[^\s@<>"'&]+$/.test(x)) || '';

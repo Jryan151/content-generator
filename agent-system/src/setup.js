@@ -16,7 +16,7 @@ import { planDown, ratesFrom, ROUTINES } from './routines.js';
 import { THRESHOLDS, MESSAGES, choosePath, PARKED_PATHS } from './paths.js';
 import { LADDER } from './ladder.js';
 import { toCalendarDate } from './timeframes.js';
-import { STARTER_COMP } from './commissions.js';
+import { STARTER_COMP } from './parked/commissions.js';
 
 export const LEADER_SETUP_VERSION = 4;
 export const AGENCY_KIT_VERSION = 1;

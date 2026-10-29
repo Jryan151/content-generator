@@ -2,6 +2,8 @@
 
 One system that takes a producer to builder: recruiting and training a team without their own sales dropping.
 
+**Start with [CORE.md](CORE.md):** the five core values, the ladder, the five required screens (Setup, Today, Pipeline, Ladder, Team), and everything parked until there's real data.
+
 **Current focus: producer to builder.** The ladder runs Selling → Producer → Coach, and Coach is the finish line for now. Director and Upline are **parked**: their code and tests stay in place (`PARKED_PATHS`, `topStage: 'upline'`) so they can come back without a rebuild.
 This repo is the **foundation**: the data model and the timeframe math every screen sits on.
 No screens yet — those come next and plug straight into this.
@@ -28,12 +30,17 @@ That's why Pipeline, Today and Team can never disagree: they all read the same l
 | `src/metrics.js` | The single list of activity types and metrics (dials, appointments, premium, names-list conversations, recruiting steps…) and which timeframe headlines which. Recruiting is headlined by recruits licensed and reaching a first sale, never by recruits added |
 | `src/setup.js` + `templates/` | **Setup, black and white**: 3 answers from the leader (agents selling now, start of day, what she wants to earn — converted to premium with her contract level), one agency kit filled by you, rates learned from logging, rules fixed. `buildSystem()` runs on whatever exists and says who it's waiting on |
 | `src/career.js` | **Career stages**: places each person on Starting → Selling → Producer → Coach from real activity (Director and Upline parked; `FOCUS_TOP`), with one focus, what's unlocked, one gate and one next action |
-| `src/commissions.js` | **Commission tracker**: expected advances and overrides from issued policies and contract levels, matched to payments marked received; every item is paid, partial, late or due |
+| `src/core.js` | **The core**: the five values (each tied to the code that enforces it), the five required screens and what each reads, and the parked list. `test/core.test.js` fails if any of it points at missing code |
+| `src/quality.js` | **Only business that sticks counts**: submitted → placed → still active at 3, 6 and 12 months, matched by lead. Rates stay blank until there's something real to divide |
+| `src/parked/commissions.js` | **Parked.** Commission tracker: expected advances and overrides from issued policies and contract levels, matched to payments marked received; every item is paid, partial, late or due |
 | `src/ladder.js` | **The climb** (Producer → Coach → Director → Upline): duplication metrics (agents producing, coaches, 90-day retention, days to first sale), the recruiting funnel, and level progress with one next action |
 | `src/paths.js` | **The two leader paths** (Producer, Coach; Director parked): a 1-question picker, green/red status by fixed lines, and if-then rules that name the person and say exactly what to do |
 | `src/routines.js` | **What to do** at each timeframe: the plan cascade (yearly goal → daily dials) and each role's routine, from the blocks of a day up to the year |
 | `src/timeframes.js` | Micro-inside-macro math: buckets (1D/1W/1M/1Q/1Y), roll-ups, period-over-period, and `whereItBroke()` — the zoom-in loop |
 | `seed/sample.js` | A sample team and two months of activity where one agent stalls in week 3 |
+| `public/` | **The app**: Today, Pipeline, Ladder, Team and Setup on one page with tabs. Mine / Demo switch at the top |
+| `src/pipeline.js` | **Pipeline moves**: moving a client or recruit writes the same activity rows as the database trigger |
+| `seed/demo-pipeline.js` | Demo clients, recruits and team start dates for the fictional leader |
 | `seed/demo.js` | `npm run demo` — prints the zoom-in loop finding that agent |
 | `test/` | Tests for the timeframe math (`npm test`) |
 | `db/test/` | Database checks against a real Postgres (`bash db/test/run.sh`) |
@@ -186,7 +193,7 @@ To use on Supabase: run `db/schema.sql` in the SQL editor of a new project. Don'
 
 ## Not built yet (on purpose)
 
-- Screens (next: Today + Pipeline + Playbook, per the build order)
+- The shared database connection: the screens (`public/`) run on the engine now, but **Mine** saves to one phone until they talk to Supabase
 - Click-to-call / texting — hold until a customer asks; connect to tools agents already use first
 - Upline screen — the data and security already support it; the view comes later
 - Billing

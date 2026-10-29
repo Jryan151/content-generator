@@ -13,7 +13,7 @@
 // ADVANCES only (the part most agents are paid up front). The unadvanced
 // balance and renewals depend on each carrier's schedule and are not tracked.
 
-import { rangeOf } from './timeframes.js';
+import { rangeOf } from '../timeframes.js';
 
 export const STARTER_COMP = Object.freeze({
   advancePercent: 75,  // share of first-year commission paid up front

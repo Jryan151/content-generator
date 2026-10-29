@@ -41,6 +41,25 @@ do $$ begin
   if (select value from activities where type = 'app_written') <> 540 then raise exception 'app_written should carry the premium'; end if;
 end $$;
 
+-- The carrier issues it → placed, logged with the lead so a later lapse can be matched.
+update leads set stage = 'issued' where id = '10000000-0000-4000-8000-000000000002';
+do $$ begin
+  if (select lead_id from activities where type = 'policy_issued') <> '10000000-0000-4000-8000-000000000002' then
+    raise exception 'policy_issued should carry its lead so quality can follow it';
+  end if;
+  if (select sum(policies_placed) from rollup('1M', '2026-01-01', '2027-12-31')) <> 1 then
+    raise exception 'rollup should count one placed policy';
+  end if;
+end $$;
+
+-- It lapses → a chargeback on the same lead, so it stops counting as active.
+update leads set stage = 'lost' where id = '10000000-0000-4000-8000-000000000002';
+do $$ begin
+  if (select lead_id from activities where type = 'chargeback') <> '10000000-0000-4000-8000-000000000002' then
+    raise exception 'a lapse after issue should log a chargeback on the same lead';
+  end if;
+end $$;
+
 -- He cannot touch someone else's lead (update silently matches 0 rows under RLS).
 update leads set stage = 'lost' where id = '10000000-0000-4000-8000-000000000001';
 
