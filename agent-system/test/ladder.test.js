@@ -41,8 +41,8 @@ test('producer → coach: steady selling AND a Playbook in your own words', () =
 });
 
 test('coach → director is measured by agents under you, and the next action targets the closest gap', () => {
-  const p = levelProgress({ path: 'coach', metrics: { agentsSelling: 2, agentsProducer: 0 } });
-  assert.equal(p.nextAction, 'Get 1 more agent to steady weekly sales. Start with whoever is closest on the red list.');
+  const p = levelProgress({ path: 'coach', metrics: { agentsSelling: 2, agentsDeveloped: 0 } });
+  assert.equal(p.nextAction, 'Get 1 more agent to steady weekly sales. Start with whoever is closest on Team.');
 });
 
 test('ready means every box is checked', () => {
@@ -53,7 +53,7 @@ test('ready means every box is checked', () => {
 
 test('the ladder is one straight line and the funnel ends in producing', () => {
   assert.deepEqual(LADDER.map((r) => `${r.from}>${r.to}`), ['producer>coach', 'coach>director', 'director>upline']);
-  assert.deepEqual(LADDER.flatMap((r) => r.requires.map((q) => q.metric)), ['steadyWeeks', 'playbookReady', 'agentsSelling', 'agentsProducer', 'coachesBuilt']);
+  assert.deepEqual(LADDER.flatMap((r) => r.requires.map((q) => q.metric)), ['steadyWeeks', 'playbookReady', 'agentsSelling', 'agentsDeveloped', 'coachesBuilt']);
   assert.equal(RECRUIT_STAGES.at(-1).id, 'producing');
   assert.throws(() => levelProgress({ path: 'upline', metrics: {} }), /No rung/);
 });

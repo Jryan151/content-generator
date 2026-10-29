@@ -68,9 +68,19 @@ export function addDays(dayKey, n) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+const isWeekend = (dayKey) => [0, 6].includes(new Date(`${dayKey}T00:00:00Z`).getUTCDay());
+/** Saturday and Sunday are off: nothing the system schedules lands on them. */
+export const isWorkday = (dayKey) => !isWeekend(dayKey);
+/** 'YYYY-MM-DD' plus n workdays (Saturdays and Sundays are skipped). */
+export function addWorkdays(dayKey, n) {
+  let k = dayKey;
+  for (let left = n; left > 0;) { k = addDays(k, 1); if (!isWeekend(k)) left--; }
+  return k;
+}
+const workdayOnOrBefore = (dayKey) => { let k = dayKey; while (isWeekend(k)) k = addDays(k, -1); return k; };
 const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
-/** Days until the next try after `tries` unanswered calls: 1, 1, then 3. */
+/** Workdays until the next try after `tries` unanswered calls: 1, 1, then 3. */
 const retryAfter = (tries) => (tries >= 2 ? 3 : 1);
 
 /** Throws, naming what's missing, unless all four kitchen-table checks are ticked. */
@@ -100,7 +110,7 @@ export function logCall(lead, outcome, { agentId, at, today, meetingOn = null, m
   if (outcome === 'no_answer') {
     if (!lead) return { lead: null, rows };
     const tries = (lead.tries ?? 0) + 1;
-    const next = { ...lead, tries, nextOn: addDays(today, retryAfter(tries)) };
+    const next = { ...lead, tries, nextOn: addWorkdays(today, retryAfter(tries)) };
     delete next.callbackAt;
     return { lead: next, rows };
   }
@@ -141,7 +151,7 @@ export function logCall(lead, outcome, { agentId, at, today, meetingOn = null, m
   rows.push(...moved.rows.map((r) => (r.type === 'app_written' ? { ...r, meta: { kitchen_check: checked } } : r.type === 'appt_set' ? { ...r, meta: { meeting_on: meetingOn } } : r)));
   const next = { ...moved.lead, tries: 0 };
   delete next.nextOn; delete next.callbackAt;
-  if (outcome === 'talked') next.nextOn = addDays(today, 2);
+  if (outcome === 'talked') next.nextOn = addWorkdays(today, 2);
   if (outcome === 'callback') { next.nextOn = callbackOn; if (callbackAt) next.callbackAt = callbackAt; }
   if (outcome === 'booked') { next.meetingOn = meetingOn; next.nextOn = meetingOn; if (meetingAt) next.meetingAt = meetingAt; }
   return { lead: next, rows };
@@ -158,10 +168,10 @@ export function logMeeting(lead, outcome, { at, today, premium = null, checks = 
   const clear = (l) => { const n = { ...l }; delete n.meetingOn; delete n.meetingAt; return n; };
   if (outcome === 'no_show') {
     const { lead: back } = moveLead(lead, 'contacted', { at }); // no conversation happened, so no row
-    return { lead: { ...clear(back), nextOn: addDays(today, 1) }, rows: [] };
+    return { lead: { ...clear(back), nextOn: addWorkdays(today, 1) }, rows: [] };
   }
   const rows = [{ ...base, type: 'appt_held' }];
-  if (outcome === 'no_sale') return { lead: { ...clear(lead), stage: 'contacted', nextOn: addDays(today, 3) }, rows };
+  if (outcome === 'no_sale') return { lead: { ...clear(lead), stage: 'contacted', nextOn: addWorkdays(today, 3) }, rows };
   if (!(premium > 0)) throw new Error('Submitting needs the annual premium');
   const checked = checkKitchenTable(checks);
   const moved = moveLead(lead, 'application', { at, premium });
@@ -179,10 +189,10 @@ export function approvePolicy(lead, { at, today, draftOn }) {
   if (lead.stage !== 'application') throw new Error('Only a sent application can be approved');
   if (draftOn && !DAY.test(draftOn)) throw new Error('Enter the first payment draft as a date');
   const moved = moveLead(lead, 'issued', { at });
-  const tomorrow = addDays(today, 1);
+  const tomorrow = addWorkdays(today, 1);
   const care = { welcome: tomorrow };
   // No draft date known: the welcome call still happens; only the pre-draft call is skipped.
-  if (draftOn) { const preDraft = addDays(draftOn, -3); care.pre_draft = preDraft < tomorrow ? tomorrow : preDraft; }
+  if (draftOn) { const preDraft = workdayOnOrBefore(addDays(draftOn, -3)); care.pre_draft = preDraft < tomorrow ? tomorrow : preDraft; }
   const next = { ...moved.lead, approvedOn: today, care };
   if (draftOn) next.draftOn = draftOn; else delete next.draftOn;
   return { lead: next, rows: moved.rows };
@@ -216,7 +226,7 @@ export function logCareCall(lead, kind, outcome, { at, today }) {
   if (!spec.outcomes.includes(outcome)) throw new Error(`“${outcome}” doesn’t fit a ${spec.label.toLowerCase()}`);
   const rows = [{ agent_id: lead.agent_id, lead_id: lead.id, type: 'care_call', occurred_at: at, meta: { kind, outcome } }];
   const care = { ...(lead.care || {}) };
-  if (outcome === 'no_answer') { care[kind] = addDays(today, 1); return { lead: { ...lead, care }, rows }; }
+  if (outcome === 'no_answer') { care[kind] = addWorkdays(today, 1); return { lead: { ...lead, care }, rows }; }
   delete care[kind];
   if (outcome === 'reached') return { lead: { ...lead, care }, rows };
   if (outcome === 'payment_problem') {
@@ -242,8 +252,18 @@ export function logCareCall(lead, kind, outcome, { at, today }) {
  *   meetings   meetings today (by time)
  *   care       welcome and pre-draft calls due
  *   calls      people due (oldest first; set call-back times in order), then new people
+ * Weekends are off unless `weekendCalls`: only meetings, call-backs she set for that
+ * day at a time, and saves whose grace period runs out within 2 days. `waiting`
+ * counts what Monday holds.
  */
-export function queueFor(leads, today) {
+export function queueFor(leads, today, { weekendCalls = false } = {}) {
+  if (isWeekend(today) && !weekendCalls) {
+    const all = queueFor(leads, today, { weekendCalls: true });
+    const saves = all.saves.filter((l) => { const d = graceDaysLeft(l, today); return d !== null && d <= 2; });
+    const calls = all.calls.filter((l) => l.nextOn === today && l.callbackAt);
+    const waiting = all.saves.length - saves.length + all.care.length + all.calls.length - calls.length;
+    return { saves, meetings: all.meetings, care: [], calls, weekend: true, waiting };
+  }
   const saves = leads.filter((l) => l.stage === 'lapse_risk' && l.care?.save && l.care.save <= today)
     .sort((a, b) => (graceDaysLeft(a, today) ?? 99) - (graceDaysLeft(b, today) ?? 99));
   const meetings = leads.filter((l) => l.stage === 'appointment' && (l.meetingOn ?? today) <= today)
@@ -256,7 +276,7 @@ export function queueFor(leads, today) {
   const due = leads.filter((l) => ['new', 'contacted'].includes(l.stage) && l.nextOn && l.nextOn <= today)
     .sort((a, b) => a.nextOn.localeCompare(b.nextOn) || (a.callbackAt || '99').localeCompare(b.callbackAt || '99'));
   const fresh = leads.filter((l) => l.stage === 'new' && !l.nextOn);
-  return { saves, meetings, care, calls: [...due, ...fresh] };
+  return { saves, meetings, care, calls: [...due, ...fresh], weekend: false, waiting: 0 };
 }
 
 /** The text an agent sends their upline at the end of the day. */

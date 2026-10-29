@@ -12,9 +12,9 @@ import { totalsFor, whereItBroke } from './src/timeframes.js';
 import { duplication, RECRUIT_STAGES } from './src/ladder.js';
 import { quality, showRate, CHECKPOINTS } from './src/quality.js';
 import { LEAD_STAGES, moveLead, nextRecruitStage, moveRecruit, addRecruit, dropRecruit, daysInStage } from './src/pipeline.js';
-import { teamSummary } from './src/attention.js';
+import { teamSummary, applyCheckins, checkinRow, ownProduction, ownPremium, logsAtNight } from './src/attention.js';
 import * as sync from './sync.js';
-import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, addDays, dayText } from './src/calls.js';
+import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, addDays, addWorkdays, isWorkday, dayText } from './src/calls.js';
 import { migrate, readBackup, writeBackup, backupAge } from './src/store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -88,13 +88,20 @@ function ctx() {
   }
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: localTz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date()).map((p) => [p.type, p.value]));
+  const hh = parts.hour === '24' ? '00' : parts.hour;
+  const realDay = `${parts.year}-${parts.month}-${parts.day}`;
+  // Between midnight and 4 AM, taps can belong to yesterday: she said so with one tap (ui.lateDay).
+  const lateHour = Number(hh) < 4;
+  const late = lateHour && ui.lateDay === true;
+  const sinceMidnight = (Number(hh) * 60 + Number(parts.minute) + 1) * 60_000;
   return {
     demo: false, me: ME, myName: sync.account.me?.name || state.setup?.name || 'You', tz: localTz,
-    dayKey: `${parts.year}-${parts.month}-${parts.day}`, now: `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`,
+    dayKey: late ? addDays(realDay, -1) : realDay, now: late ? '23:59' : `${hh}:${parts.minute}`,
+    late, lateAsk: lateHour && ui.lateDay === undefined,
     activities: mine.activities, qualityActs: mine.activities, profile: mine.profile,
     leads: mine.leads, recruits: mine.recruits, names: mine.names, team: [], playbookReady: false,
     teamStages: sync.account.role === 'leader' ? sync.teamNow()?.stages ?? null : null,
-    at: () => new Date().toISOString(),
+    at: late ? () => new Date(Date.now() - sinceMidnight + (ui.lateTick++ % 59) * 1000).toISOString() : () => new Date().toISOString(),
     save: (before) => (sync.account.on ? sync.noteChange(before || []) : saveMine()),
   };
 }
@@ -129,6 +136,7 @@ function act(c, message, change) {
     cc.leads.splice(0, cc.leads.length, ...s.leads);
     cc.recruits.splice(0, cc.recruits.length, ...s.recruits);
     cc.names.splice(0, cc.names.length, ...s.names);
+    for (const k of Object.keys(cc.profile)) if (!(k in s.profile)) delete cc.profile[k];
     Object.assign(cc.profile, s.profile);
     cc.save(before); clearTimeout(undo.timer); undo = null;
     toast('Undone. Nothing was logged.'); renderAll();
@@ -147,7 +155,7 @@ function toast(message, onUndo = null, isError = false) {
 function hideToast() { $('toast').hidden = true; }
 
 // ── Small building blocks ───────────────────────────────────────────
-const ui = { open: null, skip: new Set(), priority: null }; // which card has its extra step open; people skipped this session
+const ui = { open: null, skip: new Set(), priority: null, lateDay: undefined, lateTick: 0, keepGoing: false, weekendCalls: false }; // which card has its extra step open; people skipped this session
 const head = (kicker, title) => h('div', {}, h('div', { class: 'kicker' }, kicker), h('h2', {}, title));
 const focusCard = (kicker, text, sub) => h('div', { class: 'card focus' }, h('div', { class: 'kicker' }, kicker), h('div', { class: 'big' }, text), sub ? h('div', { class: 'muted' }, sub) : null);
 
@@ -157,22 +165,29 @@ function replies(list, onPick, disabled = () => false) {
   }, h('b', {}, o.label), h('span', {}, o.hint))));
 }
 
-function meter(c, plan) {
+function meter(c, plan, goal = null) {
   const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
   const cell = (n, goal, label) => h('div', { class: 'stat' }, h('b', {}, goal ? `${n}/${goal}` : n), h('span', {}, label));
   return h('div', { class: 'stats four' },
-    cell(t.dials, plan?.daily?.dials, 'calls'),
+    cell(t.dials, plan?.daily?.dials ?? goal, 'calls'),
     cell(t.conversations, plan?.daily?.conversations, 'talked'),
     cell(t.apptsSet, null, 'meetings booked'),
     cell(t.followups, plan?.daily?.followups, 'follow-ups'));
 }
 
-function dayBlocks(c, L, plan) {
+function dayBlocks(c, L, plan, own = null) {
   const r = routineFor(L.stage);
-  const opts = { ...r, plan, activities: c.activities, agentId: c.me, tz: c.tz, times: sys()?.times || {}, content: false };
+  // Production first: recruiting waits while her own calls are down. Someone who logs at night is
+  // judged on yesterday's finished day, not on zero calls this morning.
+  let hold = own?.down ? true : null;
+  if (hold === null && plan?.daily?.dials && logsAtNight(c.activities.filter((a) => a.agent_id === c.me), { dayKey: c.dayKey, tz: c.tz })) {
+    let y = addDays(c.dayKey, -1); while (!isWorkday(y)) y = addDays(y, -1);
+    hold = totalsFor(c.activities, { tf: '1D', key: y, tz: c.tz, agentIds: [c.me] }).dials < plan.daily.dials * 0.7;
+  }
+  const opts = { ...r, plan, activities: c.activities, agentId: c.me, tz: c.tz, times: sys()?.times || {}, content: false, hold };
   const keep = (x) => !['1M', '1Q', '1Y'].includes(x.tf); // monthly and longer views are parked
   const items = todoFor(c.dayKey, { ...opts, now: c.now }).filter(keep);
-  const hidden = todoFor(c.dayKey, opts).filter(keep).length > items.length;
+  const hidden = todoFor(c.dayKey, { ...opts, hold: false }).filter(keep).length > items.length;
   return h('details', { class: 'card day' },
     h('summary', {}, h('b', {}, 'Your day, block by block'), h('span', { class: 'muted' }, `${items.length} blocks`)),
     items.length
@@ -180,7 +195,7 @@ function dayBlocks(c, L, plan) {
           h('span', { class: 't' }, clock(x.at)), h('span', { class: 'title' }, x.title),
           x.goal != null ? h('span', { class: 'prog' }, `${x.progress ?? 0}/${x.goal}`) : h('span'))))
       : h('p', { class: 'muted' }, 'No blocks today. Weekends are off the routine.'),
-    hidden ? h('p', { class: 'muted' }, 'Your recruiting step is hidden today: calls are under 70% of the goal. Production comes first.') : null);
+    hidden ? h('p', { class: 'muted' }, own?.down ? 'Your recruiting step is hidden while your own calls are down. Production comes first.' : 'Your recruiting step is hidden today: calls are under 70% of the goal. Production comes first.') : null);
 }
 
 function backupNudge(c) {
@@ -254,29 +269,110 @@ function renderToday() {
 
   const plan = planNow();
   const urgent = teamView(c)?.top || null;
-  const q = queueFor(c.leads.filter((l) => l.agent_id === c.me), c.dayKey);
+  const q = queueFor(c.leads.filter((l) => l.agent_id === c.me), c.dayKey, { weekendCalls: ui.weekendCalls });
   const calls = q.calls.filter((l) => !ui.skip.has(l.id));
   const pi = calls.findIndex((l) => l.id === ui.priority);
   if (pi > 0) calls.unshift(...calls.splice(pi, 1));
   const next = calls[0];
   const allSkipped = !next && q.calls.length > 0;
 
+  // A full day: her real target once it exists, otherwise the number she set herself. Never a guess.
+  const goal = plan?.daily?.dials ?? c.profile.dayCalls ?? null;
+  const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
+  const byCalls = !!goal && t.dials >= goal;
+  const byTime = !!c.profile.stopAt && c.now >= c.profile.stopAt && isWorkday(c.dayKey);
+  const done = (byCalls || byTime) && !ui.keepGoing && !c.late;
+  const own = ownProduction(c.activities, { me: c.me, dayKey: c.dayKey, tz: c.tz });
+  const weekendQuiet = q.weekend && !next && !q.saves.length && !q.meetings.length;
+
   fill(screen, top,
+    lateCard(c),
     backupNudge(c),
     q.saves.map((l) => careCard(c, l, 'save')),
     q.meetings.map((m) => meetingCard(c, m)),
-    q.care.map(({ lead, kind }) => careCard(c, lead, kind)),
-    next ? callCard(c, next, calls.length) : allSkipped
-      ? h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('div', { class: 'who-big quiet' }, `You skipped all ${q.calls.length}`), h('button', { type: 'button', class: 'go', onclick: () => { ui.skip.clear(); renderToday(); } }, 'Start the list again'))
-      : emptyQueue(c),
+    done ? doneCard(c, { t, goal, byCalls, next, urgent }) : [
+      q.care.map(({ lead, kind }) => careCard(c, lead, kind)),
+      weekendQuiet ? weekendCard(q) : next ? callCard(c, next, calls.length) : allSkipped
+        ? h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('div', { class: 'who-big quiet' }, `You skipped all ${q.calls.length}`), h('button', { type: 'button', class: 'go', onclick: () => { ui.skip.clear(); renderToday(); } }, 'Start the list again'))
+        : emptyQueue(c, goal, t.dials),
+    ],
     quickCall(c),
-    meter(c, plan),
+    meter(c, plan, goal),
+    goal || c.demo ? null : fullDayCard(c),
     sendMyDay(c),
-    urgent ? h('a', { class: 'card focus link-card', href: '#team' }, h('div', { class: 'kicker' }, 'NEEDS YOU FIRST'), h('div', { class: 'big' }, urgent.action), h('div', { class: 'muted' }, `${urgent.name}: ${urgent.reason}`))
-      : focusCard(`YOUR FOCUS · ${L.name.toUpperCase()}`, L.nextAction),
-    recruitingTap(c, L),
-    addPeople(c),
-    dayBlocks(c, L, plan));
+    done ? null : [
+      own.down ? focusCard('YOUR OWN CALLS ARE DOWN', `${own.recentPerDay} calls a day the last 2 weeks, ${own.priorPerDay} before.`, 'Production first: your calls come before team work until they’re back. Recruiting steps wait.') : null,
+      urgent ? needsYouCard(c, urgent) : own.down ? null : focusCard(`YOUR FOCUS · ${L.name.toUpperCase()}`, L.nextAction),
+      own.down ? null : recruitingTap(c, L),
+      addPeople(c),
+      dayBlocks(c, L, plan, own)],
+  );
+}
+
+// After midnight: one tap says whether these taps belong to yesterday.
+function lateCard(c) {
+  if (c.demo) return null;
+  if (c.lateAsk) {
+    const y = dayShort(addDays(c.dayKey, -1));
+    return h('section', { class: 'card warn' },
+      h('b', {}, 'It’s after midnight. Logging yesterday’s calls?'),
+      h('span', { class: 'muted' }, `Yes puts what you tap now on ${y}, so your day adds up right.`),
+      h('div', { class: 'inline' },
+        h('button', { type: 'button', class: 'go', onclick: () => { ui.lateDay = true; renderAll(); } }, `Yes, ${y}`),
+        h('button', { type: 'button', class: 'link', onclick: () => { ui.lateDay = false; renderAll(); } }, 'No, today')));
+  }
+  if (c.late) {
+    return h('div', { class: 'card warn' },
+      h('b', {}, `Logging for ${dayLong(c.dayKey)}`),
+      h('button', { type: 'button', class: 'link', onclick: () => { ui.lateDay = false; renderAll(); } }, 'Switch to today'));
+  }
+  return null;
+}
+
+function doneCard(c, { t, goal, byCalls, next, urgent }) {
+  return h('section', { class: 'card focus done' },
+    h('div', { class: 'kicker' }, 'DONE FOR TODAY'),
+    h('div', { class: 'big' }, byCalls ? `${t.dials} calls. That’s a full day.` : `It’s past ${clock(c.profile.stopAt, true)}. Your workday is over.`),
+    h('div', { class: 'muted' }, byCalls ? 'Go be with your people. Everything else waits for tomorrow.' : `${t.dials}${goal ? ` of ${goal}` : ''} calls today. Whatever’s left moves to tomorrow.`),
+    next ? h('div', {}, h('b', {}, 'Tomorrow starts with: '), next.name) : null,
+    urgent ? h('div', {}, h('b', {}, 'First thing tomorrow: '), urgent.action) : null,
+    h('button', { type: 'button', class: 'link', onclick: () => { ui.keepGoing = true; renderToday(); } }, 'Keep working anyway'));
+}
+
+function weekendCard(q) {
+  return h('section', { class: 'card call empty' },
+    h('div', { class: 'kicker' }, 'WEEKEND'),
+    h('div', { class: 'who-big quiet' }, 'Nothing is due today'),
+    h('div', { class: 'muted' }, q.waiting ? `${q.waiting} call${q.waiting === 1 ? '' : 's'} wait for Monday.` : 'Monday’s list is set.'),
+    q.waiting ? h('button', { type: 'button', class: 'link', onclick: () => { ui.weekendCalls = true; renderToday(); } }, 'Make calls anyway') : null);
+}
+
+function fullDayCard(c) {
+  return h('section', { class: 'card' },
+    h('b', {}, 'What’s a full day for you?'),
+    h('p', { class: 'muted' }, 'Set it once. When you get there, Today tells you you’re done.'),
+    h('div', { class: 'inline' },
+      h('input', { id: 'day-calls', type: 'number', inputmode: 'numeric', min: '1', max: '500', placeholder: 'Calls', 'aria-label': 'Calls in a full day' }),
+      h('input', { id: 'day-stop', type: 'time', step: '900', 'aria-label': 'Workday ends (optional)' })),
+    h('span', { class: 'muted' }, 'Calls in a full day, and when your workday ends (optional).'),
+    h('button', { type: 'button', class: 'go', onclick: () => {
+      const n = Number($('day-calls').value), stop = $('day-stop').value;
+      if (!(n >= 1 && n <= 500)) { toast('Enter how many calls make a full day.', null, true); return; }
+      act(c, `Saved: ${n} calls is a full day${stop ? `, ending ${clock(stop, true)}` : ''}.`, () => { c.profile.dayCalls = Math.round(n); if (stop) c.profile.stopAt = stop; else delete c.profile.stopAt; });
+    } }, 'Save'));
+}
+
+function needsYouCard(c, p) {
+  return h('section', { class: 'card focus' },
+    h('div', { class: 'kicker' }, 'NEEDS YOU FIRST'),
+    h('div', { class: 'big' }, p.action),
+    h('div', { class: 'muted' }, `${p.name}: ${p.reason}`),
+    h('div', { class: 'inline' },
+      h('button', { type: 'button', class: 'mini', onclick: () => talkedTo(c, p) }, 'I talked to them'),
+      h('a', { class: 'link', href: '#team' }, 'Open Team')));
+}
+function talkedTo(c, p) {
+  act(c, `Checked in with ${p.name}. They rest for 3 workdays; if nothing changes, they come back.`, () => [checkinRow({ me: c.me, personId: p.id, at: c.at() })]);
 }
 
 // The extra step some outcomes need: a day and time, or the premium and the kitchen-table check.
@@ -377,13 +473,13 @@ function careCard(c, lead, kind) {
     replies(spec.outcomes.map((id) => ({ id, ...CARE_OUTCOMES[id] })), pick));
 }
 
-function emptyQueue(c) {
+function emptyQueue(c, goal = null, dials = 0) {
   const later = c.leads.filter((l) => l.agent_id === c.me && ['new', 'contacted', 'appointment'].includes(l.stage) && (l.nextOn || l.meetingOn))
     .map((l) => ({ l, on: l.stage === 'appointment' ? l.meetingOn : l.nextOn })).sort((a, b) => a.on.localeCompare(b.on))[0];
   if (later) return h('section', { class: 'card call empty' },
     h('div', { class: 'kicker' }, 'CALL NEXT'),
     h('div', { class: 'who-big quiet' }, 'All caught up for today'),
-    h('div', { class: 'muted' }, `Next up: ${later.l.name}, ${later.l.stage === 'appointment' ? 'meeting' : 'call'} on ${dayShort(later.on)}. Add more people below to keep calling today.`));
+    h('div', { class: 'muted' }, `Next up: ${later.l.name}, ${later.l.stage === 'appointment' ? 'meeting' : 'call'} on ${dayShort(later.on)}.${goal && dials < goal ? ` ${goal - dials} more call${goal - dials === 1 ? '' : 's'} makes a full day: add people below.` : ''}`));
   return h('section', { class: 'card call empty' },
     h('div', { class: 'kicker' }, 'CALL NEXT'),
     h('div', { class: 'who-big quiet' }, 'No one on your list'),
@@ -468,7 +564,8 @@ function renderStudyDay(c, L, top) {
   const week = totalsFor(c.activities, { tf: '1W', key: weekKey(c.dayKey), tz: c.tz, agentIds: [c.me] });
   const today = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
   const scores = c.activities.filter((a) => a.agent_id === c.me && a.type === 'practice_test').slice(-5).map((a) => Number(a.value));
-  const scoreOpen = ui.open === 'score', passOpen = ui.open === 'pass';
+  const scoreOpen = ui.open === 'score', passOpen = ui.open === 'pass', examOpen = ui.open === 'exam';
+  const examOn = c.activities.filter((a) => a.agent_id === c.me && a.type === 'exam_booked' && a.meta?.exam_on).at(-1)?.meta.exam_on ?? null;
   const scoreId = 'score-in';
   fill($('screen-today'), top,
     backupNudge(c),
@@ -495,7 +592,19 @@ function renderStudyDay(c, L, top) {
       h('div', { class: 'stat' }, h('b', {}, week.studyMinutes), h('span', {}, 'minutes this week')),
       h('div', { class: 'stat' }, h('b', {}, scores.length ? scores.at(-1) : '—'), h('span', {}, 'last practice score')),
       h('div', { class: 'stat' }, h('b', {}, scores.length > 1 ? scores.join(' · ') : '—'), h('span', {}, 'recent scores'))),
-    focusCard('YOUR FOCUS · LICENSING', L.nextAction),
+    examOn && examOn >= c.dayKey ? focusCard('YOUR EXAM', dayLong(examOn), 'Keep taking practice tests until then.') : focusCard('YOUR FOCUS · LICENSING', L.nextAction),
+    examOpen
+      ? h('section', { class: 'card stepper' }, h('label', { for: 'exam-day' }, 'When is your exam?'),
+          h('input', { id: 'exam-day', type: 'date', min: c.dayKey }),
+          h('div', { class: 'inline' },
+            h('button', { type: 'button', class: 'go', onclick: () => {
+              const d = $('exam-day').value;
+              if (!d) { toast('Pick the exam day.', null, true); return; }
+              ui.open = null;
+              act(c, `Exam booked for ${dayShort(d)}.`, () => [{ agent_id: c.me, type: 'exam_booked', occurred_at: c.at(), meta: { exam_on: d } }]);
+            } }, 'Save'),
+            h('button', { type: 'button', class: 'link', onclick: () => { ui.open = null; renderToday(); } }, 'Back')))
+      : h('button', { type: 'button', class: 'card quick', onclick: () => { ui.open = 'exam'; renderToday(); } }, h('b', {}, examOn ? 'I moved my exam date' : 'I booked my exam'), h('span', { class: 'muted' }, 'Your leader sees you’re on track')),
     passOpen
       ? h('section', { class: 'card' }, h('b', {}, 'You passed the state licensing exam?'),
           h('div', { class: 'muted' }, 'This moves you to Starting: calls and your Pipeline open up.'),
@@ -593,6 +702,11 @@ function renderPipeline() {
   }
   const groups = RECRUIT_STAGES.map((s) => ({ s, list: c.recruits.filter((r) => r.stage === s.id) })).filter((g) => g.list.length);
   const dropped = c.recruits.filter((r) => r.stage === 'dropped');
+  // Signed in as a leader: once someone starts licensing they're on Team (they log themselves),
+  // so the list here is only people before they join. No one is tracked in two places.
+  const onSite = sync.account.role === 'leader';
+  const joined = onSite ? c.recruits.filter((r) => !['prospect', 'interviewed', 'dropped'].includes(r.stage)) : [];
+  if (onSite) groups.splice(0, groups.length, ...groups.filter((g) => ['prospect', 'interviewed'].includes(g.s.id)));
   fill(screen, top, seg,
     h('div', { class: 'card' }, h('b', {}, 'Add a recruit'),
       addForm('add-recruit', 'Recruit name', 'Add', (name) => act(c, `${name} added as a recruit.`, () => { const r = addRecruit({ id: uid(), name }, { builderId: c.me, at: c.at() }); c.recruits.unshift(r.recruit); return r.rows; }))),
@@ -608,7 +722,9 @@ function renderPipeline() {
           h('div', { class: 'who' }, h('b', {}, rec.name),
             days !== null ? h('span', { class: stuck ? 'err' : 'muted' }, `${days} day${days === 1 ? '' : 's'} here${stuck ? ' · stuck: talk to them this week' : ''}`) : null),
           h('div', { class: 'inline' },
-            next ? h('button', { type: 'button', class: 'mini', onclick: () => act(c, `${rec.name}: ${label.toLowerCase()}.`, () => { const m = moveRecruit(rec, next, { builderId: c.me, at: c.at() }); Object.assign(rec, m.recruit); return m.rows; }) }, `→ ${label}`) : null,
+            onSite && next === 'licensing'
+              ? h('button', { type: 'button', class: 'mini', onclick: () => { ui.inviteFor = { id: rec.id, name: rec.name }; location.hash = 'team'; } }, 'Invite to your team')
+              : next ? h('button', { type: 'button', class: 'mini', onclick: () => act(c, `${rec.name}: ${label.toLowerCase()}.`, () => { const m = moveRecruit(rec, next, { builderId: c.me, at: c.at() }); Object.assign(rec, m.recruit); return m.rows; }) }, `→ ${label}`) : null,
             h('button', { type: 'button', class: dropping ? 'mini danger' : 'mini quiet', onclick: () => {
               if (!dropping) { ui.open = `drop-${rec.id}`; renderPipeline(); return; }
               ui.open = null;
@@ -616,6 +732,9 @@ function renderPipeline() {
             } }, dropping ? 'Tap again to confirm' : 'Not moving forward')));
       })))
       : h('p', { class: 'muted' }, 'No recruits yet.'),
+    joined.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Joined your team'), h('span', { class: 'muted' }, ` ${joined.length}`)),
+      h('p', { class: 'muted' }, 'They log for themselves now. Follow them on Team.'),
+      joined.map((rec) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, rec.name))))) : null,
     dropped.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Not moving forward'), h('span', { class: 'muted' }, ` ${dropped.length}`)),
       dropped.map((rec) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, rec.name), h('span', { class: 'muted' }, `Left at: ${RECRUIT_STAGES.find((x) => x.id === rec.droppedFrom)?.label ?? 'unknown'}`))))) : null);
 }
@@ -664,6 +783,7 @@ function renderLadder() {
         h('td', {}, r.label), h('td', { class: 'n2' }, r.need === '—' ? r.have : `${r.have} / ${r.need}`), h('td', { class: 'n2' }, h('span', { class: `pill ${r.met ? 'green' : 'grey'}` }, r.met ? 'DONE' : 'NOT YET')))))),
       h('div', {}, h('b', {}, 'Next: '), L.nextAction))
       : null,
+    c.demo || sync.account.role === 'leader' ? builderCard(c, teamView(c)) : null,
     L.stage === 'licensing' ? null : showCard(showRate({ activities: c.activities, agentIds: [c.me], dayKey: c.dayKey })),
     L.stage === 'licensing' ? null : qualityCard(q, 'Your business'));
 }
@@ -692,10 +812,14 @@ function buildDemoTeam(c) {
 }
 /** The leader's ranked team for this mode, or null (not a leader, or still loading). */
 function teamView(c) {
-  if (c.demo) return (demoTeam ??= buildDemoTeam(c));
-  if (sync.account.role !== 'leader') return null;
-  if (!teamState.error && Date.now() - teamState.at > 60_000) refreshTeam();
-  return sync.teamNow();
+  let raw = null;
+  if (c.demo) raw = (demoTeam ??= buildDemoTeam(c));
+  else if (sync.account.role === 'leader') {
+    if (!teamState.error && Date.now() - teamState.at > 60_000) refreshTeam();
+    raw = sync.teamNow();
+  }
+  // Her check-ins live in her own log, so a tap rests someone right away, on this phone.
+  return raw && applyCheckins(raw, c.activities, { dayKey: c.dayKey, tz: c.tz });
 }
 function refreshTeam(force = false) {
   if (teamState.loading) return;
@@ -706,33 +830,68 @@ function refreshTeam(force = false) {
 }
 
 const LEVEL = { urgent: ['red', 'NEEDS YOU'], watch: ['amber', 'WATCH'], ok: ['green', 'ON TRACK'] };
-function personCard(p, real) {
-  const [color, word] = LEVEL[p.level];
+function personCard(c, p, real) {
+  const [color, word] = p.restingUntil ? ['grey', 'CHECKED IN'] : LEVEL[p.level];
   const confirming = ui.open === `remove-${p.id}`;
   const sr = p.facts?.showRate;
   return h('div', { class: 'card person' },
     h('div', { class: 'row' }, h('b', {}, p.name), h('span', { class: `pill ${color}` }, word)),
     h('div', { class: 'muted' }, [p.stageName, p.stage === 'licensing' ? null : `${p.applications} applications, ${p.placed} approved, ${p.lapsed} lapsed`, sr === null || sr === undefined ? null : `show rate ${pct(sr)}`].filter(Boolean).join(' · ')),
     h('div', {}, h('b', {}, `${p.reason}. `), p.action),
+    p.restingUntil ? h('div', { class: 'muted' }, `You checked in ${dayShort(p.checkedInOn)}. Back on your list ${dayShort(p.restingUntil)} if nothing changes.`)
+      : p.level !== 'ok' ? h('button', { type: 'button', class: 'mini', onclick: () => talkedTo(c, p) }, 'I talked to them') : null,
     real ? h('div', { class: 'row' }, h('span', { class: 'muted' }, p.joinedOn ? `On your team since ${dayShort(p.joinedOn)}` : ''),
       h('button', { type: 'button', class: confirming ? 'mini danger' : 'link', onclick: () => {
         if (!confirming) { ui.open = `remove-${p.id}`; renderTeam(); return; }
         ui.open = null;
-        sync.removeFromTeam(p.id).then(() => { toast(`${p.name} is off your team. Their log was deleted.`); refreshTeam(true); }, (e) => toast(e.message, null, true));
-      } }, confirming ? `Tap again: remove ${p.name} and their log` : 'Take off team')) : null);
+        sync.removeFromTeam(p.id).then(() => { toast(`${p.name} is off your team. Their sales stay in your history.`); refreshTeam(true); }, (e) => toast(e.message, null, true));
+      } }, confirming ? `Tap again: take ${p.name} off (their history stays)` : 'Take off team')) : null);
+}
+
+function trainerCard(tr) {
+  if (!tr) return null;
+  return h('div', { class: 'card' },
+    h('div', { class: 'kicker' }, 'GROW A TRAINER'),
+    h('b', {}, tr.action),
+    h('div', { class: 'muted' }, `${tr.trainerName} sells steadily. Teaching someone else is how a Producer becomes a trainer, and it takes work off you.`));
+}
+
+/** Is she building? The same three numbers, now and 30 days ago. */
+function builderCard(c, t) {
+  const b = t?.builder;
+  if (!b) return null;
+  const mine = ownPremium(c.activities, { me: c.me, dayKey: c.dayKey });
+  const move = (x) => (x.now > x.before ? '↑' : x.now < x.before ? '↓' : '·');
+  const row = (label, x, fmt = String) => h('tr', {}, h('td', {}, label), h('td', { class: 'n2' }, fmt(x.now)), h('td', { class: 'n2 muted' }, `${move(x)} ${fmt(x.before)} 30 days ago`));
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('b', {}, 'Are you building?'), h('span', { class: 'muted' }, 'From your team’s logs')),
+    h('table', { class: 'reqs' }, h('tbody', {},
+      row('Agents with a sale in 3 of 6 weeks', b.steady),
+      row('Agents you developed to Producer', b.developed),
+      row('Team premium, last 30 days', b.teamPremium, usd),
+      row('Your own premium, last 30 days', mine, usd))),
+    h('div', { class: 'muted' }, b.teamPremium.now > mine.now && mine.now >= mine.before * 0.8
+      ? 'Your team out-sells you while you hold steady. That’s what building looks like.'
+      : 'Building means: more agents selling steadily, one you developed, and team premium passing yours while yours holds.'));
 }
 
 function inviteCard(t) {
   const input = h('input', { id: 'invite-email', class: 'text-in', type: 'email', placeholder: 'Their email', 'aria-label': 'Their email', autocomplete: 'off' });
   const go = () => {
     const email = input.value.trim(); if (!email) return;
-    sync.invite(email).then((d) => { ui.invite = { email, link: d.link }; renderTeam(); }, (e) => toast(e.message, null, true));
+    sync.invite(email).then((d) => {
+      ui.invite = { email, link: d.link };
+      const r = ui.inviteFor && mine.recruits.find((x) => x.id === ui.inviteFor.id);
+      ui.inviteFor = null;
+      if (r) act(ctx(), `${r.name} invited. They’re on Team once they join.`, () => { const m = moveRecruit(r, 'licensing', { builderId: ME, at: new Date().toISOString() }); Object.assign(r, m.recruit); return m.rows; });
+      else renderTeam();
+    }, (e) => toast(e.message, null, true));
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   const out = ui.invite;
   const text = out && `Join my team on Agent Reels. Open this link and make your login with ${out.email}: ${out.link}`;
   return h('div', { class: 'card' },
-    h('b', {}, 'Add an agent or recruit'),
+    h('b', {}, ui.inviteFor ? `Invite ${ui.inviteFor.name}` : 'Add an agent or recruit'),
     h('p', { class: 'muted' }, 'Type their email and get a link. Text it to them. They make a login with that email and land on your team. The link works once.'),
     h('div', { class: 'inline' }, input, h('button', { type: 'button', class: 'mini', onclick: go }, 'Get link')),
     out ? h('div', { class: 'stepper' },
@@ -749,28 +908,33 @@ function inviteCard(t) {
         h('button', { type: 'button', class: 'link', onclick: () => sync.revokeInvite(i.email).then(() => { if (ui.invite?.email === i.email) ui.invite = null; toast('Invite taken back. That link no longer works.'); renderTeam(); }, (e) => toast(e.message, null, true)) }, 'Take back')))) : null);
 }
 
-function drawTeam(screen, top, t, { real = false } = {}) {
+function drawTeam(c, screen, top, t, { real = false } = {}) {
   const dup = t.duplication;
   const mb = t.monthBroke;
   fill(screen, top,
     t.top ? focusCard('NEEDS YOU FIRST', t.top.action, `${t.top.name}: ${t.top.reason}`)
       : focusCard('NEEDS YOU FIRST', 'Nobody needs you right now', 'Everyone has logged recently. Keep your own calls going.'),
-    h('p', { class: 'muted' }, `${t.counts.urgent} need you now · ${t.counts.watch} to watch · ${t.counts.ok} on track`),
-    t.people.map((p) => personCard(p, real)),
+    t.top ? h('button', { type: 'button', class: 'mini', onclick: () => talkedTo(c, t.top) }, `I talked to ${t.top.name}`) : null,
+    h('p', { class: 'muted' }, `${t.counts.urgent} need you now · ${t.counts.watch} to watch · ${t.counts.ok} on track${t.counts.resting ? ` · ${t.counts.resting} checked in` : ''}`),
+    t.people.map((p) => personCard(c, p, real)),
+    trainerCard(t.trainer),
     mb ? focusCard('WHERE THIS MONTH BROKE', `Check in with ${mb.name || 'this agent'}`,
       `Premium written ${usd(mb.current)} this month vs ${usd(mb.previous)} last month. In the weakest week, ${mb.name} made ${mb.perDay} calls a day against a usual ${mb.usualPerDay}.`) : null,
     dup && dup.licensedAgents ? h('div', { class: 'card' }, h('b', {}, 'Is the team duplicating?'),
       h('div', { class: 'stats' },
         h('div', { class: 'stat' }, h('b', {}, `${dup.producingAgents}/${dup.licensedAgents}`), h('span', {}, 'licensed agents with a sale in 30 days')),
         h('div', { class: 'stat' }, h('b', {}, dup.daysToFirstSale ?? '—'), h('span', {}, dup.daysToFirstSale === null ? 'days to first sale · needs a first sale' : 'median days to first sale')))) : null,
-    real ? inviteCard(t) : null);
+    real ? inviteCard(t) : null,
+    real && t.archived?.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Off the team'), h('span', { class: 'muted' }, ` ${t.archived.length}`)),
+      h('p', { class: 'muted' }, 'Their sales stay in your history. Invite them again and their log comes back.'),
+      t.archived.map((a) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, a.name), h('span', { class: 'muted' }, `Left ${dayShort(a.at.slice(0, 10))}`))))) : null);
 }
 
 function renderTeam() {
   const c = ctx();
   const screen = $('screen-team');
   const top = head('WHO NEEDS YOU TODAY', 'Team');
-  if (c.demo) { drawTeam(screen, top, teamView(c)); return; }
+  if (c.demo) { drawTeam(c, screen, top, teamView(c)); return; }
   if (sync.account.role === 'leader') {
     const t = teamView(c);
     if (!t) {
@@ -784,7 +948,7 @@ function renderTeam() {
         h('div', { class: 'muted' }, 'Invite your agents and recruits below. Once they log on their own phones, this screen ranks who needs you first.')), inviteCard(t));
       return;
     }
-    drawTeam(screen, top, t, { real: true });
+    drawTeam(c, screen, top, t, { real: true });
     return;
   }
   const L = place(c);
@@ -805,6 +969,9 @@ function renderDataCard() {
   card.hidden = false;
   const licenseRow = h('div', { class: 'row' }, h('span', { class: 'muted' }, `License: ${mine.profile.licensed === false ? 'not yet' : mine.profile.licensed ? 'yes' : 'not answered'}`),
     h('button', { type: 'button', class: 'link', onclick: () => act(ctx(), 'License answer cleared. Answer it again on Today.', () => { mine.profile.licensed = null; }) }, 'Change'));
+  const dayRow = mine.profile.dayCalls ? h('div', { class: 'row' },
+    h('span', { class: 'muted' }, `Full day: ${mine.profile.dayCalls} calls${mine.profile.stopAt ? ` · ends ${clock(mine.profile.stopAt, true)}` : ''}`),
+    h('button', { type: 'button', class: 'link', onclick: () => act(ctx(), 'Cleared. Set your full day again on Today.', () => { delete mine.profile.dayCalls; delete mine.profile.stopAt; }) }, 'Change')) : null;
   if (a.on) {
     const n = sync.pending();
     const saving = { saved: n ? 'Saving…' : 'Everything is saved to your account.', saving: 'Saving…', offline: `No signal: ${n} change${n === 1 ? '' : 's'} waiting on this phone.`, error: a.error }[a.status] || '';
@@ -813,7 +980,7 @@ function renderDataCard() {
       h('b', {}, a.me?.name || a.me?.email || 'Signed in'),
       h('p', { class: 'muted' }, a.role === 'leader' ? `You lead ${a.team?.name}. Invite your people on Team.` : `On ${a.team?.leaderName}’s team. ${a.team?.leaderName} sees your calls, meetings and sales, never your clients’ names.`),
       h('p', { class: a.status === 'error' ? 'err' : 'muted' }, `${mine.activities.length} log entries · ${mine.leads.length} people. ${saving}`),
-      licenseRow,
+      licenseRow, dayRow,
       h('button', { type: 'button', class: 'mini quiet', onclick: () => sync.logout() }, 'Log out'));
     return;
   }
@@ -853,7 +1020,7 @@ function renderDataCard() {
             if (!r.ok) { toast(r.error, null, true); return; }
             ui.open = 'restore'; ui.pending = r; renderDataCard(); toast(`Found ${r.summary}.`);
           } }, 'Check backup')),
-    licenseRow);
+    licenseRow, dayRow);
 }
 
 function markBackedUp() { mine.lastBackupAt = new Date().toISOString(); saveMine(); renderDataCard(); }
@@ -922,6 +1089,7 @@ const localMine = mine;
       local: localMine,
       onChange: (kind) => {
         if (kind === 'replaced') { mine = sync.current(); toast('This phone now has your latest log from your account.'); renderAll(); return; }
+        if (kind === 'merged') { mine = sync.current(); renderAll(); return; }
         drawAccountNote();
         if (currentTab() === 'setup') renderDataCard();
       },

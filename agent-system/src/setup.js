@@ -81,7 +81,7 @@ export function emptyAgencyKit() {
     agency: '',
     ladder: {
       producerToCoach: { steadyWeeks: null },
-      coachToDirector: { agentsSelling: null, agentsProducer: null },
+      coachToDirector: { agentsSelling: null, agentsDeveloped: null },
       directorToUpline: { coachesBuilt: null },
     },
     eliteGroup: { name: '', requirements: '' },

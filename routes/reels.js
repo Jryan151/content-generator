@@ -5,7 +5,7 @@
 //   GET    /api/reels/team            the leader's ranked team ("who needs you")      (teamlead)
 //   POST   /api/reels/invite          invite an agent or recruit to the team          (teamlead)
 //   POST   /api/reels/invites/revoke  take back an invite                             (teamlead)
-//   DELETE /api/reels/team/:id        take someone off the team                       (teamlead)
+//   DELETE /api/reels/team/:id        take someone off the team (their log is archived) (teamlead)
 // Accepting an invite goes through the site's own invite links (routes/public.js, routes/people.js).
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
@@ -26,7 +26,7 @@ route('GET', '/api/reels/me', 'ws', ({ me, wsId, ws }) => {
     account: { id: me.account.id, name: me.account.name || '', email: me.account.email },
     role: role === 'teammate' ? 'agent' : 'leader',
     team: { id: wsId, name: ws.name, leaderName: leader?.name || ws.name },
-    rev: doc.rev, log: doc,
+    rev: doc.rev, log: reels.publicDoc(doc),
   };
 });
 
@@ -60,12 +60,12 @@ route('POST', '/api/reels/invites/revoke', 'ws', ({ wsId, body }) => {
   return { invites: invitesView(wsId) };
 });
 
-// Off the team: their log here is deleted with their place on it. A login that has nowhere else to
-// go is removed too (they can be invited again).
+// Off the team: their log is archived, so their sales stay in the team's history; inviting them
+// again brings it back. A login that has nowhere else to go is removed (they can be invited again).
 route('DELETE', '/api/reels/team/:id', 'ws', ({ wsId, params }) => {
   const a = store.getAccount(params.id);
   if (!a || roles.membership(a, wsId)?.role !== 'teammate') bad(404, 'That person isn’t on your team.');
-  reels.removeDoc(wsId, a.id);
+  reels.archiveDoc(wsId, a);
   const left = store.setMembership(a.id, wsId, null);
   if (!roles.membershipsOf(left).length) { auth.deleteSessionsFor(a.id); store.deleteAccount(a.id); }
   return { ok: true, invites: invitesView(wsId) };

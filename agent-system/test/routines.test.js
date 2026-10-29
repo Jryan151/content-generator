@@ -74,7 +74,7 @@ test('first workday rolls past a weekend (Nov 1, 2026 is a Sunday)', () => {
 
 test('builders and agents get different routines', () => {
   const b = todoFor('2026-10-28', { role: 'builder', path: 'coach', plan }).map((t) => t.id);
-  assert.ok(b.includes('c-noon') && !b.includes('a-dials'));
+  assert.ok(b.includes('c-coach') && !b.includes('a-dials'));
 });
 
 test('progress is filled in from the activity log', () => {

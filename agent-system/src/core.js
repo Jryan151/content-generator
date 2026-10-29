@@ -51,7 +51,7 @@ export const SCREENS = Object.freeze([
   {
     id: 'today', name: 'Today', who: 'Every agent',
     job: 'One chain: who to call next, one tap for what happened, the next step set for you. Before licensing, a study day instead.',
-    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'attention.teamSummary', 'store.migrate'],
+    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'attention.teamSummary', 'attention.ownProduction', 'store.migrate'],
   },
   {
     id: 'pipeline', name: 'Pipeline', who: 'Every agent',
@@ -61,12 +61,12 @@ export const SCREENS = Object.freeze([
   {
     id: 'ladder', name: 'Ladder', who: 'Every agent',
     job: 'Current stage, why it’s the focus, and the one gate to the next.',
-    reads: ['career.placeOnLadder', 'quality.quality', 'quality.showRate'],
+    reads: ['career.placeOnLadder', 'attention.builderMeasure', 'quality.quality', 'quality.showRate'],
   },
   {
     id: 'team', name: 'Team', who: 'Leader',
     job: 'One ranking of who needs you first, with one action each: silence, stalled exams, lapses, no-shows, then pace. Invites on the team site.',
-    reads: ['attention.teamSummary', 'attention.whoNeedsYou', 'ladder.duplication', 'timeframes.whereItBroke'],
+    reads: ['attention.teamSummary', 'attention.whoNeedsYou', 'attention.applyCheckins', 'attention.trainer', 'ladder.duplication', 'timeframes.whereItBroke'],
   },
 ]);
 

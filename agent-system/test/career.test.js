@@ -54,7 +54,7 @@ test('steady for 8 weeks but no Playbook → still Producer, told to write it', 
 test('steady + Playbook → Coach, even before the first recruit', () => {
   const r = placeOnLadder({ person: { id: ME }, activities: salesIn(7), dayKey: DAY, tz: TZ, playbookReady: true });
   assert.equal(r.stage, 'coach');
-  assert.equal(r.nextAction, 'Get 3 more agents to steady weekly sales. Start with whoever is closest on the red list.');
+  assert.equal(r.nextAction, 'Get 3 more agents to steady weekly sales. Start with whoever is closest on Team.');
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 
@@ -63,8 +63,11 @@ const NOV2 = '2026-11-02';
 
 test('a leader is measured by the people under them (sample team)', () => {
   const withBook = placeOnLadder({ person: { id: LEADER }, team, activities: buildActivities(), dayKey: NOV2, tz: TZ, playbookReady: true, topStage: 'upline' });
-  assert.equal(withBook.stage, 'director', 'three agents selling steadily, one at Producer or above');
-  assert.equal(withBook.gate.to, 'Upline');
+  // Her agents sell steadily, but none of them reached Producer on her team: they arrived producing.
+  // That's not building yet, so Director isn't met on day one (the six-month test's finding).
+  assert.equal(withBook.stage, 'coach');
+  assert.equal(withBook.gate.to, 'Director');
+  assert.deepEqual(withBook.gate.requirements.map((q) => q.met), [true, false]);
   const noBook = placeOnLadder({ person: { id: LEADER }, team, activities: buildActivities(), dayKey: NOV2, tz: TZ });
   assert.equal(noBook.stage, 'coach', 'agents of hers already selling make her a Coach; the Playbook stays a to-do, not a gate');
   const solo = placeOnLadder({ person: { id: LEADER }, team: [], activities: buildActivities(), dayKey: NOV2, tz: TZ });
@@ -79,7 +82,7 @@ test('while Director is parked, the same leader stays at Coach with a plain next
   assert.equal(r.stage, 'coach');
   assert.equal(r.gate.to, 'Director');
   assert.equal(r.gate.parked, true);
-  assert.match(r.nextAction, /who needs you first/);
+  assert.match(r.nextAction, /Develop one agent to Producer/);
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 
@@ -103,7 +106,8 @@ test('a dip that stays above the hold line keeps a leader’s stage', () => {
   const others = buildActivities().filter((a) => !(a.agent_id === LEADER && a.type === 'app_written'));
   const three = salesIn(3, LEADER, ['2026-10-26', '2026-10-19', '2026-10-05']);
   const r = placeOnLadder({ person: { id: LEADER }, team, activities: [...others, ...three], dayKey: NOV2, tz: TZ, playbookReady: true, topStage: 'upline' });
-  assert.equal(r.stage, 'director');
+  assert.equal(r.stage, 'coach');
+  assert.equal(r.slipped, false, 'three of six weeks holds her stage');
   const focused = placeOnLadder({ person: { id: LEADER }, team, activities: [...others, ...three], dayKey: NOV2, tz: TZ, playbookReady: true });
   assert.equal(focused.stage, 'coach');
 });

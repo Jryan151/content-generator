@@ -5,6 +5,7 @@
 // templates are unchanged).
 import crypto from 'crypto';
 import { PRODUCT_NAME } from '../lib/paths.js';
+import * as reels from '../lib/reels.js';
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
 import * as alerts from '../lib/alerts.js';
@@ -110,14 +111,14 @@ route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
     if (askTerms && body.acceptTerms !== true) bad(400, TERMS_TEXT);
     const hash = await auth.hashPassword(body.password);
     if (!auth.useLink(body.token, kind)) bad(410, linkError);
-    if (t.role !== 'admin' && !t.wsRole === 'reviewer' && t.workspaceId && body.timezone) {
+    if (t.role !== 'admin' && !['reviewer', 'teammate'].includes(t.wsRole) && t.workspaceId && body.timezone) {
       const cfg = store.loadConfig(t.workspaceId);
       if (!cfg.look.name && !store.getWorkspace(t.workspaceId).onboarded) { cfg.profile.timezone = validTz(body.timezone); store.saveConfig(t.workspaceId, cfg); }
     }
     acc = store.createAccount({ email: t.email, name: clip(body.name, 80), role: t.role === 'admin' ? 'admin' : 'agent', workspaceId: t.role === 'admin' ? null : t.workspaceId, hash });
     if (t.wsRole === 'reviewer') acc = store.setMembership(acc.id, t.workspaceId, { role: 'reviewer', since: nowIso() });
     // An agent or recruit joining a leader's team in Agent Reels: that, and nothing else in the workspace.
-    if (t.wsRole === 'teammate') acc = store.setMembership(acc.id, t.workspaceId, { role: 'teammate', since: nowIso() });
+    if (t.wsRole === 'teammate') { acc = store.setMembership(acc.id, t.workspaceId, { role: 'teammate', since: nowIso() }); reels.restoreArchived(t.workspaceId, acc); }
     if (askTerms) acc = store.updateAccount(acc.id, termsStamp());
   } else {
     acc = store.getAccount(t.accountId);

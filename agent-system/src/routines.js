@@ -137,10 +137,9 @@ export const ROUTINES = Object.freeze([
   { id: 'c-dials',     role: 'builder', path: 'coach', tf: 'block', at: '09:00', minutes: 90,  part: 'Today',    when: { daily: true }, title: 'Your dial block: {daily.dials} calls from your list', doneWhen: 'dials' },
   { id: 'c-recruit',   role: 'builder', path: 'coach', tf: 'block', at: '10:30', minutes: 20,  part: 'Recruiting', when: { daily: true }, recruiting: true, title: 'Recruiting: one next step in the recruiting pipeline', doneWhen: 'recruitSteps' },
   { id: 'c-post',      role: 'builder', path: 'coach', tf: 'block', at: '10:50', minutes: 15,  part: 'Content',  when: { daily: true }, content: true, title: 'Optional: post today’s content', doneWhen: 'posts' },
-  { id: 'c-noon',      role: 'builder', path: 'coach', tf: 'block', at: '12:00', minutes: 10,  part: 'Team',     when: { daily: true }, title: 'Noon check: send the noon message to every agent at 0 dials' },
   { id: 'c-followups', role: 'builder', path: 'coach', tf: 'block', at: '13:00', minutes: 30,  part: 'Pipeline', when: { daily: true }, title: 'Your follow-ups due', doneWhen: 'followups' },
-  { id: 'c-coach',     role: 'builder', path: 'coach', tf: 'block', at: '15:00', minutes: 45,  part: 'Team',     when: { daily: true }, title: 'Coach block: work the red list, one agent at a time' },
-  { id: 'c-1on1',      role: 'builder', path: 'coach', tf: '1W', at: '15:45', minutes: 60,  part: 'Team',     when: { weekday: 5 }, title: '1:1s with every agent under 70% of their weekly appointment target' },
+  { id: 'c-coach',     role: 'builder', path: 'coach', tf: 'block', at: '15:00', minutes: 45,  part: 'Team',     when: { daily: true }, title: 'Coach block: open Team and work who needs you, one person at a time' },
+  { id: 'c-1on1',      role: 'builder', path: 'coach', tf: '1W', at: '15:45', minutes: 60,  part: 'Team',     when: { weekday: 5 }, needsPlan: true, title: '1:1s with every agent under 70% of their weekly appointment target' },
   { id: 'c-close',     role: 'builder', path: 'coach', tf: 'block', at: '16:45', minutes: 15,  part: 'Team',     when: { daily: true }, title: 'Close out: log yours; check every agent logged today' },
 
   // Path 3 · Director (PARKED) — "My team sells." You run coaches, not calls.
@@ -224,19 +223,21 @@ function fill(title, plan) {
  * Pass `activities` + `agentId` to mark what is already done.
  * Content blocks appear only with `content: true` (content is optional).
  * Pass `now` too, and recruiting steps hide while their dials are red:
- * production comes first.
+ * production comes first. `hold` overrides that check (true/false) when the
+ * caller knows better: someone who logs at night, or whose calls are down for weeks.
+ * Blocks that compare against targets (`needsPlan`) wait until targets are real.
  */
-export function todoFor(dayKey, { role, path = null, plan, activities = null, agentId = null, tz, times = {}, starting = false, content = false, now = null } = {}) {
+export function todoFor(dayKey, { role, path = null, plan, activities = null, agentId = null, tz, times = {}, starting = false, content = false, now = null, hold = null } = {}) {
   if (!['trainee', 'agent', 'builder'].includes(role)) throw new Error(`Unknown role: ${role}`);
   if (role === 'builder' && !['producer', 'coach', 'director'].includes(path)) {
     throw new Error('A leader needs a path: producer or coach');
   }
   const c = asCal(dayKey);
   const done = activities && agentId ? totalsFor(activities, { tf: '1D', key: dayKey, tz, agentIds: [agentId] }) : null;
-  const holdRecruiting = now && done ? productionRed({ role, path, plan, dialsDone: done.dials, now, times }) : false;
+  const holdRecruiting = hold !== null ? hold : now && done ? productionRed({ role, path, plan, dialsDone: done.dials, now, times }) : false;
   return ROUTINES
     .filter((r) => r.role === role && (role !== 'builder' || r.path === path) && (!r.startingOnly || starting) && isDue(r.when, c))
-    .filter((r) => (!r.content || content) && !(r.recruiting && holdRecruiting))
+    .filter((r) => (!r.content || content) && !(r.recruiting && holdRecruiting) && (!r.needsPlan || plan))
     .map((r) => ({ ...r, at: times[r.id] ?? r.at }))
     .sort((x, y) => x.at.localeCompare(y.at) || TF_ORDER[x.tf] - TF_ORDER[y.tf])
     .map((r) => {

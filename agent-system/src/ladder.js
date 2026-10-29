@@ -30,7 +30,8 @@ export const RECRUIT_STAGES = Object.freeze([
  *   steadyWeeks     weeks with a sale, out of the last 8
  *   playbookReady   every Playbook step has your real words (fixed: not configurable)
  *   agentsSelling   people under you at Selling or above
- *   agentsProducer  people under you at Producer or above
+ *   agentsSelling   people under you with a sale in 3 of the last 6 weeks
+ *   agentsDeveloped people who reached Producer on your team (not ones who arrived there)
  *   coachesBuilt    people under you at Coach or above
  */
 export const LADDER = Object.freeze([
@@ -39,8 +40,8 @@ export const LADDER = Object.freeze([
     { metric: 'playbookReady', need: 1, label: 'Playbook in your own words', fixed: true },
   ] },
   { from: 'coach', to: 'director', requires: [
-    { metric: 'agentsSelling', need: 3, label: 'agents selling every week' },
-    { metric: 'agentsProducer', need: 1, label: 'agent at Producer (ready to train others)' },
+    { metric: 'agentsSelling', need: 3, label: 'agents with a sale in 3 of the last 6 weeks' },
+    { metric: 'agentsDeveloped', need: 1, label: 'agent you developed to Producer' },
   ] },
   { from: 'director', to: 'upline', requires: [
     { metric: 'coachesBuilt', need: 3, label: 'coaches you developed' },
@@ -141,9 +142,9 @@ function actionFor(q, fmt) {
     case 'playbookReady':
       return 'Finish your Playbook in your own words. It is what every recruit will learn from.';
     case 'agentsSelling':
-      return `Get ${n} more agent${s} to steady weekly sales. Start with whoever is closest on the red list.`;
-    case 'agentsProducer':
-      return 'Help your strongest agent reach Producer: steady sales and their own Playbook. They become your first trainer.';
+      return `Get ${n} more agent${s} to steady weekly sales. Start with whoever is closest on Team.`;
+    case 'agentsDeveloped':
+      return 'Develop one agent to Producer: a sale in 4 of 6 weeks. Pair them with your strongest agent; that’s how trainers start.';
     case 'coachesBuilt':
       return `Develop ${n} more coach${n === 1 ? '' : 'es'}. Give your strongest Producer the Coach routine and a first recruit.`;
     default:

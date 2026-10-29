@@ -1,6 +1,7 @@
 // routes/people.js — People: the compliance reviewer (invite, remove, and whether videos wait for them).
 // server.js mounts it, passing in the helpers these routes share with the rest of the server; the
 // capability each route needs is listed in one place (server.js ROUTE_CAPS).
+import * as reels from '../lib/reels.js';
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
 import * as audit from '../lib/audit.js';
@@ -48,6 +49,7 @@ route('POST', '/api/link/join', 'user', ({ me, body }) => {
   if (t.wsRole === 'reviewer' && signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
   if (!auth.useLink(body.token, 'invite')) bad(410, linkError);
   store.setMembership(me.account.id, t.workspaceId, { role: t.wsRole, since: nowIso() });
+  if (t.wsRole === 'teammate') reels.restoreArchived(t.workspaceId, me.account);   // invited back: their log returns
   auth.updateSession(me.session.hash, { ws: t.workspaceId });
   audit.record({ action: 'invite.accepted', who: me.account, ws: t.workspaceId, detail: t.wsRole, ip: '' });
   return { ok: true };

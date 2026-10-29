@@ -29,6 +29,11 @@ let gen = 0;
 let onUpdate = () => {};
 
 const json = (r) => r.json().catch(() => ({}));
+// This phone's name to the server, so a retried save never doubles entries.
+const deviceId = (() => {
+  try { let id = localStorage.getItem('agent-reels-device'); if (!id) { id = `d${Math.random().toString(36).slice(2, 12)}`; localStorage.setItem('agent-reels-device', id); } return id; }
+  catch { return `d${Math.random().toString(36).slice(2, 12)}`; }
+})();
 const cacheKey = () => `agent-reels-acct-${account.me.id}`;
 function writeCache() {
   try {
@@ -115,13 +120,13 @@ export async function flush() {
       const add = acts.slice(base, base + 2000);
       const byId = new Map(doc.leads.map((l) => [l.id, l]));
       const up = [...dirty].slice(0, 1500), rm = [...removed].slice(0, 1500);
-      const body = { rev: account.rev, acts: { base, add, ...(truncPending !== null ? { truncateTo: truncPending } : {}) }, leads: { upsert: up.map(([id]) => byId.get(id)).filter(Boolean), remove: rm.map(([id]) => id) } };
+      const body = { client: deviceId, rev: account.rev, acts: { base, add, ...(truncPending !== null ? { truncateTo: truncPending } : {}) }, leads: { upsert: up.map(([id]) => byId.get(id)).filter(Boolean), remove: rm.map(([id]) => id) } };
       const sendOther = otherGen > otherSent, otherAt = otherGen;
       if (sendOther) Object.assign(body, { recruits: doc.recruits, names: doc.names, profile: doc.profile, lastBackupAt: doc.lastBackupAt });
       setStatus('saving');
       const res = await fetch('/api/reels/sync', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
       const d = await json(res);
-      if (res.status === 409 && d.conflict) {
+      if (res.status === 409 && d.conflict) {   // an undo made on a copy another phone has since changed
         account.lost = pending();
         adopt(d.doc, d.rev);
         onUpdate('replaced');
@@ -134,6 +139,29 @@ export async function flush() {
       }
       if (res.status === 401) { account.on = false; setStatus('error', 'You were signed out. Sign in again to keep saving to your team.'); break; }
       if (!res.ok) throw Object.assign(new Error(d.error || 'Couldn’t save to your team.'), { hard: res.status < 500 });
+      if (d.merged) {
+        // Another phone saved in between. The server added this phone's entries after its, and sent the
+        // whole log back. Anything tapped while this save was on its way is kept and sent next.
+        const extra = doc.activities.slice(base + add.length);
+        const sentGen = new Map(up);
+        const stillDirty = [...dirty].filter(([id, g]) => sentGen.get(id) !== g);
+        const localLeads = new Map(doc.leads.map((l) => [l.id, l]));
+        const otherChanged = otherGen > otherAt;
+        const local = { recruits: doc.recruits, names: doc.names, profile: doc.profile };
+        adopt(d.doc, d.rev);
+        doc.activities.push(...extra);
+        for (const [id, g] of stillDirty) {
+          const l = localLeads.get(id);
+          if (!l) continue;
+          const i = doc.leads.findIndex((x) => x.id === id);
+          if (i >= 0) doc.leads[i] = l; else doc.leads.push(l);
+          dirty.set(id, g);
+        }
+        if (otherChanged) { Object.assign(doc, local); otherGen = ++gen; }
+        writeCache();
+        onUpdate('merged');
+        continue;
+      }
       account.rev = d.rev;
       synced = base + add.length; truncPending = null;
       for (const [id, g] of up) if (dirty.get(id) === g) dirty.delete(id);

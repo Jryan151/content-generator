@@ -7,7 +7,7 @@
     },
     "coachToDirector": {
       "agentsSelling": 4,
-      "agentsProducer": 1
+      "agentsDeveloped": 1
     },
     "directorToUpline": {
       "coachesBuilt": 3
