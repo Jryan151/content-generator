@@ -3,12 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Agent System · Leader Setup</title>
-<!-- Served at /agent-system. Mirrors agent-system/templates/leader-setup.html; the script lives in setup.js (the site allows no inline scripts). -->
+<title>Leader Setup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: one narrow column — three big answers, then the result card with her path and daily numbers. */
+/* Layout: one narrow column — a My setup / Demo switch, three big answers, then the result card. */
 :root {
   --bg: #F4F6F4; --surface: #FFFFFF; --ink: #15191A; --muted: #535B5A; --line: #DCE1DE;
   --accent: #0F6E56; --on-accent: #FFFFFF; --accent-soft: #DDF2EA; --accent-ink: #0A5240; --warn: #A4262C;
@@ -26,6 +25,7 @@
   --accent: #5FC9A6; --on-accent: #0B231C; --accent-soft: #1D3A31; --accent-ink: #9FE3CB; --warn: #F08A8F; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
 main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 36px 64px; }
 .wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
@@ -64,8 +64,14 @@ input[type=number]::placeholder { color: var(--muted); opacity: .6; font-weight:
 .status { font-size: 14px; min-height: 1.4em; margin: 0; }
 pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); border-radius: 8px; padding: 12px; font: 12.5px/1.45 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 @media (max-width: 380px) { .nums { grid-template-columns: 1fr 1fr; } }
+.mode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 5px; }
+.mode .opt { min-height: 44px; text-align: center; align-items: center; }
+.demo-note { background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+.wait { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; opacity: .9; }
+.facts b { font-family: var(--font-mono); font-weight: 600; }
+.sub { font-size: 13px; font-weight: 600; letter-spacing: .06em; opacity: .75; }
 </style>
-
 </head>
 <body>
 <main>
@@ -73,53 +79,59 @@ pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); bord
   <header>
     <div class="eyebrow">SETUP · UNDER A MINUTE</div>
     <h1>Three answers. The system does the rest.</h1>
-    <p class="lead">Your scripts and promotion rules get set up for you. Your real numbers fill in on their own after two weeks of use.</p>
+    <p class="lead">No guessed numbers: your daily targets come only from your real contract level and your own activity.</p>
   </header>
+
+  <div class="mode" role="group" aria-label="Mode">
+    <button type="button" class="opt" id="mode-mine" aria-pressed="true"><b>My setup</b></button>
+    <button type="button" class="opt" id="mode-demo" aria-pressed="false"><b>Demo</b></button>
+  </div>
+  <p class="demo-note" id="demo-note" hidden></p>
 
   <section class="q" aria-labelledby="q1">
     <div class="q-h"><span class="n">1</span><span class="q-t" id="q1">Do you have agents under you who are selling right now?</span></div>
     <div class="opts" role="group" aria-labelledby="q1">
-      <button type="button" class="opt" id="hasAgents-yes" data-k="hasAgents" data-v="true" aria-pressed="false"><b>Yes</b></button>
-      <button type="button" class="opt" id="hasAgents-no" data-k="hasAgents" data-v="false" aria-pressed="false"><b>No</b></button>
+      <button type="button" class="opt" data-k="hasAgents" data-v="true" aria-pressed="false"><b>Yes</b></button>
+      <button type="button" class="opt" data-k="hasAgents" data-v="false" aria-pressed="false"><b>No</b></button>
+    </div>
+  </section>
+
+  <section class="q" aria-labelledby="q2">
+    <div class="q-h"><span class="n">2</span><span class="q-t" id="q2">When does your day start?</span></div>
+    <div class="opts" role="group" aria-labelledby="q2">
+      <button type="button" class="opt" data-k="start" data-v="early" aria-pressed="false"><b>Early</b><small>Dial block at 8:00</small></button>
+      <button type="button" class="opt" data-k="start" data-v="standard" aria-pressed="false"><b>Standard</b><small>Dial block at 9:00</small></button>
+      <button type="button" class="opt" data-k="start" data-v="late" aria-pressed="false"><b>Late</b><small>Dial block at 10:00</small></button>
     </div>
   </section>
 
   <section class="q" aria-labelledby="q3">
-    <div class="q-h"><span class="n">2</span><span class="q-t" id="q3">When does your day start?</span></div>
-    <div class="opts" role="group" aria-labelledby="q3">
-      <button type="button" class="opt" id="start-early" data-k="start" data-v="early" aria-pressed="false"><b>Early</b><small>Dial block at 8:00</small></button>
-      <button type="button" class="opt" id="start-standard" data-k="start" data-v="standard" aria-pressed="false"><b>Standard</b><small>Dial block at 9:00</small></button>
-      <button type="button" class="opt" id="start-late" data-k="start" data-v="late" aria-pressed="false"><b>Late</b><small>Dial block at 10:00</small></button>
-    </div>
-  </section>
-
-  <section class="q" aria-labelledby="q4">
-    <div class="q-h"><span class="n">3</span><label class="q-t" id="q4" for="goal">What do you want to earn this year?</label></div>
-    <div class="money"><span>$</span><input type="number" id="goal" inputmode="numeric" min="1" step="1000" placeholder="76800" aria-describedby="goal-hint"></div>
+    <div class="q-h"><span class="n">3</span><label class="q-t" id="q3" for="goal">What do you want to earn this year?</label></div>
+    <div class="money"><span>$</span><input type="number" id="goal" inputmode="numeric" min="1" step="1000" placeholder="Your yearly earnings goal" aria-describedby="goal-hint"></div>
     <span class="hint" id="goal-hint">From your own sales. Overrides from your team come on top.</span>
     <span class="err" id="goal-err"></span>
   </section>
 
   <section class="result" aria-live="polite" aria-labelledby="rp">
-    <div class="eyebrow">YOUR SYSTEM</div>
-    <div class="path" id="rp">Coach</div>
-    <div class="motto" id="motto">I sell and I train. Mornings produce plus one recruiting step, afternoons coach.</div>
-    <div class="nums">
-      <div class="num"><b id="dials">22</b><span>dials a day</span></div>
-      <div class="num"><b id="convos">6</b><span>conversations a day</span></div>
-      <div class="num"><b id="appts">7</b><span>appointments a week</span></div>
+    <div class="eyebrow" id="result-eyebrow">YOUR SYSTEM</div>
+    <div class="path" id="rp">Answer question 1</div>
+    <div class="motto" id="motto"></div>
+    <div id="numbers" hidden>
+      <div class="nums">
+        <div class="num"><b id="dials"></b><span>dials a day</span></div>
+        <div class="num"><b id="convos"></b><span>conversations a day</span></div>
+        <div class="num"><b id="appts"></b><span>appointments a week</span></div>
+      </div>
     </div>
-    <div class="after" id="after"><span id="premium">To earn $76,800, you write about $96,000 in premium</span> at a starter 80% contract level; yours gets set for you. These use starter rates. After two weeks of use, they switch to your real numbers on their own.</div>
-    <div class="actions">
+    <div class="after" id="after"></div>
+    <div class="actions" id="actions">
       <button type="button" class="btn" id="send">Copy my answers</button>
-      <button type="button" class="btn" id="saveFile" hidden>Save as file</button>
     </div>
     <p class="status" id="status"></p>
     <pre id="out" hidden></pre>
   </section>
 </div>
 </main>
-
-<script src="/agent-system/setup.js"></script>
+<script type="module" src="setup.js"></script>
 </body>
 </html>

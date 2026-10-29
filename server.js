@@ -655,10 +655,17 @@ const STATIC = {
   // The service worker that shows "your video is ready" notifications.
   '/sw.js': ['public/sw.js', 'text/javascript; charset=utf-8'],
   // Agent System (agent-system/): the producer-to-builder system, shown here so it can be seen on this domain.
-  // Its own code and tests live in agent-system/; only its public page is served.
-  '/agent-system': ['agent-system/public/index.html', 'text/html; charset=utf-8'],
+  // The page runs the real engine in the browser, so its modules are served as they are (no copied math).
   '/agent-system/': ['agent-system/public/index.html', 'text/html; charset=utf-8'],
   '/agent-system/setup.js': ['agent-system/public/setup.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/setup.js': ['agent-system/src/setup.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/routines.js': ['agent-system/src/routines.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/paths.js': ['agent-system/src/paths.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/ladder.js': ['agent-system/src/ladder.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/timeframes.js': ['agent-system/src/timeframes.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/commissions.js': ['agent-system/src/commissions.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/metrics.js': ['agent-system/src/metrics.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/seed/sample.js': ['agent-system/seed/sample.js', 'text/javascript; charset=utf-8'],
 };
 // Where people write to about their data: SUPPORT_EMAIL.
 export const supportEmail = () => [process.env.SUPPORT_EMAIL].map(x => String(x || '').trim()).find(x => /^[^\s@<>"'&]+@[^\s@<>"'&]+\.[^\s@<>"'&]+$/.test(x)) || '';
@@ -758,6 +765,8 @@ export function createServer() {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      // The Agent System page loads its scripts relative to /agent-system/, so the bare path gets the slash.
+      if (url.pathname === '/agent-system') { res.writeHead(301, { Location: '/agent-system/', ...BASE_HEADERS }); return res.end(); }
       if (url.pathname.startsWith('/api/')) return await api(req, res, url);
       if (url.pathname.startsWith('/media/')) return media(req, res, url);
       if (url.pathname.startsWith('/pub/')) return pub(req, res, url);
