@@ -8,7 +8,8 @@
 //   2. Level requirements are STARTERS. Replace them with the agency's real
 //      promotion rules and the diamond group's criteria before going live.
 
-import { totalsFor, rangeOf, toCalendarDate } from './timeframes.js';
+import { rangeOf, toCalendarDate, bucketKey } from './timeframes.js';
+import { emptyTotals, addActivity } from './metrics.js';
 
 const DAY_MS = 86_400_000;
 
@@ -49,13 +50,15 @@ export const LADDER = Object.freeze([
 const days = (fromKey, toKey) => Math.round((rangeOf(toKey, '1D').start - rangeOf(fromKey, '1D').start) / DAY_MS);
 const shiftKey = (dayKey, n) => new Date(rangeOf(dayKey, '1D').start.getTime() + n * DAY_MS).toISOString().slice(0, 10);
 
-/** Sum of an agent's activity over the last `n` days ending on dayKey. */
+/** Sum of an agent's activity over the last `n` days ending on dayKey (one pass over their rows). */
 function lastNDays(activities, agentId, dayKey, n, tz) {
+  const keys = new Set(Array.from({ length: n }, (_, i) => shiftKey(dayKey, -i)));
   const out = { appsWritten: 0, any: 0 };
-  for (let i = 0; i < n; i++) {
-    const t = totalsFor(activities, { tf: '1D', key: shiftKey(dayKey, -i), tz, agentIds: [agentId] });
-    out.appsWritten += t.appsWritten;
-    out.any += Object.values(t).reduce((s, v) => s + (v > 0 ? 1 : 0), 0);
+  for (const a of activities) {
+    if (a.agent_id !== agentId || !keys.has(bucketKey(a.occurred_at, '1D', tz))) continue;
+    const t = addActivity(emptyTotals(), a);
+    if (t.appsWritten) out.appsWritten += t.appsWritten;
+    if (Object.values(t).some((v) => v > 0)) out.any += 1;
   }
   return out;
 }

@@ -4,6 +4,7 @@
 import { buildSystem, emptyLeaderSetup, premiumForIncome } from './src/setup.js';
 import { PATHS } from './src/paths.js';
 import { buildActivities, TZ, DEMO } from './seed/sample.js';
+import { state, setMode, onMode, setSystem } from './state.js';
 
 const $ = (id) => document.getElementById(id);
 const usd = (n) => '$' + Math.round(n).toLocaleString('en-US');
@@ -11,18 +12,17 @@ const day = (k) => new Date(k + 'T12:00:00Z').toLocaleDateString('en-US', { mont
 const pct = (n) => (Math.round(n * 1000) / 10).toLocaleString('en-US') + '%';
 const KEY = 'leader-setup-v5';
 
-let mode = 'mine';
 let S = emptyLeaderSetup();
 try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); if (d && d.version === S.version) S = { ...S, ...d }; } catch (e) {}
 const DEMO_S = { ...emptyLeaderSetup(), name: DEMO.leaderName, hasAgents: true, start: 'standard', yearlyIncome: 120000 };
 let demoS = { ...DEMO_S };
 let demoActs = null; // built once, on first use
 
-const cur = () => (mode === 'demo' ? demoS : S);
+const cur = () => (state.mode === 'demo' ? demoS : S);
 const missing = (s) => [s.hasAgents === null && 'question 1', !s.start && 'start of day', !(s.yearlyIncome > 0) && 'earnings goal'].filter(Boolean);
 
 function systemFor(s) {
-  if (mode !== 'demo') return buildSystem({ leader: s });
+  if (state.mode !== 'demo') return buildSystem({ leader: s });
   demoActs ??= buildActivities();
   return buildSystem({ leader: s, contractPercent: DEMO.contractPercent, activities: demoActs, agentIds: [DEMO.leaderId], tz: TZ });
 }
@@ -31,11 +31,7 @@ function li(text) { const el = document.createElement('li'); el.textContent = te
 
 function render() {
   const s = cur();
-  $('mode-mine').setAttribute('aria-pressed', String(mode === 'mine'));
-  $('mode-demo').setAttribute('aria-pressed', String(mode === 'demo'));
-  $('demo-note').hidden = mode !== 'demo';
-  $('demo-note').textContent = `Demo: ${DEMO.leaderName} is a made-up leader with logged activity from ${day(DEMO.activityFrom)} to ${day(DEMO.activityTo)} and an ${DEMO.contractPercent}% contract level. The numbers are calculated by the same engine as the real system, from that data.`;
-  $('result-eyebrow').textContent = mode === 'demo' ? `DEMO · ${DEMO.leaderName.toUpperCase()}'S SYSTEM` : 'YOUR SYSTEM';
+  $('result-eyebrow').textContent = state.mode === 'demo' ? `DEMO · ${DEMO.leaderName.toUpperCase()}'S SYSTEM` : 'YOUR SYSTEM';
   document.querySelectorAll('[data-k]').forEach((b) => {
     const v = b.dataset.v === 'true' ? true : b.dataset.v === 'false' ? false : b.dataset.v;
     b.setAttribute('aria-pressed', String(s[b.dataset.k] === v));
@@ -81,11 +77,12 @@ function render() {
   }
 
   const left = missing(s);
-  $('actions').hidden = mode === 'demo';
+  $('actions').hidden = state.mode === 'demo';
   $('send').disabled = left.length > 0;
-  $('status').textContent = mode === 'demo' ? 'Demo answers are not saved or sent.' : left.length ? `Still to answer: ${left.join(', ')}.` : 'Done. Send your answers to set up your system.';
+  $('status').textContent = state.mode === 'demo' ? 'Demo answers are not saved or sent.' : left.length ? `Still to answer: ${left.join(', ')}.` : 'Done. Send your answers to set up your system.';
   $('out').textContent = JSON.stringify(S, null, 2);
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  setSystem(s, sys);
 }
 
 document.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => {
@@ -101,8 +98,7 @@ $('goal').addEventListener('input', (e) => {
   $('goal-err').textContent = v !== '' && !(n > 0) ? 'Enter a dollar amount above 0.' : '';
   render();
 });
-$('mode-mine').addEventListener('click', () => { mode = 'mine'; $('goal').value = S.yearlyIncome || ''; render(); });
-$('mode-demo').addEventListener('click', () => { mode = 'demo'; $('goal').value = demoS.yearlyIncome || ''; render(); });
+onMode(() => { $('goal').value = cur().yearlyIncome || ''; $('goal-err').textContent = ''; render(); });
 
 $('send').addEventListener('click', () => {
   const text = JSON.stringify(S, null, 2) + '\n';

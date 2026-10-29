@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expectedPayments, reconcile, policiesFromActivities, STARTER_COMP } from '../src/commissions.js';
+import { expectedPayments, reconcile, policiesFromActivities, STARTER_COMP } from '../../src/parked/commissions.js';
 
 const people = {
   mel: { name: 'Morgan', contractPercent: 100, uplineId: 'up' },

@@ -44,6 +44,7 @@ export const METRICS = Object.freeze({
   apptsHeld:      { label: 'Appointments held', type: 'appt_held',     kind: 'count', level: 'outcome' },
   appsWritten:    { label: 'Applications',      type: 'app_written',   kind: 'count', level: 'outcome' },
   premiumWritten: { label: 'Premium written',   type: 'app_written',   kind: 'sum',   level: 'outcome', unit: 'USD' },
+  policiesPlaced: { label: 'Policies placed',   type: 'policy_issued', kind: 'count', level: 'outcome' }, // only business that sticks counts: see quality.js
   premiumIssued:  { label: 'Premium issued',    type: 'policy_issued', kind: 'sum',   level: 'outcome', unit: 'USD' },
   chargebacks:    { label: 'Chargebacks',       type: 'chargeback',    kind: 'count', level: 'outcome' },
   recruits:       { label: 'Recruits added',    type: 'recruit_added', kind: 'count', level: 'input' }, // never a headline: head count doesn't count

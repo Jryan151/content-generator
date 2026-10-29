@@ -94,7 +94,9 @@ function lastWeeks(dayKey, n) {
 /** How many of the last N completed weeks had at least one application. */
 export function weeksWithASale(activities, { personId, dayKey, tz, outOf }) {
   const weeks = lastWeeks(dayKey, outOf);
-  const flags = weeks.map((k) => totalsFor(activities, { tf: '1W', key: k, tz, agentIds: [personId] }).appsWritten > 0);
+  // Only this person's applications can count, so scan just those rows.
+  const apps = activities.filter((a) => a.agent_id === personId && a.type === 'app_written');
+  const flags = weeks.map((k) => totalsFor(apps, { tf: '1W', key: k, tz, agentIds: [personId] }).appsWritten > 0);
   return { count: flags.filter(Boolean).length, outOf, weeks, flags };
 }
 

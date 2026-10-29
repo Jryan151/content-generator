@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Foundation for the Agent System: data model and timeframe roll-ups",
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js test/parked/*.test.js",
     "demo": "node seed/demo.js"
   },
   "keywords": [],

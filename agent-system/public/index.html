@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Leader Setup</title>
+<title>Agent Reels</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
@@ -27,7 +28,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
-main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 36px 64px; }
+main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px calc(96px + env(safe-area-inset-bottom, 0px)); }
 .wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 .eyebrow { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--accent); }
 h1 { margin: 6px 0 0; font-size: clamp(26px, 6vw, 34px); line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; }
@@ -71,22 +72,102 @@ pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); bord
 .facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; opacity: .9; }
 .facts b { font-family: var(--font-mono); font-weight: 600; }
 .sub { font-size: 13px; font-weight: 600; letter-spacing: .06em; opacity: .75; }
+
+/* App shell: brand + mode switch on top, one screen at a time, tabs pinned to the bottom. */
+#screen-setup { display: flex; flex-direction: column; gap: 20px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { font-family: var(--font-mono); font-weight: 600; font-size: 13px; letter-spacing: .14em; color: var(--accent); }
+.topbar .mode { min-width: 180px; }
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface); border-top: 1px solid var(--line);
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+.tabs a { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 13.5px; }
+.tabs a[aria-current=page] { color: var(--accent-ink); background: var(--accent-soft); }
+.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.screen { display: flex; flex-direction: column; gap: 16px; }
+.screen h2 { margin: 0; font-size: clamp(22px, 5.5vw, 28px); line-height: 1.2; letter-spacing: -0.015em; text-wrap: balance; }
+.kicker { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.focus { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.focus .kicker { color: var(--accent-soft); }
+.focus .big { font-size: 19px; font-weight: 600; line-height: 1.35; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.row > :first-child { min-width: 0; }
+.muted { color: var(--muted); font-size: 13.5px; }
+.focus .muted { color: inherit; opacity: .78; }
+.pill { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.green { background: var(--accent-soft); color: var(--accent-ink); }
+.pill.red { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+.pill.grey { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.blocks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.blocks li { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); }
+.blocks li:first-child { border-top: 0; }
+.blocks .t { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.blocks .done-row .title { color: var(--muted); text-decoration: line-through; }
+.prog { font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
+.log button { font: inherit; min-height: 64px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.log button b { font-family: var(--font-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+.log button span { font-size: 12.5px; color: var(--muted); }
+.log button:active { background: var(--accent-soft); }
+.log button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.log button:focus-visible, .seg button:focus-visible, .mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 5px; }
+.seg button { font: inherit; font-weight: 600; min-height: 42px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
+.stage-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-weight: 600; }
+.stage-h .count { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.item:first-of-type { border-top: 0; }
+.item .who { min-width: 0; }
+.item .who b { font-weight: 600; }
+.mini { font: inherit; font-size: 13.5px; font-weight: 600; min-height: 40px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--accent); background: transparent; color: var(--accent-ink); cursor: pointer; white-space: nowrap; }
+.mini.quiet { border-color: var(--line); color: var(--muted); }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.inline { display: flex; gap: 8px; flex-wrap: wrap; }
+.inline input { flex: 1 1 140px; min-width: 0; font: inherit; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.inline input.prem { flex: 0 1 120px; }
+.ladder { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ladder li { border-radius: 10px; padding: 10px 6px; text-align: center; font-size: 13px; font-weight: 600; background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+.ladder li.past { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
+.ladder li.now { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.reqs { width: 100%; border-collapse: collapse; font-size: 14px; }
+.reqs td { padding: 8px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.reqs td.n2 { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 10px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--bg); border-radius: 10px; padding: 10px; min-width: 0; }
+.stat b { display: block; font-family: var(--font-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.needs { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.locked { border-style: dashed; }
+.stats.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 520px) { .stats.four { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 380px) { .stats { grid-template-columns: 1fr 1fr; } .tabs a { font-size: 12.5px; } }
+@media (prefers-reduced-motion: no-preference) { .log button { transition: background .15s; } }
 </style>
 </head>
 <body>
 <main>
 <div class="wrap">
+  <div class="topbar">
+    <span class="brand">AGENT REELS</span>
+    <div class="mode" role="group" aria-label="Mode">
+      <button type="button" class="opt" id="mode-mine" aria-pressed="true"><b>Mine</b></button>
+      <button type="button" class="opt" id="mode-demo" aria-pressed="false"><b>Demo</b></button>
+    </div>
+  </div>
+  <p class="demo-note" id="demo-note" hidden></p>
+
+  <section class="screen" id="screen-today" aria-label="Today" hidden></section>
+  <section class="screen" id="screen-pipeline" aria-label="Pipeline" hidden></section>
+  <section class="screen" id="screen-ladder" aria-label="Ladder" hidden></section>
+  <section class="screen" id="screen-team" aria-label="Team" hidden></section>
+
+  <div class="screen" id="screen-setup">
   <header>
     <div class="eyebrow">SETUP · UNDER A MINUTE</div>
     <h1>Three answers. The system does the rest.</h1>
     <p class="lead">No guessed numbers: your daily targets come only from your real contract level and your own activity.</p>
   </header>
-
-  <div class="mode" role="group" aria-label="Mode">
-    <button type="button" class="opt" id="mode-mine" aria-pressed="true"><b>My setup</b></button>
-    <button type="button" class="opt" id="mode-demo" aria-pressed="false"><b>Demo</b></button>
-  </div>
-  <p class="demo-note" id="demo-note" hidden></p>
 
   <section class="q" aria-labelledby="q1">
     <div class="q-h"><span class="n">1</span><span class="q-t" id="q1">Do you have agents under you who are selling right now?</span></div>
@@ -130,8 +211,17 @@ pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); bord
     <p class="status" id="status"></p>
     <pre id="out" hidden></pre>
   </section>
+  </div>
 </div>
 </main>
+<nav class="tabs" aria-label="Screens">
+  <a href="#today" data-tab="today">Today</a>
+  <a href="#pipeline" data-tab="pipeline">Pipeline</a>
+  <a href="#ladder" data-tab="ladder">Ladder</a>
+  <a href="#team" data-tab="team">Team</a>
+  <a href="#setup" data-tab="setup">Setup</a>
+</nav>
 <script type="module" src="setup.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
