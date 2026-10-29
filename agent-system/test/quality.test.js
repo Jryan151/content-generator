@@ -12,7 +12,12 @@ test('nothing logged → every rate is blank, not zero', () => {
   assert.equal(q.placeRate, null);
   for (const m of CHECKPOINTS) assert.equal(q.activeAt[m].rate, null);
   assert.ok(q.needsData.includes('No applications logged yet'));
-  assert.ok(q.needsData.includes('No placed policies logged yet'));
+  assert.ok(q.needsData.some((n) => n.startsWith('Approvals aren’t tracked yet')));
+});
+
+test('applications with no approvals marked read as not tracked, not 0%', () => {
+  const q = quality({ activities: [row(A, 'app_written', '2026-09-01T17:00:00Z', { value: 600 })], dayKey: '2026-10-28' });
+  assert.equal(q.placeRate, null);
 });
 
 test('placed ÷ submitted is the place rate', () => {

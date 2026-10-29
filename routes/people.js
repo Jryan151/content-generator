@@ -41,13 +41,13 @@ route('POST', '/api/people/invite', 'ws', async ({ req, wsId, ws, body, me }) =>
 // Someone who already has a login accepts while logged in as that email.
 route('POST', '/api/link/join', 'user', ({ me, body }) => {
   const t = auth.peekLink(body.token, 'invite');
-  if (!t || t.wsRole !== 'reviewer' || orphanInvite(t)) bad(410, linkError);
+  if (!t || !['reviewer', 'teammate'].includes(t.wsRole) || orphanInvite(t)) bad(410, linkError);
   if (store.normEmail(me.account.email) !== t.email) bad(403, `This invite is for ${t.email}. Log in with that email to accept it.`);
   if (me.account.role === 'admin') bad(409, 'Admins can already open every workspace.');
   if (roles.isMember(me.account, t.workspaceId)) { auth.useLink(body.token, 'invite'); return { ok: true, already: true }; }
-  if (signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
+  if (t.wsRole === 'reviewer' && signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
   if (!auth.useLink(body.token, 'invite')) bad(410, linkError);
-  store.setMembership(me.account.id, t.workspaceId, { role: 'reviewer', since: nowIso() });
+  store.setMembership(me.account.id, t.workspaceId, { role: t.wsRole, since: nowIso() });
   auth.updateSession(me.session.hash, { ws: t.workspaceId });
   audit.record({ action: 'invite.accepted', who: me.account, ws: t.workspaceId, detail: t.wsRole, ip: '' });
   return { ok: true };

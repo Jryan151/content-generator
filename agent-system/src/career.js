@@ -119,7 +119,11 @@ const passedExam = (activities, id) => activities.some((a) => a.agent_id === id 
  *
  * Returns { stage, name, focus, why, unlocked, locked, gate, nextAction, slipped }.
  */
-export function placeOnLadder({ person, team = [], activities, dayKey, tz, ladder = LADDER, gates = SELLING_GATES, playbookReady = false, depth = 0, topStage = FOCUS_TOP }) {
+/**
+ * teamStages  optional: the stages of the people under them, already worked out
+ *             (the server sends these for a real team, so their rows don't have to travel)
+ */
+export function placeOnLadder({ person, team = [], teamStages = null, activities, dayKey, tz, ladder = LADDER, gates = SELLING_GATES, playbookReady = false, depth = 0, topStage = FOCUS_TOP }) {
   const result = (id, extra) => {
     const s = STAGES[rank(id)];
     return { stage: id, name: s.name, focus: s.focus, why: s.why, unlocked: s.unlocked, locked: s.locked, slipped: false, gate: null, ...extra };
@@ -152,9 +156,10 @@ export function placeOnLadder({ person, team = [], activities, dayKey, tz, ladde
   const holding = recent.count >= gates.holdLeader.weeksWithASale;
 
   // Where the people under them are (depth-limited so a bad tree can't loop forever).
-  const under = depth < 4
-    ? team.map((m) => placeOnLadder({ person: m, team: m.team || [], activities, dayKey, tz, ladder, gates, playbookReady: !!m.playbookReady, depth: depth + 1, topStage }).stage)
-    : [];
+  const under = Array.isArray(teamStages) ? teamStages
+    : depth < 4
+      ? team.map((m) => placeOnLadder({ person: m, team: m.team || [], activities, dayKey, tz, ladder, gates, playbookReady: !!m.playbookReady, depth: depth + 1, topStage }).stage)
+      : [];
   const atLeast = (id) => under.filter((st) => rank(st) >= rank(id)).length;
   const metrics = {
     steadyWeeks: weeksWithASale(activities, { personId: person.id, dayKey, tz, outOf: gates.steadyOutOfWeeks }).count,
@@ -174,6 +179,9 @@ export function placeOnLadder({ person, team = [], activities, dayKey, tz, ladde
     if (rung.from !== leader) break;
     if (levelProgress({ path: rung.from, metrics, ladder }).ready) leader = rung.to; else break;
   }
+  // Someone you brought in is selling: you're coaching, whatever else is unfinished.
+  // (A leader with a real team was placed at Producer just for an unwritten Playbook.)
+  if (metrics.agentsSelling >= 1 && holding && rank(leader) < rank('coach')) leader = 'coach';
   const capped = rank(leader) > rank(topStage);
   if (capped) leader = topStage;
   const isLeader = rank(leader) >= rank('coach');
@@ -195,7 +203,7 @@ export function placeOnLadder({ person, team = [], activities, dayKey, tz, ladde
   const p = levelProgress({ path: leader, metrics, ladder });
   const parked = PARKED_STAGES.includes(p.to) && rank(p.to) > rank(topStage);
   const nextAction = parked && p.ready
-    ? 'Your team is selling steadily. Director is parked for now: keep every agent green and your own sales steady.'
+    ? 'Keep your own sales steady, and open Team every day: it shows who needs you first.'
     : p.nextAction;
   return result(leader, { gate: { to: cap(p.to), parked, requirements: p.requirements }, nextAction, metrics });
 }

@@ -281,6 +281,8 @@ async function render() {
   if (S.me.twofaSetupRequired) return page('twofa', viewTwofaRequired);
   const acc = S.me.account, ws = S.me.workspace, admin = acc.role === 'admin';
   if (view === 'account') return page('account', viewAccount);
+  // An agent on a leader's team (Agent Reels) has nothing else here.
+  if (S.me.role === 'teammate') { location.replace('/agent-system/'); return; }
   if (view === 'guide') return page('guide', viewGuide);
   if (admin && view === 'admin') return page('admin', viewAdmin);
   if (!ws) return admin ? go('admin') : page('account', viewAccount);

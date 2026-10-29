@@ -51,12 +51,12 @@ export const SCREENS = Object.freeze([
   {
     id: 'today', name: 'Today', who: 'Every agent',
     job: 'One chain: who to call next, one tap for what happened, the next step set for you. Before licensing, a study day instead.',
-    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'paths.actionsFor', 'store.migrate'],
+    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'attention.teamSummary', 'store.migrate'],
   },
   {
     id: 'pipeline', name: 'Pipeline', who: 'Every agent',
     job: 'Clients: contacted, appointment, submitted, placed. Recruits: name, interviewed, studying, licensed, first sale.',
-    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'calls.approvePolicy', 'calls.markPaymentMissed', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'career.isUnlocked'],
+    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'calls.approvePolicy', 'calls.markPaymentMissed', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'pipeline.dropRecruit', 'pipeline.daysInStage', 'career.isUnlocked'],
   },
   {
     id: 'ladder', name: 'Ladder', who: 'Every agent',
@@ -65,8 +65,8 @@ export const SCREENS = Object.freeze([
   },
   {
     id: 'team', name: 'Team', who: 'Leader',
-    job: 'Each recruit’s stage, whether production is on track, how much of their business sticks, and who needs help today.',
-    reads: ['career.placeOnLadder', 'paths.redList', 'ladder.duplication', 'quality.quality', 'timeframes.whereItBroke'],
+    job: 'One ranking of who needs you first, with one action each: silence, stalled exams, lapses, no-shows, then pace. Invites on the team site.',
+    reads: ['attention.teamSummary', 'attention.whoNeedsYou', 'ladder.duplication', 'timeframes.whereItBroke'],
   },
 ]);
 

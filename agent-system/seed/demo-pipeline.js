@@ -41,9 +41,9 @@ export const DEMO_LEADS = Object.freeze([
 
 /** People on Morgan's way to becoming agents. */
 export const DEMO_RECRUITS = Object.freeze([
-  { id: 'demo-recruit-1', name: 'Aaliyah K.', stage: 'interviewed' },
-  { id: 'demo-recruit-2', name: 'Ben S.', stage: 'licensing' },
-  { id: 'demo-recruit-3', name: 'Carla V.', stage: 'prospect' },
+  { id: 'demo-recruit-1', name: 'Aaliyah K.', stage: 'interviewed', since: '2026-10-22T17:00:00.000Z' },
+  { id: 'demo-recruit-2', name: 'Ben S.', stage: 'licensing', since: '2026-10-02T17:00:00.000Z' },
+  { id: 'demo-recruit-3', name: 'Carla V.', stage: 'prospect', since: '2026-10-27T17:00:00.000Z' },
 ]);
 
 const at = (day) => `${day}T17:00:00.000Z`;

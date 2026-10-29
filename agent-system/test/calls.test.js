@@ -151,7 +151,9 @@ test('booking keeps the meeting time, and meetings sort by time', () => {
 
 test('approval queues a welcome call tomorrow and a call 3 days before the first draft', () => {
   const sent = { ...fresh, stage: 'application', premium: 600 };
-  assert.throws(() => approvePolicy(sent, { at, today }), /draft/);
+  const noDate = approvePolicy(sent, { at, today });
+  assert.deepEqual(noDate.lead.care, { welcome: '2026-11-03' }, 'no draft date: the welcome call still happens');
+  assert.throws(() => approvePolicy(sent, { at, today, draftOn: 'soon' }), /date/);
   const a = approvePolicy(sent, { at, today, draftOn: '2026-11-20' });
   assert.deepEqual(types(a.rows), ['policy_issued']);
   assert.deepEqual(a.lead.care, { welcome: '2026-11-03', pre_draft: '2026-11-17' });

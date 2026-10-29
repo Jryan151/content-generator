@@ -70,7 +70,7 @@ export function quality({ activities, agentIds = null, dayKey }) {
 
   const needsData = [];
   if (submitted === 0) needsData.push('No applications logged yet');
-  if (issued.length === 0) needsData.push('No placed policies logged yet');
+  if (issued.length === 0) needsData.push('Approvals aren’t tracked yet: mark “Insurer approved” in Pipeline when the carrier approves');
   if (issued.length > 0 && tracked.length < issued.length) needsData.push('Some placed policies have no lead attached, so their lapses can’t be matched');
   for (const m of CHECKPOINTS) {
     if (tracked.length > 0 && activeAt[m].eligible === 0) needsData.push(`No policy is ${m} months old yet`);
@@ -80,7 +80,8 @@ export function quality({ activities, agentIds = null, dayKey }) {
     submitted,
     placed: issued.length,
     lapsed: policies.filter((p) => p.lapse).length,
-    placeRate: rate(issued.length, submitted),
+    // No approval ever marked means approvals aren't being tracked yet, not that none happened.
+    placeRate: issued.length ? rate(issued.length, submitted) : null,
     untracked: issued.length - tracked.length,
     activeAt,
     needsData,

@@ -171,17 +171,21 @@ export function logMeeting(lead, outcome, { at, today, premium = null, checks = 
 }
 
 /**
- * The insurer approved the policy. Records the first draft date and queues
- * the two protective calls: a welcome call tomorrow and a call 3 days before
- * the first draft (or tomorrow, if the draft is sooner).
+ * The insurer approved the policy. Queues a welcome call tomorrow and, when the
+ * first draft date is known, a call 3 days before it (or tomorrow, if sooner).
+ * The draft date is optional: nothing blocks an agent who doesn't know it.
  */
 export function approvePolicy(lead, { at, today, draftOn }) {
   if (lead.stage !== 'application') throw new Error('Only a sent application can be approved');
-  if (!DAY.test(draftOn || '')) throw new Error('Enter the date of the first payment draft');
+  if (draftOn && !DAY.test(draftOn)) throw new Error('Enter the first payment draft as a date');
   const moved = moveLead(lead, 'issued', { at });
   const tomorrow = addDays(today, 1);
-  const preDraft = addDays(draftOn, -3);
-  return { lead: { ...moved.lead, approvedOn: today, draftOn, care: { welcome: tomorrow, pre_draft: preDraft < tomorrow ? tomorrow : preDraft } }, rows: moved.rows };
+  const care = { welcome: tomorrow };
+  // No draft date known: the welcome call still happens; only the pre-draft call is skipped.
+  if (draftOn) { const preDraft = addDays(draftOn, -3); care.pre_draft = preDraft < tomorrow ? tomorrow : preDraft; }
+  const next = { ...moved.lead, approvedOn: today, care };
+  if (draftOn) next.draftOn = draftOn; else delete next.draftOn;
+  return { lead: next, rows: moved.rows };
 }
 
 /**

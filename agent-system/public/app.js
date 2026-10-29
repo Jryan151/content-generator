@@ -9,10 +9,11 @@ import { DEMO_TEAM, DEMO_LEADS, DEMO_RECRUITS, DEMO_PLAYBOOK_READY, demoQualityA
 import { placeOnLadder, routineFor, isUnlocked, STAGES, FOCUS_TOP } from './src/career.js';
 import { todoFor } from './src/routines.js';
 import { totalsFor, whereItBroke } from './src/timeframes.js';
-import { redList, actionsFor } from './src/paths.js';
 import { duplication, RECRUIT_STAGES } from './src/ladder.js';
 import { quality, showRate, CHECKPOINTS } from './src/quality.js';
-import { LEAD_STAGES, moveLead, nextRecruitStage, moveRecruit, addRecruit } from './src/pipeline.js';
+import { LEAD_STAGES, moveLead, nextRecruitStage, moveRecruit, addRecruit, dropRecruit, daysInStage } from './src/pipeline.js';
+import { teamSummary } from './src/attention.js';
+import * as sync from './sync.js';
 import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, addDays, dayText } from './src/calls.js';
 import { migrate, readBackup, writeBackup, backupAge } from './src/store.js';
 
@@ -54,6 +55,7 @@ function loadMine() {
   return migrate(null);
 }
 let mine = loadMine();
+let booted = false; // renders wait until we know whether this phone is signed in
 function saveMine() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(mine)); storageOk = true; } catch (e) { storageOk = false; }
 }
@@ -87,18 +89,19 @@ function ctx() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: localTz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date()).map((p) => [p.type, p.value]));
   return {
-    demo: false, me: ME, myName: state.setup?.name || 'You', tz: localTz,
+    demo: false, me: ME, myName: sync.account.me?.name || state.setup?.name || 'You', tz: localTz,
     dayKey: `${parts.year}-${parts.month}-${parts.day}`, now: `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`,
     activities: mine.activities, qualityActs: mine.activities, profile: mine.profile,
     leads: mine.leads, recruits: mine.recruits, names: mine.names, team: [], playbookReady: false,
+    teamStages: sync.account.role === 'leader' ? sync.teamNow()?.stages ?? null : null,
     at: () => new Date().toISOString(),
-    save: saveMine,
+    save: (before) => (sync.account.on ? sync.noteChange(before || []) : saveMine()),
   };
 }
 
 const sys = () => state.system;
 const planNow = () => (sys()?.targetsReady ? sys().plan : null);
-const place = (c) => placeOnLadder({ person: { id: c.me, name: c.myName, licensed: c.profile.licensed ?? true }, team: c.team, activities: c.activities, dayKey: c.dayKey, tz: c.tz, playbookReady: c.playbookReady });
+const place = (c) => placeOnLadder({ person: { id: c.me, name: c.myName, licensed: c.profile.licensed ?? true }, team: c.team, activities: c.activities, dayKey: c.dayKey, tz: c.tz, playbookReady: c.playbookReady, teamStages: c.teamStages ?? null });
 
 // ── Every change goes through here, so it can be undone for 10 seconds ──
 let undo = null;
@@ -113,19 +116,21 @@ function act(c, message, change) {
     c.activities.push(...rows);
     if (c.demo) demoData().quality.push(...rows.filter((r) => ['app_written', 'policy_issued', 'chargeback'].includes(r.type)));
   } catch (e) { toast(e.message, null, true); return false; }
-  c.save();
+  c.save(snap.leads);
   clearTimeout(undo?.timer);
   undo = { snap, timer: setTimeout(() => { undo = null; hideToast(); }, 10_000) };
   toast(message, () => {
     const s = undo?.snap; if (!s || s.mode !== state.mode) return;
     const cc = ctx();
+    const before = JSON.parse(JSON.stringify(cc.leads));
+    if (!cc.demo) sync.noteTruncate(s.acts);
     cc.activities.length = s.acts;
     if (cc.demo) demoData().quality.length = s.quality;
     cc.leads.splice(0, cc.leads.length, ...s.leads);
     cc.recruits.splice(0, cc.recruits.length, ...s.recruits);
     cc.names.splice(0, cc.names.length, ...s.names);
     Object.assign(cc.profile, s.profile);
-    cc.save(); clearTimeout(undo.timer); undo = null;
+    cc.save(before); clearTimeout(undo.timer); undo = null;
     toast('Undone. Nothing was logged.'); renderAll();
   });
   renderAll();
@@ -180,10 +185,45 @@ function dayBlocks(c, L, plan) {
 
 function backupNudge(c) {
   if (c.demo) return null;
+  if (sync.account.on) return null; // saved to the team: the note above the screens says how saving is going
   const age = backupAge(mine);
   if (!storageOk) return h('a', { class: 'card warn', href: '#setup' }, h('b', {}, 'This browser isn’t saving your log'), h('span', { class: 'muted' }, 'Private mode or blocked storage. Copy a backup now so nothing is lost.'));
   if (age === null || age < 7) return null;
   return h('a', { class: 'card warn', href: '#setup' }, h('b', {}, 'Back up your log'), h('span', { class: 'muted' }, mine.lastBackupAt ? `Last backup ${age} days ago.` : `Never backed up. ${age} days of logging live only on this device.`));
+}
+
+// Signed in: how saving to the team is going. Lives above the screens, so it can change without redrawing them.
+function accountNotice() {
+  const a = sync.account;
+  if (!a.on && a.status !== 'error') return null;
+  if (a.importable) {
+    const n = a.importable;
+    return h('div', { class: 'card warn' },
+      h('b', {}, `This phone has ${n.acts} log entries and ${n.leads} people from before you signed in`),
+      h('span', { class: 'muted' }, 'Move them into your account, so they’re saved and count toward your ladder? You can only do this once.'),
+      h('div', { class: 'inline' },
+        h('button', { type: 'button', class: 'go', onclick: () => sync.importLocal(localMine).then(() => { mine = sync.current(); toast('Moved. Everything is saved to your account now.'); renderAll(); }, (e) => toast(e.message, null, true)) }, 'Move them'),
+        h('button', { type: 'button', class: 'link', onclick: () => { sync.skipImport(); renderAll(); } }, 'Start fresh')));
+  }
+  if (a.lost) {
+    return h('div', { class: 'card warn' },
+      h('b', {}, `${a.lost} change${a.lost === 1 ? '' : 's'} from this phone couldn’t be kept`),
+      h('span', { class: 'muted' }, 'Your log was saved from another phone or computer first, so this one now shows that copy. Check your last few taps.'),
+      h('button', { type: 'button', class: 'mini', onclick: () => { a.lost = 0; drawAccountNote(); } }, 'Got it'));
+  }
+  if (a.status === 'error') {
+    return h('div', { class: 'card warn' }, h('b', {}, 'Not saving to your team'), h('span', { class: 'muted' }, a.error),
+      a.on ? h('button', { type: 'button', class: 'mini', onclick: () => sync.flush() }, 'Try again') : h('a', { class: 'mini', href: '#setup' }, 'Sign in'));
+  }
+  if (a.status === 'offline') {
+    const n = sync.pending();
+    return h('p', { class: 'muted' }, `No signal. ${n} change${n === 1 ? ' is' : 's are'} kept on this phone and save when you’re back online.`);
+  }
+  return null;
+}
+function drawAccountNote() {
+  const box = $('acct-note');
+  if (box) fill(box, state.mode === 'demo' ? null : accountNotice());
 }
 
 // ── Today ───────────────────────────────────────────────────────────
@@ -213,9 +253,7 @@ function renderToday() {
   if (L.stage === 'licensing') return renderStudyDay(c, L, top);
 
   const plan = planNow();
-  const urgent = routineFor(L.stage).role === 'builder' && c.team.length
-    ? actionsFor({ path: routineFor(L.stage).path, dayKey: c.dayKey, now: c.now, selfId: c.me, team: c.team, plan, activities: c.activities, tz: c.tz })[0]
-    : null;
+  const urgent = teamView(c)?.top || null;
   const q = queueFor(c.leads.filter((l) => l.agent_id === c.me), c.dayKey);
   const calls = q.calls.filter((l) => !ui.skip.has(l.id));
   const pi = calls.findIndex((l) => l.id === ui.priority);
@@ -234,7 +272,8 @@ function renderToday() {
     quickCall(c),
     meter(c, plan),
     sendMyDay(c),
-    focusCard(urgent ? 'NEEDS YOU TODAY' : `YOUR FOCUS · ${L.name.toUpperCase()}`, urgent ? urgent.text : L.nextAction),
+    urgent ? h('a', { class: 'card focus link-card', href: '#team' }, h('div', { class: 'kicker' }, 'NEEDS YOU FIRST'), h('div', { class: 'big' }, urgent.action), h('div', { class: 'muted' }, `${urgent.name}: ${urgent.reason}`))
+      : focusCard(`YOUR FOCUS · ${L.name.toUpperCase()}`, L.nextAction),
     recruitingTap(c, L),
     addPeople(c),
     dayBlocks(c, L, plan));
@@ -553,6 +592,7 @@ function renderPipeline() {
     return;
   }
   const groups = RECRUIT_STAGES.map((s) => ({ s, list: c.recruits.filter((r) => r.stage === s.id) })).filter((g) => g.list.length);
+  const dropped = c.recruits.filter((r) => r.stage === 'dropped');
   fill(screen, top, seg,
     h('div', { class: 'card' }, h('b', {}, 'Add a recruit'),
       addForm('add-recruit', 'Recruit name', 'Add', (name) => act(c, `${name} added as a recruit.`, () => { const r = addRecruit({ id: uid(), name }, { builderId: c.me, at: c.at() }); c.recruits.unshift(r.recruit); return r.rows; }))),
@@ -562,10 +602,22 @@ function renderPipeline() {
       list.map((rec) => {
         const next = nextRecruitStage(rec.stage);
         const label = next && RECRUIT_STAGES.find((x) => x.id === next).label;
-        return h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, rec.name)),
-          next ? h('button', { type: 'button', class: 'mini', onclick: () => act(c, `${rec.name}: ${label.toLowerCase()}.`, () => { const m = moveRecruit(rec, next, { builderId: c.me, at: c.at() }); Object.assign(rec, m.recruit); return m.rows; }) }, `→ ${label}`) : null);
+        const { days, stuck } = daysInStage(rec, c.dayKey);
+        const dropping = ui.open === `drop-${rec.id}`;
+        return h('div', { class: 'item' },
+          h('div', { class: 'who' }, h('b', {}, rec.name),
+            days !== null ? h('span', { class: stuck ? 'err' : 'muted' }, `${days} day${days === 1 ? '' : 's'} here${stuck ? ' · stuck: talk to them this week' : ''}`) : null),
+          h('div', { class: 'inline' },
+            next ? h('button', { type: 'button', class: 'mini', onclick: () => act(c, `${rec.name}: ${label.toLowerCase()}.`, () => { const m = moveRecruit(rec, next, { builderId: c.me, at: c.at() }); Object.assign(rec, m.recruit); return m.rows; }) }, `→ ${label}`) : null,
+            h('button', { type: 'button', class: dropping ? 'mini danger' : 'mini quiet', onclick: () => {
+              if (!dropping) { ui.open = `drop-${rec.id}`; renderPipeline(); return; }
+              ui.open = null;
+              act(c, `${rec.name} moved to “Not moving forward”.`, () => { const m = dropRecruit(rec, { builderId: c.me, at: c.at() }); Object.assign(rec, m.recruit); return m.rows; });
+            } }, dropping ? 'Tap again to confirm' : 'Not moving forward')));
       })))
-      : h('p', { class: 'muted' }, 'No recruits yet.'));
+      : h('p', { class: 'muted' }, 'No recruits yet.'),
+    dropped.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Not moving forward'), h('span', { class: 'muted' }, ` ${dropped.length}`)),
+      dropped.map((rec) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, rec.name), h('span', { class: 'muted' }, `Left at: ${RECRUIT_STAGES.find((x) => x.id === rec.droppedFrom)?.label ?? 'unknown'}`))))) : null);
 }
 
 function addForm(id, placeholder, buttonLabel, onAdd) {
@@ -587,7 +639,9 @@ function qualityCard(q, title) {
   return h('div', { class: 'card' },
     h('div', { class: 'row' }, h('b', {}, title), h('span', { class: 'muted' }, 'Only business that sticks counts')),
     h('div', { class: 'stats four' },
-      h('div', { class: 'stat' }, h('b', {}, q.placed), h('span', {}, `approved of ${q.submitted} applications`)),
+      q.placeRate === null && q.submitted
+        ? h('div', { class: 'stat' }, h('b', {}, '—'), h('span', {}, `approvals not tracked yet (${q.submitted} applications)`))
+        : h('div', { class: 'stat' }, h('b', {}, q.placed), h('span', {}, `approved of ${q.submitted} applications`)),
       ...CHECKPOINTS.map((m) => h('div', { class: 'stat' }, h('b', {}, pct(q.activeAt[m].rate)),
         h('span', {}, q.activeAt[m].eligible ? `still paying at ${m} mo (${q.activeAt[m].active} of ${q.activeAt[m].eligible})` : `still paying at ${m} mo · needs data`)))),
     q.needsData.length ? h('ul', { class: 'needs' }, q.needsData.map((n) => h('li', {}, n))) : null);
@@ -615,55 +669,170 @@ function renderLadder() {
 }
 
 // ── Team ────────────────────────────────────────────────────────────
+// One ranking (src/attention.js) feeds Today's "Needs you first" and this screen.
+// Demo: worked out here from the made-up team. Signed-in leader: worked out on the
+// team's site from each agent's own log; only activity comes back, never clients.
+let demoTeam = null;
+const teamState = { loading: false, error: '', at: 0 };
+function buildDemoTeam(c) {
+  const d = demoData();
+  const sales = new Set(['policy_issued', 'chargeback']);
+  const rows = [...d.activities, ...d.quality.filter((r) => sales.has(r.type))];
+  const members = DEMO_TEAM.map((a) => ({ ...a, licensed: true, activities: rows.filter((r) => r.agent_id === a.id) }));
+  const s = teamSummary({ members, dayKey: c.dayKey, now: c.now, tz: c.tz });
+  const dup = duplication({ team: DEMO_TEAM, activities: rows, dayKey: c.dayKey, tz: c.tz });
+  const ids = DEMO_TEAM.map((a) => a.id);
+  const broke = whereItBroke(rows, { tf: '1M', key: c.dayKey.slice(0, 7), tz: c.tz, agentIds: ids });
+  const name = (id) => DEMO_TEAM.find((a) => a.id === id)?.name ?? '';
+  return {
+    ...s, invites: [],
+    duplication: { producingAgents: dup.producingAgents, licensedAgents: DEMO_TEAM.length, daysToFirstSale: dup.daysToFirstSale },
+    monthBroke: broke.down && broke.agent ? { name: name(broke.agent.agent_id), current: broke.trail[0].current, previous: broke.trail[0].previous, perDay: broke.agent.perDayInWeakBucket, usualPerDay: broke.agent.usualPerDay } : null,
+  };
+}
+/** The leader's ranked team for this mode, or null (not a leader, or still loading). */
+function teamView(c) {
+  if (c.demo) return (demoTeam ??= buildDemoTeam(c));
+  if (sync.account.role !== 'leader') return null;
+  if (!teamState.error && Date.now() - teamState.at > 60_000) refreshTeam();
+  return sync.teamNow();
+}
+function refreshTeam(force = false) {
+  if (teamState.loading) return;
+  teamState.loading = true;
+  sync.loadTeam(localTz, { force }).then(
+    () => { teamState.loading = false; teamState.error = ''; teamState.at = Date.now(); renderAll(); },
+    (e) => { teamState.loading = false; teamState.error = e.message || 'Couldn’t load your team.'; teamState.at = Date.now(); renderAll(); });
+}
+
+const LEVEL = { urgent: ['red', 'NEEDS YOU'], watch: ['amber', 'WATCH'], ok: ['green', 'ON TRACK'] };
+function personCard(p, real) {
+  const [color, word] = LEVEL[p.level];
+  const confirming = ui.open === `remove-${p.id}`;
+  const sr = p.facts?.showRate;
+  return h('div', { class: 'card person' },
+    h('div', { class: 'row' }, h('b', {}, p.name), h('span', { class: `pill ${color}` }, word)),
+    h('div', { class: 'muted' }, [p.stageName, p.stage === 'licensing' ? null : `${p.applications} applications, ${p.placed} approved, ${p.lapsed} lapsed`, sr === null || sr === undefined ? null : `show rate ${pct(sr)}`].filter(Boolean).join(' · ')),
+    h('div', {}, h('b', {}, `${p.reason}. `), p.action),
+    real ? h('div', { class: 'row' }, h('span', { class: 'muted' }, p.joinedOn ? `On your team since ${dayShort(p.joinedOn)}` : ''),
+      h('button', { type: 'button', class: confirming ? 'mini danger' : 'link', onclick: () => {
+        if (!confirming) { ui.open = `remove-${p.id}`; renderTeam(); return; }
+        ui.open = null;
+        sync.removeFromTeam(p.id).then(() => { toast(`${p.name} is off your team. Their log was deleted.`); refreshTeam(true); }, (e) => toast(e.message, null, true));
+      } }, confirming ? `Tap again: remove ${p.name} and their log` : 'Take off team')) : null);
+}
+
+function inviteCard(t) {
+  const input = h('input', { id: 'invite-email', class: 'text-in', type: 'email', placeholder: 'Their email', 'aria-label': 'Their email', autocomplete: 'off' });
+  const go = () => {
+    const email = input.value.trim(); if (!email) return;
+    sync.invite(email).then((d) => { ui.invite = { email, link: d.link }; renderTeam(); }, (e) => toast(e.message, null, true));
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  const out = ui.invite;
+  const text = out && `Join my team on Agent Reels. Open this link and make your login with ${out.email}: ${out.link}`;
+  return h('div', { class: 'card' },
+    h('b', {}, 'Add an agent or recruit'),
+    h('p', { class: 'muted' }, 'Type their email and get a link. Text it to them. They make a login with that email and land on your team. The link works once.'),
+    h('div', { class: 'inline' }, input, h('button', { type: 'button', class: 'mini', onclick: go }, 'Get link')),
+    out ? h('div', { class: 'stepper' },
+      h('label', {}, `Link for ${out.email}`),
+      h('input', { class: 'text-in', readonly: true, value: out.link, onfocus: (e) => e.target.select() }),
+      h('div', { class: 'inline' },
+        h('button', { type: 'button', class: 'go', onclick: () => {
+          try { navigator.clipboard.writeText(text).then(() => toast('Copied. Paste it in a text to them.'), () => toast('Copying is blocked here. Press and hold the link to copy it.', null, true)); } catch (e) { toast('Press and hold the link to copy it.', null, true); }
+        } }, 'Copy message'),
+        h('a', { class: 'mini', href: `sms:?&body=${encodeURIComponent(text)}` }, 'Open Messages'))) : null,
+    t?.invites?.length ? h('div', {},
+      h('div', { class: 'muted' }, 'Haven’t joined yet'),
+      t.invites.map((i) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, i.email), h('span', { class: 'muted' }, `Sent ${dayShort(i.at.slice(0, 10))}`)),
+        h('button', { type: 'button', class: 'link', onclick: () => sync.revokeInvite(i.email).then(() => { if (ui.invite?.email === i.email) ui.invite = null; toast('Invite taken back. That link no longer works.'); renderTeam(); }, (e) => toast(e.message, null, true)) }, 'Take back')))) : null);
+}
+
+function drawTeam(screen, top, t, { real = false } = {}) {
+  const dup = t.duplication;
+  const mb = t.monthBroke;
+  fill(screen, top,
+    t.top ? focusCard('NEEDS YOU FIRST', t.top.action, `${t.top.name}: ${t.top.reason}`)
+      : focusCard('NEEDS YOU FIRST', 'Nobody needs you right now', 'Everyone has logged recently. Keep your own calls going.'),
+    h('p', { class: 'muted' }, `${t.counts.urgent} need you now · ${t.counts.watch} to watch · ${t.counts.ok} on track`),
+    t.people.map((p) => personCard(p, real)),
+    mb ? focusCard('WHERE THIS MONTH BROKE', `Check in with ${mb.name || 'this agent'}`,
+      `Premium written ${usd(mb.current)} this month vs ${usd(mb.previous)} last month. In the weakest week, ${mb.name} made ${mb.perDay} calls a day against a usual ${mb.usualPerDay}.`) : null,
+    dup && dup.licensedAgents ? h('div', { class: 'card' }, h('b', {}, 'Is the team duplicating?'),
+      h('div', { class: 'stats' },
+        h('div', { class: 'stat' }, h('b', {}, `${dup.producingAgents}/${dup.licensedAgents}`), h('span', {}, 'licensed agents with a sale in 30 days')),
+        h('div', { class: 'stat' }, h('b', {}, dup.daysToFirstSale ?? '—'), h('span', {}, dup.daysToFirstSale === null ? 'days to first sale · needs a first sale' : 'median days to first sale')))) : null,
+    real ? inviteCard(t) : null);
+}
+
 function renderTeam() {
   const c = ctx();
-  const L = place(c);
   const screen = $('screen-team');
   const top = head('WHO NEEDS YOU TODAY', 'Team');
-  if (!isUnlocked(L.stage, 'Team')) { fill(screen, top, h('div', { class: 'card locked' }, h('b', {}, 'Team opens at Coach'), h('p', { class: 'muted' }, `You’re at ${L.name}. ${L.nextAction}`))); return; }
-  if (!c.team.length) {
-    fill(screen, top, h('div', { class: 'card locked' }, h('b', {}, 'No agents connected yet'),
-      h('p', { class: 'muted' }, 'Your agents show up here once they log in on their own phones. That needs the shared database, the next build step. Switch to Demo to see a full team.')));
+  if (c.demo) { drawTeam(screen, top, teamView(c)); return; }
+  if (sync.account.role === 'leader') {
+    const t = teamView(c);
+    if (!t) {
+      fill(screen, top, teamState.error
+        ? h('div', { class: 'card' }, h('b', {}, 'Your team didn’t load'), h('p', { class: 'err' }, teamState.error), h('button', { type: 'button', class: 'go', onclick: () => { teamState.error = ''; refreshTeam(true); renderTeam(); } }, 'Try again'))
+        : h('p', { class: 'muted' }, 'Loading your team…'));
+      return;
+    }
+    if (!t.people.length) {
+      fill(screen, top, h('div', { class: 'card focus' }, h('div', { class: 'kicker' }, 'START HERE'), h('div', { class: 'big' }, 'Nobody is on your team yet'),
+        h('div', { class: 'muted' }, 'Invite your agents and recruits below. Once they log on their own phones, this screen ranks who needs you first.')), inviteCard(t));
+      return;
+    }
+    drawTeam(screen, top, t, { real: true });
     return;
   }
-  const plan = planNow();
-  const red = plan ? redList({ team: c.team, dayKey: c.dayKey, tz: c.tz, plan, activities: c.activities }) : null;
-  const dup = duplication({ team: c.team, recruits: c.recruits, activities: c.activities, dayKey: c.dayKey, tz: c.tz });
-  const ids = [c.me, ...c.team.map((a) => a.id)];
-  const names = Object.fromEntries([[c.me, c.myName], ...c.team.map((a) => [a.id, a.name])]);
-  const broke = whereItBroke(c.activities, { tf: '1M', key: c.dayKey.slice(0, 7), tz: c.tz, agentIds: ids });
-  const teamQ = quality({ activities: c.qualityActs, agentIds: c.team.map((a) => a.id), dayKey: c.dayKey });
-  const members = c.team.map((a) => {
-    const p = placeOnLadder({ person: a, activities: c.activities, dayKey: c.dayKey, tz: c.tz });
-    const r = red?.find((x) => x.id === a.id);
-    const q = quality({ activities: c.qualityActs, agentIds: [a.id], dayKey: c.dayKey });
-    const status = !red ? h('span', { class: 'pill grey' }, 'NEEDS TARGETS') : r ? h('span', { class: 'pill red' }, `BEHIND · ${r.appts}/${r.pace} MEETINGS`) : h('span', { class: 'pill green' }, 'ON PACE');
-    const sr = showRate({ activities: c.activities, agentIds: [a.id], dayKey: c.dayKey });
-    return { a, p, r, q, sr, status };
-  }).sort((x, y) => Number(!!y.r) - Number(!!x.r));
-  fill(screen, top,
-    broke.down && broke.agent ? focusCard('WHERE THIS MONTH BROKE', `Check in with ${names[broke.agent.agent_id] ?? 'this agent'} first`,
-      `Premium written ${usd(broke.trail[0].current)} this month vs ${usd(broke.trail[0].previous)} last month. In the weakest week, ${names[broke.agent.agent_id]} made ${broke.agent.perDayInWeakBucket} calls a day against a usual ${broke.agent.usualPerDay}.`) : null,
-    h('div', { class: 'card' }, h('b', {}, 'Is the team duplicating?'),
-      h('div', { class: 'stats' },
-        h('div', { class: 'stat' }, h('b', {}, `${dup.producingAgents}/${c.team.length}`), h('span', {}, 'agents with a sale in 30 days')),
-        h('div', { class: 'stat' }, h('b', {}, dup.daysToFirstSale ?? '—'), h('span', {}, 'median days to first sale')),
-        h('div', { class: 'stat' }, h('b', {}, pct(teamQ.placeRate)), h('span', {}, 'of their applications approved')))),
-    members.map(({ a, p, q, sr, status }) => h('div', { class: 'card' },
-      h('div', { class: 'row' }, h('b', {}, a.name), status),
-      h('div', { class: 'muted' }, `${p.name} · ${q.placed} approved, ${q.lapsed} lapsed · show rate ${pct(sr.rate)}`),
-      h('div', {}, p.nextAction))));
+  const L = place(c);
+  if (!isUnlocked(L.stage, 'Team')) { fill(screen, top, h('div', { class: 'card locked' }, h('b', {}, 'Team opens at Coach'), h('p', { class: 'muted' }, `You’re at ${L.name}. ${L.nextAction}`))); return; }
+  fill(screen, top, h('div', { class: 'card locked' }, h('b', {}, 'No agents connected yet'),
+    h('p', { class: 'muted' }, sync.account.site
+      ? 'Sign in under the gear (top right). Then you can invite your agents, and their logs show up here.'
+      : 'Your agents show up here once you use Agent Reels on your team’s site and invite them. Switch to Demo to see a full team.')));
 }
 
 // ── Settings: your data (under the gear, with Setup) ────────────────
 function renderDataCard() {
   let card = $('data-card');
   if (!card) { card = h('section', { id: 'data-card', class: 'card' }); $('screen-setup').prepend(card); }
+  const a = sync.account;
+  $('leader-setup').hidden = a.on && a.role === 'agent';   // agents don't set up a leader's system
   if (state.mode === 'demo') { card.hidden = true; return; }
   card.hidden = false;
+  const licenseRow = h('div', { class: 'row' }, h('span', { class: 'muted' }, `License: ${mine.profile.licensed === false ? 'not yet' : mine.profile.licensed ? 'yes' : 'not answered'}`),
+    h('button', { type: 'button', class: 'link', onclick: () => act(ctx(), 'License answer cleared. Answer it again on Today.', () => { mine.profile.licensed = null; }) }, 'Change'));
+  if (a.on) {
+    const n = sync.pending();
+    const saving = { saved: n ? 'Saving…' : 'Everything is saved to your account.', saving: 'Saving…', offline: `No signal: ${n} change${n === 1 ? '' : 's'} waiting on this phone.`, error: a.error }[a.status] || '';
+    fill(card,
+      h('div', { class: 'kicker' }, 'YOUR ACCOUNT'),
+      h('b', {}, a.me?.name || a.me?.email || 'Signed in'),
+      h('p', { class: 'muted' }, a.role === 'leader' ? `You lead ${a.team?.name}. Invite your people on Team.` : `On ${a.team?.leaderName}’s team. ${a.team?.leaderName} sees your calls, meetings and sales, never your clients’ names.`),
+      h('p', { class: a.status === 'error' ? 'err' : 'muted' }, `${mine.activities.length} log entries · ${mine.leads.length} people. ${saving}`),
+      licenseRow,
+      h('button', { type: 'button', class: 'mini quiet', onclick: () => sync.logout() }, 'Log out'));
+    return;
+  }
+  const signIn = a.site ? h('div', { class: 'stepper' },
+    h('div', { class: 'kicker' }, 'SIGN IN'),
+    h('p', { class: 'muted' }, 'Sign in to save your log to your team instead of only this phone. New agent? Open the invite link your leader sent you.'),
+    h('input', { id: 'si-email', class: 'text-in', type: 'email', placeholder: 'Email', 'aria-label': 'Email', autocomplete: 'username' }),
+    h('input', { id: 'si-pass', class: 'text-in', type: 'password', placeholder: 'Password', 'aria-label': 'Password', autocomplete: 'current-password',
+      onkeydown: (e) => { if (e.key === 'Enter') $('si-go').click(); } }),
+    h('button', { id: 'si-go', type: 'button', class: 'go', onclick: () => {
+      const email = $('si-email').value.trim(), pass = $('si-pass').value;
+      if (!email || !pass) { toast('Enter your email and password.', null, true); return; }
+      sync.login(email, pass).catch((e) => toast(e.message, null, true));
+    } }, 'Sign in'),
+    h('hr')) : null;
   const age = backupAge(mine);
   const confirmOpen = ui.open === 'restore';
   fill(card,
+    signIn,
     h('div', { class: 'kicker' }, 'YOUR LOG'),
     h('b', {}, `${mine.activities.length} entries · ${mine.leads.length} people`),
     h('p', { class: 'muted' }, storageOk
@@ -684,8 +853,7 @@ function renderDataCard() {
             if (!r.ok) { toast(r.error, null, true); return; }
             ui.open = 'restore'; ui.pending = r; renderDataCard(); toast(`Found ${r.summary}.`);
           } }, 'Check backup')),
-    h('div', { class: 'row' }, h('span', { class: 'muted' }, `License: ${mine.profile.licensed === false ? 'not yet' : mine.profile.licensed ? 'yes' : 'not answered'}`),
-      h('button', { type: 'button', class: 'link', onclick: () => act(ctx(), 'License answer cleared. Answer it again on Today.', () => { mine.profile.licensed = null; }) }, 'Change')));
+    licenseRow);
 }
 
 function markBackedUp() { mine.lastBackupAt = new Date().toISOString(); saveMine(); renderDataCard(); }
@@ -715,9 +883,13 @@ const RENDER = { today: renderToday, pipeline: renderPipeline, ladder: renderLad
 function currentTab() { const t = (location.hash || '').slice(1); return TABS.includes(t) ? t : 'today'; }
 
 function renderAll() {
+  if (!booted) return;
   const c = ctx();
   const L = c.profile.licensed === null ? null : place(c);
-  const teamOpen = !!L && isUnlocked(L.stage, 'Team');
+  const a = sync.account;
+  const teamOpen = c.demo ? !!L && isUnlocked(L.stage, 'Team') : a.on ? a.role === 'leader' : !!L && isUnlocked(L.stage, 'Team');
+  $('mode-demo').closest('.mode').hidden = a.on && a.role === 'agent';
+  drawAccountNote();
   let tab = currentTab();
   if (tab === 'team' && !teamOpen) tab = 'today';
   for (const t of TABS) $(`screen-${t}`).hidden = t !== tab;
@@ -741,4 +913,25 @@ $('mode-demo').addEventListener('click', () => switchMode('demo'));
 onMode(renderAll);
 onSystem(() => { if (currentTab() !== 'setup') renderAll(); });
 addEventListener('hashchange', () => { ui.open = null; renderAll(); scrollTo(0, 0); });
-renderAll();
+
+// Start: signed in on the team's site, the log comes from the account; otherwise it stays on this phone.
+const localMine = mine;
+(async () => {
+  try {
+    const doc = await sync.start({
+      local: localMine,
+      onChange: (kind) => {
+        if (kind === 'replaced') { mine = sync.current(); toast('This phone now has your latest log from your account.'); renderAll(); return; }
+        drawAccountNote();
+        if (currentTab() === 'setup') renderDataCard();
+      },
+    });
+    if (doc) {
+      mine = doc;
+      if (sync.account.role === 'agent' && state.mode === 'demo') setMode('mine');
+      if (sync.account.role === 'leader') refreshTeam();
+    }
+  } catch (e) { /* off the site: the log stays on this phone */ }
+  booted = true;
+  renderAll();
+})();

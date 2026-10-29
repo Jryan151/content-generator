@@ -42,7 +42,7 @@ const plan = planDown({ yearlyPremium: 96_000 });
 test('an ordinary Wednesday is just the blocks of the day, in time order', () => {
   const list = todoFor('2026-10-28', { role: 'agent', plan });
   assert.deepEqual(list.map((t) => t.at), ['09:00', '13:00', '14:00', '16:45']);
-  assert.equal(list.find((t) => t.id === 'a-dials').title, 'Dial block: 22 dials from the call list');
+  assert.equal(list.find((t) => t.id === 'a-dials').title, 'Dial block: 22 calls from your list');
 });
 
 test('content is optional: it shows up only when turned on, after the dial block', () => {

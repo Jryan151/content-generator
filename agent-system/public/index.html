@@ -154,6 +154,7 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
 .pill { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .pill.green { background: var(--accent-soft); color: var(--accent-ink); }
 .pill.red { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+.pill.amber { background: color-mix(in srgb, var(--warnish) 16%, var(--surface)); color: var(--warnish); }
 .pill.grey { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .blocks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .blocks li { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); }
@@ -178,6 +179,9 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
 .item .who { min-width: 0; }
 .item .who b { font-weight: 600; }
 .mini { font: inherit; font-size: 13.5px; font-weight: 600; min-height: 40px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--accent); background: transparent; color: var(--accent-ink); cursor: pointer; white-space: nowrap; }
+.mini.danger { border-color: var(--warn); color: var(--warn); }
+.card.link-card { text-decoration: none; color: var(--ink); display: block; }
+.person .row { gap: 8px; }
 .mini.quiet { border-color: var(--line); color: var(--muted); }
 .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .inline { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -216,6 +220,7 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
     </div>
   </div>
   <p class="demo-note" id="demo-note" hidden></p>
+  <div id="acct-note"></div>
 
   <section class="screen" id="screen-today" aria-label="Today" hidden></section>
   <section class="screen" id="screen-pipeline" aria-label="Pipeline" hidden></section>
@@ -223,6 +228,7 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
   <section class="screen" id="screen-team" aria-label="Team" hidden></section>
 
   <div class="screen" id="screen-setup">
+  <div id="leader-setup">
   <header>
     <div class="eyebrow">LEADER SETUP · UNDER A MINUTE</div>
     <h1>Three answers. The system does the rest.</h1>
@@ -271,6 +277,7 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
     <p class="status" id="status"></p>
     <pre id="out" hidden></pre>
   </section>
+  </div>
   </div>
 </div>
 </main>

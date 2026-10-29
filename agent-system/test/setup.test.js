@@ -29,7 +29,7 @@ test('nothing filled in still runs, shows no numbers, and says who it is waiting
   assert.match(s.waitingOn.learning.at(0), /0 so far/);
   const list = todoFor('2026-10-28', { role: 'builder', path: s.path, plan: s.plan, times: s.times });
   assert.ok(list.length > 0, 'the routine still runs');
-  assert.equal(list.find((t) => t.id === 'c-dials').title, 'Your dial block: dials', 'no number is shown, and none is made up');
+  assert.equal(list.find((t) => t.id === 'c-dials').title, 'Your dial block: calls from your list', 'no number is shown, and none is made up');
   assert.ok(list.every((t) => !/\{|\}/.test(t.title)));
 });
 
