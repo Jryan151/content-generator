@@ -22,6 +22,9 @@ export const ACTIVITY_TYPES = Object.freeze([
   'names_conversation',  // producer talked with someone on their names list
   'recruit_step',        // a recruiting next step done that isn't a stage move (e.g. licensing check-in)
   'recruit_first_sale',  // a recruit made their first sale
+  'study_session',       // studied for the licensing exam; value = minutes
+  'practice_test',       // took a practice licensing exam; value = score (0-100)
+  'license_passed',      // passed the state licensing exam
 ]);
 
 /** Every recruiting action a builder takes. Counts toward the daily recruiting step. */
@@ -54,6 +57,10 @@ export const METRICS = Object.freeze({
   firstSales:     { label: 'Recruits to a first sale', type: 'recruit_first_sale', kind: 'count', level: 'outcome' },
   namesConversations: { label: 'Names-list conversations', type: 'names_conversation', kind: 'count', level: 'input' },
   recruitSteps:   { label: 'Recruiting steps',  types: RECRUIT_STEP_TYPES, kind: 'count', level: 'input' },
+  studySessions:  { label: 'Study sessions',    type: 'study_session',  kind: 'count', level: 'input' },
+  studyMinutes:   { label: 'Minutes studied',   type: 'study_session',  kind: 'sum',   level: 'input' },
+  practiceTests:  { label: 'Practice tests',    type: 'practice_test',  kind: 'count', level: 'input' },
+  licensesPassed: { label: 'Exam passed',       type: 'license_passed', kind: 'count', level: 'outcome' },
 });
 
 const matches = (m, type) => (m.types ? m.types.includes(type) : m.type === type);

@@ -20,9 +20,11 @@ export const DEMO_PLAYBOOK_READY = true;
  * so quality() can follow each policy by its lead.
  */
 export const DEMO_LEADS = Object.freeze([
-  { id: 'demo-lead-1', agent_id: LEADER, name: 'R. Alvarez', stage: 'contacted', premium: null },
-  { id: 'demo-lead-2', agent_id: LEADER, name: 'K. Brooks', stage: 'contacted', premium: null },
-  { id: 'demo-lead-3', agent_id: LEADER, name: 'D. Nguyen', stage: 'appointment', premium: null },
+  { id: 'demo-lead-1', agent_id: LEADER, name: 'R. Alvarez', stage: 'contacted', premium: null, nextOn: '2026-10-29' },
+  { id: 'demo-lead-2', agent_id: LEADER, name: 'K. Brooks', stage: 'contacted', premium: null, nextOn: '2026-10-30' },
+  { id: 'demo-lead-3', agent_id: LEADER, name: 'D. Nguyen', stage: 'appointment', premium: null, meetingOn: '2026-10-30' },
+  { id: 'demo-lead-15', agent_id: LEADER, name: 'F. Ortiz', stage: 'new', premium: null },
+  { id: 'demo-lead-16', agent_id: LEADER, name: 'H. Kim', stage: 'new', premium: null },
   { id: 'demo-lead-4', agent_id: LEADER, name: 'S. Patel', stage: 'application', premium: 640 },
   { id: 'demo-lead-5', agent_id: LEADER, name: 'T. Okafor', stage: 'application', premium: 710 },
   { id: 'demo-lead-6', agent_id: LEADER, name: 'J. Romero', stage: 'issued', premium: 680, issuedOn: '2026-10-09' },

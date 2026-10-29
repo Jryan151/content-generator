@@ -23,13 +23,19 @@ const pad = (n) => String(n).padStart(2, '0');
 const isoDay = (cal) => `${cal.getUTCFullYear()}-${pad(cal.getUTCMonth() + 1)}-${pad(cal.getUTCDate())}`;
 const cal = (y, m, d) => new Date(Date.UTC(y, m - 1, d));
 
+// Building a formatter is the slow part, so keep one per time zone.
+const FORMATTERS = new Map();
+function formatterFor(tz) {
+  let f = FORMATTERS.get(tz);
+  if (!f) { f = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); FORMATTERS.set(tz, f); }
+  return f;
+}
+
 /** A real timestamp → the local calendar date it falls on in `tz`. */
 export function toCalendarDate(when, tz = DEFAULT_TZ) {
   const date = when instanceof Date ? when : new Date(when);
   if (Number.isNaN(date.getTime())) throw new Error(`Bad timestamp: ${when}`);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(date);
+  const parts = formatterFor(tz).formatToParts(date);
   const get = (t) => Number(parts.find((p) => p.type === t).value);
   return cal(get('year'), get('month'), get('day'));
 }
@@ -138,8 +144,14 @@ function inBucket(activity, key, tf, tz) {
  *  (an outer bucket {key, tf} to clip to — used when a week straddles a month). */
 export function totalsFor(activities, { tf, key, tz = DEFAULT_TZ, agentIds = null, within = null }) {
   const totals = emptyTotals();
+  // No time zone is more than 14 hours from UTC, so a row more than 15 hours
+  // outside the bucket can't be in it: skip it before the slower local-date check.
+  const { start, end } = rangeOf(key, tf);
+  const lo = start.getTime() - 15 * 3_600_000, hi = end.getTime() + 15 * 3_600_000;
   for (const a of activities) {
     if (agentIds && !agentIds.includes(a.agent_id)) continue;
+    const t = Date.parse(a.occurred_at);
+    if (t < lo || t >= hi) continue;
     if (!inBucket(a, key, tf, tz)) continue;
     if (within && !inBucket(a, within.key, within.tf, tz)) continue;
     addActivity(totals, a);

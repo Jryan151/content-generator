@@ -4,7 +4,7 @@ import { CORE_VALUES, SCREENS, PARKED } from '../src/core.js';
 
 // "module.export" → the real export, so the core can never point at code that doesn't exist.
 const MODULES = {
-  career: '../src/career.js', ladder: '../src/ladder.js', metrics: '../src/metrics.js',
+  calls: '../src/calls.js', store: '../src/store.js', career: '../src/career.js', ladder: '../src/ladder.js', metrics: '../src/metrics.js',
   paths: '../src/paths.js', pipeline: '../src/pipeline.js', quality: '../src/quality.js', routines: '../src/routines.js',
   setup: '../src/setup.js', timeframes: '../src/timeframes.js',
 };

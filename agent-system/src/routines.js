@@ -92,6 +92,10 @@ export function ratesFrom(activities, { agentIds = null, minEach = 10, strict = 
  * `{n.xxx}` in a title is filled from the plan (planDown().daily/weekly/monthly).
  */
 export const ROUTINES = Object.freeze([
+  // ── Getting licensed (no license yet): study every workday, test, then book the exam ──
+  { id: 't-study',    role: 'trainee', tf: 'block', at: '09:00', minutes: 60, part: 'Today', when: { daily: true }, title: 'Study block: one video lesson, then practice questions on it', doneWhen: 'studySessions' },
+  { id: 't-practice', role: 'trainee', tf: 'block', at: '16:00', minutes: 30, part: 'Today', when: { daily: true }, title: 'Practice test: take one and log your score', doneWhen: 'practiceTests' },
+  { id: 't-week',     role: 'trainee', tf: '1W', at: '08:45', minutes: 15, part: 'Today', when: { weekday: 1 }, title: 'Plan the week: pick the chapters to cover; book the exam once your practice scores are steady' },
   // ── Agent: blocks of the day (micro) ──
   { id: 'a-dials',     role: 'agent', tf: 'block', at: '09:00', minutes: 120, part: 'Today',    when: { daily: true }, title: 'Dial block: {daily.dials} dials from the call list', doneWhen: 'dials' },
   { id: 'a-followups', role: 'agent', tf: 'block', at: '13:00', minutes: 30,  part: 'Pipeline', when: { daily: true }, title: 'Clear follow-ups due and send appointment reminders', doneWhen: 'followups' },
@@ -192,7 +196,7 @@ const addMinutes = (hhmm, m) => {
 export function productionRed({ role = 'builder', path, plan, dialsDone, now, times = {}, redBelow = RED_BELOW }) {
   const goal = plan?.daily?.dials;
   if (!goal) return false;
-  const block = ROUTINES.find((r) => r.role === role && r.doneWhen === 'dials' && (role === 'agent' || r.path === path));
+  const block = ROUTINES.find((r) => r.role === role && r.doneWhen === 'dials' && (role !== 'builder' || r.path === path));
   if (!block) return false;
   const ends = addMinutes(times[block.id] ?? block.at, block.minutes);
   return now >= ends && dialsDone < goal * redBelow;
@@ -223,7 +227,7 @@ function fill(title, plan) {
  * production comes first.
  */
 export function todoFor(dayKey, { role, path = null, plan, activities = null, agentId = null, tz, times = {}, starting = false, content = false, now = null } = {}) {
-  if (!['agent', 'builder'].includes(role)) throw new Error(`Unknown role: ${role}`);
+  if (!['trainee', 'agent', 'builder'].includes(role)) throw new Error(`Unknown role: ${role}`);
   if (role === 'builder' && !['producer', 'coach', 'director'].includes(path)) {
     throw new Error('A leader needs a path: producer or coach');
   }
@@ -231,7 +235,7 @@ export function todoFor(dayKey, { role, path = null, plan, activities = null, ag
   const done = activities && agentId ? totalsFor(activities, { tf: '1D', key: dayKey, tz, agentIds: [agentId] }) : null;
   const holdRecruiting = now && done ? productionRed({ role, path, plan, dialsDone: done.dials, now, times }) : false;
   return ROUTINES
-    .filter((r) => r.role === role && (role === 'agent' || r.path === path) && (!r.startingOnly || starting) && isDue(r.when, c))
+    .filter((r) => r.role === role && (role !== 'builder' || r.path === path) && (!r.startingOnly || starting) && isDue(r.when, c))
     .filter((r) => (!r.content || content) && !(r.recruiting && holdRecruiting))
     .map((r) => ({ ...r, at: times[r.id] ?? r.at }))
     .sort((x, y) => x.at.localeCompare(y.at) || TF_ORDER[x.tf] - TF_ORDER[y.tf])

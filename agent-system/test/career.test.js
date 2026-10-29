@@ -11,9 +11,9 @@ const salesIn = (n, who = ME, list = MONDAYS) => list.slice(0, n).map((d) => ({ 
 const plan = planDown({ yearlyPremium: 96_000 });
 
 test('one ladder, and every stage says why', () => {
-  assert.deepEqual(STAGES.map((s) => s.id), ['starting', 'selling', 'producer', 'coach', 'director', 'upline']);
+  assert.deepEqual(STAGES.map((s) => s.id), ['licensing', 'starting', 'selling', 'producer', 'coach', 'director', 'upline']);
   assert.ok(STAGES.every((s) => s.why.length > 20));
-  assert.equal(STAGES[2].focus, 'Make your selling copyable.');
+  assert.equal(STAGES[3].focus, 'Make your selling copyable.');
 });
 
 test('no sale yet → Starting, with a daily training block', () => {

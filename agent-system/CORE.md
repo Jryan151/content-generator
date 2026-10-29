@@ -18,6 +18,7 @@ The stage is computed from activity, never chosen.
 
 | Stage | Focus | Gets you to the next stage |
 | --- | --- | --- |
+| Licensing (only if you start unlicensed) | Pass your licensing exam | Exam passed |
 | Starting | Get your first sale | First application |
 | Selling | Sell every week | Sales in most recent weeks |
 | Producer | Make your selling copyable; start a names list | Steady weekly sales + Playbook in your own words |
@@ -34,10 +35,17 @@ All five are built in `public/` (`index.html`, `app.js`, `setup.js`) and run on 
 | Screen | Who | What it does | Reads |
 | --- | --- | --- | --- |
 | Setup | Leader, once | Three answers: agents selling now, start of day, what she wants to earn | `buildSystem` |
-| Today | Every agent | Next actions in order: production block first, one recruiting step only when production is on track; one tap logs each | `todoFor`, `productionRed`, `routineFor` |
+| Today | Every agent | One chain: who to call next → one tap for what happened → the next step set for you. Meetings due come first. Before licensing, a study day | `queueFor`, `logCall`, `logMeeting`, `todoFor`, `productionRed` |
 | Pipeline | Every agent | Clients: contacted → appointment → submitted → placed. Recruits: name → interviewed → studying → licensed → first sale | lead stages, `RECRUIT_STAGES`, `isUnlocked` |
 | Ladder | Every agent | Current stage, why, and the one gate to the next | `placeOnLadder` |
 | Team | Leader | Each recruit's stage, production on track or not, how much of their business sticks, who needs help today | `placeOnLadder`, `redList`, `duplication`, `quality`, `whereItBroke` |
+
+## How it holds up over months
+
+- **Your log is versioned** (`src/store.js`): an app update upgrades your saved copy instead of losing it.
+- **Backup and restore** live under the gear. Today reminds you when your last backup is a week old.
+- **Speed:** three months of heavy use (about 10,000 entries) still loads in milliseconds; the test suite checks it.
+- **Undo** for 10 seconds after every tap. Calls are logged as one outcome, so there are no counters to mistap.
 
 ## The one data record
 
@@ -53,7 +61,6 @@ Code that exists stays where it is, so nothing needs a rebuild.
 - Playbook screen (scripts attach to Today steps once the leader shares them)
 - Commission tracker (`src/parked/`)
 - Content and the post block
-- Licensing study tracker
 - Rules beyond production first
 - Pricing and billing
 - Real estate expansion
