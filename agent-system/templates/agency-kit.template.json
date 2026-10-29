@@ -7,7 +7,7 @@
     },
     "coachToDirector": {
       "agentsSelling": null,
-      "agentsProducer": null
+      "agentsDeveloped": null
     },
     "directorToUpline": {
       "coachesBuilt": null

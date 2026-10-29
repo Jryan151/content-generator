@@ -57,7 +57,7 @@ export const STAGES = Object.freeze([
     id: 'coach', name: 'Coach',
     focus: 'Get your agents to a first sale, then to steady sales.',
     why: 'Your income starts shifting to the spread on your agents’ sales, which only pays if they sell. One recruit who reaches Selling is worth more than five who quit.',
-    unlocked: ['Everything in Producer', 'Recruiting pipeline', 'Team', 'Red list', 'Noon check'],
+    unlocked: ['Everything in Producer', 'Recruiting pipeline', 'Team'],
     locked: ['Coaches view'],
   },
   {
@@ -156,22 +156,27 @@ export function placeOnLadder({ person, team = [], teamStages = null, activities
   const holding = recent.count >= gates.holdLeader.weeksWithASale;
 
   // Where the people under them are (depth-limited so a bad tree can't loop forever).
-  const under = Array.isArray(teamStages) ? teamStages
+  // Each: { stage, steady (a sale in 3 of the last 6 weeks), developed (reached Producer on this team) }.
+  const under = Array.isArray(teamStages) ? teamStages.map((t) => (typeof t === 'string' ? { stage: t, steady: rank(t) >= rank('producer'), developed: false } : t))
     : depth < 4
-      ? team.map((m) => placeOnLadder({ person: m, team: m.team || [], activities, dayKey, tz, ladder, gates, playbookReady: !!m.playbookReady, depth: depth + 1, topStage }).stage)
+      ? team.map((m) => {
+          const stage = placeOnLadder({ person: m, team: m.team || [], activities, dayKey, tz, ladder, gates, playbookReady: !!m.playbookReady, depth: depth + 1, topStage }).stage;
+          const own = activities.filter((a) => a.agent_id === m.id);
+          return { stage, steady: weeksWithASale(own, { personId: m.id, dayKey, tz, outOf: 6 }).count >= 3, developed: developedHere({ ...m, activities: own }, stage) };
+        })
       : [];
-  const atLeast = (id) => under.filter((st) => rank(st) >= rank(id)).length;
+  const atLeast = (id) => under.filter((u) => rank(u.stage) >= rank(id)).length;
   const metrics = {
     steadyWeeks: weeksWithASale(activities, { personId: person.id, dayKey, tz, outOf: gates.steadyOutOfWeeks }).count,
     playbookReady: playbookReady ? 1 : 0,
-    agentsSelling: atLeast('selling'),
-    agentsProducer: atLeast('producer'),
+    agentsSelling: under.filter((u) => u.steady).length,
+    agentsDeveloped: under.filter((u) => u.developed).length,
     coachesBuilt: atLeast('coach'),
   };
 
   // The steady-weeks gate is proof before building. Once someone under you
   // sells, that proof is established; from then on the hold line applies.
-  if (metrics.agentsSelling >= 1 && holding) metrics.steadyWeeks = Math.max(metrics.steadyWeeks, ladder.at(0).requires.find((q) => q.metric === 'steadyWeeks')?.need ?? 0);
+  if (atLeast('selling') >= 1 && holding) metrics.steadyWeeks = Math.max(metrics.steadyWeeks, ladder.at(0).requires.find((q) => q.metric === 'steadyWeeks')?.need ?? 0);
 
   // Highest leader stage whose gates they've passed.
   let leader = 'producer';
@@ -181,7 +186,7 @@ export function placeOnLadder({ person, team = [], teamStages = null, activities
   }
   // Someone you brought in is selling: you're coaching, whatever else is unfinished.
   // (A leader with a real team was placed at Producer just for an unwritten Playbook.)
-  if (metrics.agentsSelling >= 1 && holding && rank(leader) < rank('coach')) leader = 'coach';
+  if (atLeast('selling') >= 1 && holding && rank(leader) < rank('coach')) leader = 'coach';
   const capped = rank(leader) > rank(topStage);
   if (capped) leader = topStage;
   const isLeader = rank(leader) >= rank('coach');
@@ -209,6 +214,25 @@ export function placeOnLadder({ person, team = [], teamStages = null, activities
 }
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const DAY_MS = 86_400_000;
+/**
+ * Did this person reach Producer on your team? Producer now, and they started from nothing
+ * here: they passed their licensing exam on the app, or went their first 30 days on it without
+ * a sale. Someone who arrived already selling was developed somewhere else, and a good month
+ * from a steady seller isn't "development". `m` is { id, startedOn?, activities (theirs) }.
+ */
+export function developedHere(m, stageNow) {
+  if (stageNow !== 'producer') return false;
+  const rows = m.activities || [];
+  if (!rows.length) return false;
+  if (rows.some((a) => a.type === 'license_passed')) return true;
+  const first = rows.reduce((mn, a) => (a.occurred_at < mn ? a.occurred_at : mn), rows[0].occurred_at);
+  // When they joined, or their first entry if later: the app can only judge what it has seen.
+  const joined = m.startedOn && m.startedOn > first.slice(0, 10) ? rangeOf(m.startedOn, '1D').start.toISOString() : first;
+  const firstSale = rows.filter((a) => a.type === 'app_written').reduce((mn, a) => (!mn || a.occurred_at < mn ? a.occurred_at : mn), null);
+  return !!firstSale && Date.parse(firstSale) - Date.parse(joined) > 30 * DAY_MS;
+}
 
 /** Which routine a stage runs (feeds todoFor). Starting gets a daily training block. */
 export function routineFor(stageId) {

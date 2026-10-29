@@ -58,7 +58,7 @@ test('a start preset moves her whole day together', () => {
   const late = buildSystem({ leader: { ...emptyLeaderSetup(), start: 'late' } });
   assert.equal(early.times['a-dials'], '08:00');
   assert.equal(late.times['a-dials'], '10:00');
-  assert.equal(late.times['c-noon'], '13:00');
+  assert.equal(late.times['c-coach'], '16:00');
   const list = todoFor('2026-10-28', { role: 'agent', plan: early.plan, times: early.times });
   assert.equal(early.plan, null);
   assert.equal(list.at(0).at, '08:00');
@@ -92,7 +92,7 @@ test('the agency kit (filled by you) supplies playbook, training and promotion r
   assert.equal(s.playbook.every((p) => !p.isStarter), true);
   assert.match(s.training.at(0).tasks.at(0), /Opening the call/);
   assert.equal(s.playbookReady, true);
-  const p = levelProgress({ path: 'coach', metrics: { agentsSelling: 3, agentsProducer: 1 }, ladder: s.ladder });
+  const p = levelProgress({ path: 'coach', metrics: { agentsSelling: 3, agentsDeveloped: 1 }, ladder: s.ladder });
   assert.equal(p.ready, false, 'kit says 4 agents selling, not the starter 3');
 });
 

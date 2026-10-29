@@ -33,7 +33,7 @@ test('every path has a full day, and the days are different', () => {
   assert.ok(ids.producer.includes('p-dials') && ids.coach.includes('c-dials'));
   assert.ok(ids.producer.includes('p-names') && ids.coach.includes('c-recruit'), 'each path has one recruiting step');
   assert.ok(!ids.director.some((id) => id.includes('dials')), 'directors have no dial block');
-  assert.ok(ids.coach.includes('c-noon') && !ids.producer.some((id) => id.includes('noon')));
+  assert.ok(ids.coach.includes('c-coach') && !ids.coach.includes('c-noon'), 'the Team ranking replaced the noon check');
 });
 
 test('a leader without a path is told to pick one', () => {

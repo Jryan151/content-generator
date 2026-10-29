@@ -26,6 +26,8 @@ export const ACTIVITY_TYPES = Object.freeze([
   'practice_test',       // took a practice licensing exam; value = score (0-100)
   'license_passed',      // passed the state licensing exam
   'care_call',           // a welcome, pre-draft or save call on an approved policy (never a sales dial)
+  'exam_booked',         // booked the licensing exam; meta.exam_on = 'YYYY-MM-DD'
+  'checkin',             // a leader checked in with someone on their team; meta.person_id
 ]);
 
 /** Every recruiting action a builder takes. Counts toward the daily recruiting step. */

@@ -30,8 +30,8 @@ test('silence comes first, and needs no targets', () => {
 test('each person gets the action that fits their actual problem', () => {
   const r = Object.fromEntries(whoNeedsYou({ members, dayKey: DAY, now: '15:00', tz: TZ }).map((x) => [x.id, x]));
   assert.match(r.rosa.action, /confirm every meeting the day before/);
-  assert.match(r.ana.reason, /Studying 23 days, no exam yet/);
-  assert.match(r.ana.action, /book the exam date \(last practice score 71\)/);
+  assert.match(r.ana.reason, /Studying 23 days, no exam booked/);
+  assert.match(r.ana.action, /practice scores \(last 71\)\. Agree on an exam date/);
   assert.equal(r.dev.level, 'ok');
   assert.equal(r.jay.level, 'ok');
   assert.notEqual(r.jay.action, r.rosa.action, 'not the same advice for everyone');
@@ -51,7 +51,7 @@ test('a lapse outranks a no-show problem, and pace only counts with real targets
 test('the team summary: one ranking, stages, counts and a top', () => {
   const s = teamSummary({ members, dayKey: DAY, now: '15:00', tz: TZ });
   assert.equal(s.top.id, 'kim');
-  assert.deepEqual(s.counts, { urgent: 1, watch: 2, ok: 2 });
+  assert.deepEqual(s.counts, { urgent: 1, watch: 2, ok: 2, resting: 0 });
   assert.equal(s.people.find((p) => p.id === 'ana').stage, 'licensing');
   assert.equal(s.stages.length, 5);
   assert.match(weeklyLines(s)[0], /5 people on your team: 1 need you now, 2 to watch, 2 on track/);
