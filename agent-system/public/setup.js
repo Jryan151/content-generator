@@ -31,7 +31,7 @@ function li(text) { const el = document.createElement('li'); el.textContent = te
 
 function render() {
   const s = cur();
-  $('result-eyebrow').textContent = state.mode === 'demo' ? `DEMO · ${DEMO.leaderName.toUpperCase()}'S SYSTEM` : 'YOUR SYSTEM';
+  $('result-eyebrow').textContent = state.mode === 'demo' ? `DEMO · ${DEMO.leaderName.toUpperCase()}'S LEADER ROUTINE` : 'YOUR LEADER ROUTINE';
   document.querySelectorAll('[data-k]').forEach((b) => {
     const v = b.dataset.v === 'true' ? true : b.dataset.v === 'false' ? false : b.dataset.v;
     b.setAttribute('aria-pressed', String(s[b.dataset.k] === v));
@@ -40,7 +40,7 @@ function render() {
 
   const sys = systemFor(s);
   if (s.hasAgents === null) { $('rp').textContent = 'Answer question 1'; $('motto').textContent = ''; }
-  else { const p = PATHS[sys.path]; $('rp').textContent = p.name; $('motto').textContent = `${p.motto} ${p.day}`; }
+  else { const p = PATHS[sys.path]; $('rp').textContent = `${p.name} routine`; $('motto').textContent = `${p.motto} ${p.day} Your stage is on the Ladder; once you log activity, it picks your routine.`; }
 
   const after = $('after'); after.replaceChildren();
   if (sys.targetsReady) {

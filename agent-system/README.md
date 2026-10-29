@@ -39,7 +39,7 @@ That's why Pipeline, Today and Team can never disagree: they all read the same l
 | `src/timeframes.js` | Micro-inside-macro math: buckets (1D/1W/1M/1Q/1Y), roll-ups, period-over-period, and `whereItBroke()` — the zoom-in loop |
 | `seed/sample.js` | A sample team and two months of activity where one agent stalls in week 3 |
 | `public/` | **The app**: Today, Pipeline, Ladder, Team and Setup on one page with tabs. Mine / Demo switch at the top |
-| `src/calls.js` | **The call chain**: one outcome per call writes the right rows (dial, conversation, meeting, follow-up) and sets the next date; the queue of who to call |
+| `src/calls.js` | **The call chain**: one outcome per call writes the right rows and sets the next date (applications on the call, call-backs and meetings with times, bad numbers); the kitchen-table check; policy care (welcome call, pre-draft call, missed-payment save with grace countdown); the queue; the day text for the upline |
 | `src/store.js` | **Your log on one device**: versioned so updates never lose it, with backup, restore and a backup reminder |
 | `src/pipeline.js` | **Pipeline moves**: moving a client or recruit writes the same activity rows as the database trigger |
 | `seed/demo-pipeline.js` | Demo clients, recruits and team start dates for the fictional leader |

@@ -34,7 +34,7 @@ create type activity_type as enum (
   'chargeback', 'recruit_added', 'training_task_done',
   'recruit_interviewed', 'recruit_licensed',
   'names_conversation', 'recruit_step', 'recruit_first_sale',
-  'study_session', 'practice_test', 'license_passed'
+  'study_session', 'practice_test', 'license_passed', 'care_call'
 );
 
 -- The builder's pipeline: people on their way to becoming producing agents.
@@ -132,7 +132,7 @@ begin
          when 'contacted'   then 'conversation'
          when 'appointment' then 'appt_set'
          when 'application' then 'app_written'
-         when 'issued'      then 'policy_issued'
+         when 'issued'      then case when old.stage = 'lapse_risk' then null else 'policy_issued'::activity_type end
          else null
        end;
   if t is not null then

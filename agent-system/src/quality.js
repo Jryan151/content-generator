@@ -86,3 +86,23 @@ export function quality({ activities, agentIds = null, dayKey }) {
     needsData,
   };
 }
+
+/**
+ * Show rate: meetings held out of meetings booked over the last `days` days
+ * (ending on dayKey). Booking but not sitting usually means fear, so a low
+ * show rate is an early warning. Null until something was booked.
+ */
+export function showRate({ activities, agentIds = null, dayKey, days = 30 }) {
+  const end = rangeOf(dayKey, '1D').end.getTime();
+  const start = end - days * 86_400_000;
+  let booked = 0, held = 0;
+  for (const a of activities) {
+    if (agentIds && !agentIds.includes(a.agent_id)) continue;
+    const t = Date.parse(a.occurred_at);
+    if (t < start || t >= end) continue;
+    // A meeting that hasn't happened yet can't be a no-show, so it isn't counted until its day has passed.
+    if (a.type === 'appt_set') { if (!(a.meta?.meeting_on >= dayKey)) booked++; }
+    else if (a.type === 'appt_held') held++;
+  }
+  return { booked, held, rate: booked > 0 ? Math.round(Math.min(1, held / booked) * 100) / 100 : null };
+}

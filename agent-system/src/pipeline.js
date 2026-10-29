@@ -41,7 +41,8 @@ export function moveLead(lead, to, { at, premium = null } = {}) {
     next.premium = p;
   }
   const rows = [];
-  const type = ACTIVITY_FOR[to];
+  // A missed payment that gets fixed was already placed: coming back from Payment missed logs nothing new.
+  const type = to === 'issued' && lead.stage === 'lapse_risk' ? null : ACTIVITY_FOR[to];
   if (type) {
     rows.push({
       agent_id: lead.agent_id, lead_id: lead.id, type, occurred_at: at,
