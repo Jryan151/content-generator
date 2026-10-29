@@ -5,7 +5,7 @@ import {
   emptyLeaderSetup, emptyAgencyKit, validateLeaderSetup, validateAgencyKit,
   buildSystem, trainingFromPlaybook, LEARN_AFTER_DAYS, premiumForIncome,
 } from '../src/setup.js';
-import { todoFor } from '../src/routines.js';
+import { todoFor, ratesFrom } from '../src/routines.js';
 import { actionsFor } from '../src/paths.js';
 import { levelProgress } from '../src/ladder.js';
 import { buildActivities, TZ, LEADER, MARCUS, TEAM_IDS } from '../seed/sample.js';
@@ -17,31 +17,39 @@ test('her whole setup is three answers', () => {
   assert.deepEqual(fields, ['hasAgents', 'start', 'yearlyIncome']);
 });
 
-test('nothing filled in still runs, and says who it is waiting on', () => {
+test('nothing filled in still runs, shows no numbers, and says who it is waiting on', () => {
   const s = buildSystem();
   assert.equal(s.path, 'coach');
-  assert.equal(s.ratesSource, 'starter');
+  assert.equal(s.targetsReady, false, 'no data means the baseline: no guessed targets');
+  assert.equal(s.plan, null);
+  assert.equal(s.rates, null);
   assert.equal(s.waitingOn.her.length, 3);
   assert.ok(s.waitingOn.you.includes('Playbook: Opening the call'));
-  assert.ok(!s.waitingOn.you.some((w) => /director|upline/.test(w)), 'parked stages are not something to fill in yet');
-  assert.equal(s.waitingOn.learning.length, 1);
-  assert.equal(s.plan.daily.dials, 22);
-  assert.ok(todoFor('2026-10-28', { role: 'builder', path: s.path, plan: s.plan, times: s.times }).length > 0);
+  assert.ok(s.waitingOn.you.some((w) => /contract level/.test(w)));
+  assert.match(s.waitingOn.learning.at(0), /0 so far/);
+  const list = todoFor('2026-10-28', { role: 'builder', path: s.path, plan: s.plan, times: s.times });
+  assert.ok(list.length > 0, 'the routine still runs');
+  assert.equal(list.find((t) => t.id === 'c-dials').title, 'Your dial block: dials', 'no number is shown, and none is made up');
+  assert.ok(list.every((t) => !/\{|\}/.test(t.title)));
 });
 
-test('she answers in earnings; her contract level turns it into premium and daily numbers', () => {
-  const starter = buildSystem();
-  assert.equal(starter.yearlyIncome, 76_800);
-  assert.equal(starter.yearlyPremium, 96_000, '$76,800 at the 80% starter level');
-  assert.equal(starter.contractSource, 'starter');
-  assert.ok(starter.waitingOn.you.some((w) => /contract level/.test(w)));
-  const hers = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 100_000 }, contractPercent: 100 });
-  assert.equal(hers.yearlyPremium, 100_000);
-  assert.equal(hers.plan.yearly.income, 100_000);
-  const bigger = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 150_000 }, contractPercent: 100 });
-  assert.ok(bigger.plan.daily.dials > starter.plan.daily.dials, 'a bigger goal means more dials');
-  assert.ok(!hers.waitingOn.you.some((w) => /contract level/.test(w)));
+test('she answers in earnings; her real contract level and her own activity give the numbers', () => {
+  const acts = buildActivities();
+  const noLevel = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 120_000 }, activities: acts, agentIds: [LEADER], tz: TZ });
+  assert.equal(noLevel.plan, null, 'without her contract level, no premium and no targets');
+  assert.equal(noLevel.yearlyPremium, null);
+  const s = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 120_000 }, contractPercent: 80, activities: acts, agentIds: [LEADER], tz: TZ });
+  assert.equal(s.yearlyPremium, 150_000);
+  assert.equal(s.targetsReady, true);
+  // Exactly the cascade, by hand, from her own measured rates.
+  const r = ratesFrom(acts, { agentIds: [LEADER], strict: true });
+  const apps = Math.ceil(150_000 / 12 / r.avgPremium), appts = Math.ceil(apps / r.closeRate);
+  const convos = Math.ceil(appts / r.bookingRate), dials = Math.ceil(convos / r.contactRate);
+  assert.equal(s.plan.daily.dials, Math.ceil(dials / 21));
+  assert.equal(s.plan.daily.conversations, Math.ceil(convos / 21));
+  assert.equal(s.rates.contactRate, r.basedOn.conversations / r.basedOn.dials, 'unrounded: her actual ratio');
   assert.equal(premiumForIncome(50_000, 125), 40_000);
+  assert.throws(() => premiumForIncome(50_000), /contractPercent/);
   assert.throws(() => buildSystem({ contractPercent: -1 }), /contractPercent/);
 });
 
@@ -52,19 +60,22 @@ test('a start preset moves her whole day together', () => {
   assert.equal(late.times['a-dials'], '10:00');
   assert.equal(late.times['c-noon'], '13:00');
   const list = todoFor('2026-10-28', { role: 'agent', plan: early.plan, times: early.times });
+  assert.equal(early.plan, null);
   assert.equal(list.at(0).at, '08:00');
 });
 
-test('rates are learned from logging, never typed', () => {
+test('rates are learned from her own logging, never typed and never a starter', () => {
   const acts = buildActivities();
-  const s = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 96_000 }, activities: acts, agentIds: TEAM_IDS, tz: TZ });
+  const s = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 96_000 }, contractPercent: 80, activities: acts, agentIds: TEAM_IDS, tz: TZ });
   assert.equal(s.ratesSource, 'learned');
   assert.equal(s.waitingOn.learning.length, 0);
-  assert.notEqual(s.rates.contactRate, 0.25);
   const few = acts.filter((a) => a.occurred_at < '2026-09-05');
-  const t = buildSystem({ activities: few, agentIds: TEAM_IDS, tz: TZ });
-  assert.equal(t.ratesSource, 'starter');
-  assert.match(t.waitingOn.learning.at(0), new RegExp(`of ${LEARN_AFTER_DAYS} days`));
+  const t = buildSystem({ leader: { ...emptyLeaderSetup(), yearlyIncome: 96_000 }, contractPercent: 80, activities: few, agentIds: TEAM_IDS, tz: TZ });
+  assert.equal(t.ratesSource, 'not yet');
+  assert.equal(t.plan, null, 'too little data: no plan rather than a guessed one');
+  assert.match(t.waitingOn.learning.at(0), new RegExp(`${LEARN_AFTER_DAYS} days of logged activity`));
+  const strict = ratesFrom([{ agent_id: 'x', type: 'dial', occurred_at: '2026-10-01T16:00:00Z' }], { strict: true });
+  assert.equal(strict.contactRate, null);
 });
 
 test('rules are the standard: the leader setup has no way to change them', () => {

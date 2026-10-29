@@ -82,3 +82,16 @@ export function buildActivities() {
 }
 
 export const TEAM_IDS = [LEADER, DEVON, TASHA, MARCUS];
+
+/**
+ * Demo mode: a fictional leader (Morgan) with two months of logged activity
+ * and a set contract level. The demo runs the exact same engine as the real
+ * system; only the data is made up, and it is labeled that way everywhere.
+ */
+export const DEMO = Object.freeze({
+  leaderName: 'Morgan',
+  leaderId: LEADER,
+  contractPercent: 80,
+  activityFrom: '2026-09-01',
+  activityTo: '2026-10-30',
+});

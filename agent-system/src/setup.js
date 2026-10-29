@@ -5,14 +5,14 @@
 //
 //   FROM HER (under a minute)  one yes/no tap, a start time, what she wants to earn
 //   FROM YOU (once per agency) the agency kit: playbook, promotion rules
-//   LEARNED (no one types it)  conversion rates, from two weeks of logging
+//   LEARNED (no one types it)  conversion rates, from her own logging; no starters, no guesses
 //   FIXED (the standard)       red line, check times, messages, routines
 //
 //   emptyLeaderSetup() / validateLeaderSetup()
 //   emptyAgencyKit()   / validateAgencyKit()
 //   buildSystem({ leader, kit, activities, agentIds }) → what the engine runs on
 
-import { STARTER_RATES, planDown, ratesFrom, ROUTINES } from './routines.js';
+import { planDown, ratesFrom, ROUTINES } from './routines.js';
 import { THRESHOLDS, MESSAGES, choosePath, PARKED_PATHS } from './paths.js';
 import { LADDER } from './ladder.js';
 import { toCalendarDate } from './timeframes.js';
@@ -25,15 +25,11 @@ export const AGENCY_KIT_VERSION = 1;
  * She answers in what she wants to EARN. The plan runs on premium, so the
  * system converts: premium = earnings ÷ contract level. The contract level
  * (her commission as a percent of annual premium) is set by you on her
- * profile, never typed by her. Starters until then: $76,800 at 80% = $96,000.
- * The goal covers her own sales; overrides from her team come on top.
+ * profile, never typed by her and never guessed. The goal covers her own
+ * sales; overrides from her team come on top.
  */
-export const STARTER_INCOME = 76_800;
-export const STARTER_CONTRACT_PERCENT = 80;
-export const STARTER_GOAL = 96_000; // premium the starters convert to
-
 /** Yearly premium needed to earn `income` at a contract level. Rounds up. */
-export function premiumForIncome(income, contractPercent = STARTER_CONTRACT_PERCENT) {
+export function premiumForIncome(income, contractPercent) {
   if (!(income > 0)) throw new Error('income must be a positive number');
   if (!(contractPercent > 0)) throw new Error('contractPercent must be a positive number');
   return Math.ceil(income / (contractPercent / 100));
@@ -175,24 +171,32 @@ export function buildSystem({ leader = emptyLeaderSetup(), kit = emptyAgencyKit(
   if (blank(leader.yearlyIncome)) waitingOn.her.push('Yearly earnings goal');
   const path = choosePath({ hasAgents: leader.hasAgents ?? true });
   const start = leader.start || 'standard';
-  const yearlyIncome = leader.yearlyIncome ?? STARTER_INCOME;
-  const contract = contractPercent ?? STARTER_CONTRACT_PERCENT;
-  if (blank(contractPercent)) waitingOn.you.push('Her contract level (commission % of annual premium)');
-  const yearlyPremium = premiumForIncome(yearlyIncome, contract);
+  // No guessed numbers. Every target comes from her answer, her real
+  // contract level, and her own logged activity. Until all three exist she
+  // runs the baseline: the routine without numbers, logging what she does.
+  const yearlyIncome = blank(leader.yearlyIncome) ? null : leader.yearlyIncome;
+  const contract = blank(contractPercent) ? null : contractPercent;
+  if (contract === null) waitingOn.you.push('Her contract level (commission % of annual premium)');
+  const yearlyPremium = yearlyIncome !== null && contract !== null ? premiumForIncome(yearlyIncome, contract) : null;
 
-  // Learned: her real rates once there are enough days of logging.
+  // Learned: her real rates, each from enough of her own activity. Never a starter.
   const logged = daysLogged(activities, agentIds, tz);
-  let rates = { ...STARTER_RATES };
-  let ratesSource = 'starter';
-  if (logged >= LEARN_AFTER_DAYS) {
-    const { basedOn, ...learned } = ratesFrom(activities, { agentIds });
-    rates = learned;
-    ratesSource = 'learned';
-  } else {
-    waitingOn.learning.push(`Your real conversion rates (${logged} of ${LEARN_AFTER_DAYS} days logged)`);
+  const { basedOn, ...measured } = ratesFrom(activities, { agentIds, strict: true });
+  const RATE_DATA = {
+    contactRate: ['conversations from dials', 'dials'],
+    bookingRate: ['appointments from conversations', 'conversations'],
+    closeRate: ['applications from appointments', 'apptsSet'],
+    avgPremium: ['average premium per application', 'appsWritten'],
+  };
+  if (logged < LEARN_AFTER_DAYS) waitingOn.learning.push(`${LEARN_AFTER_DAYS} days of logged activity (${logged} so far)`);
+  for (const [k, [label, den]] of Object.entries(RATE_DATA)) {
+    if (measured[k] === null) waitingOn.learning.push(`Enough ${den === 'apptsSet' ? 'appointments' : den === 'appsWritten' ? 'applications' : den} to measure ${label} (${basedOn[den]} of 10)`);
   }
-  const plan = planDown({ yearlyPremium, rates });
-  plan.yearly.income = yearlyIncome;
+  const ratesReady = logged >= LEARN_AFTER_DAYS && Object.values(measured).every((v) => v !== null);
+  const rates = ratesReady ? measured : null;
+  const ratesSource = ratesReady ? 'learned' : 'not yet';
+  const plan = rates && yearlyPremium !== null ? planDown({ yearlyPremium, rates }) : null;
+  if (plan) plan.yearly.income = yearlyIncome;
 
   // Times: one preset shifts every routine.
   const shift = START_PRESETS[start].shiftMinutes;
@@ -246,7 +250,9 @@ export function buildSystem({ leader = emptyLeaderSetup(), kit = emptyAgencyKit(
   return {
     name: leader.name || '',
     path, start, plan, rates, ratesSource, times,
-    yearlyIncome, yearlyPremium, contractPercent: contract, contractSource: blank(contractPercent) ? 'starter' : 'set',
+    yearlyIncome, yearlyPremium, contractPercent: contract,
+    targetsReady: plan !== null, // false = baseline: the routine, no numbers
+    measuredFrom: { daysLogged: logged, ...basedOn },
     thresholds: { ...THRESHOLDS },
     messages, playbook, training, ladder,
     playbookReady: playbook.every((p) => !p.isStarter),

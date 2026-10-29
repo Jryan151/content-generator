@@ -60,8 +60,10 @@ export function planDown({ yearlyPremium, rates = STARTER_RATES, workdaysPerMont
  * Real conversion rates from an agent's (or team's) history, so the plan
  * uses their numbers instead of starters. Falls back to the starter rate
  * for any step with too little data to trust.
+ * strict: true never falls back and never rounds — a step with too little
+ * data comes back null, so nothing downstream is a guess.
  */
-export function ratesFrom(activities, { agentIds = null, minEach = 10 } = {}) {
+export function ratesFrom(activities, { agentIds = null, minEach = 10, strict = false } = {}) {
   const t = { dials: 0, conversations: 0, apptsSet: 0, appsWritten: 0, premiumWritten: 0 };
   for (const a of activities) {
     if (agentIds && !agentIds.includes(a.agent_id)) continue;
@@ -70,10 +72,10 @@ export function ratesFrom(activities, { agentIds = null, minEach = 10 } = {}) {
       if (m.type === a.type) t[key] += m.kind === 'sum' ? Number(a.value || 0) : 1;
     }
   }
-  const pick = (num, den, starter) => (den >= minEach && num > 0 ? num / den : starter);
-  const r3 = (n) => Math.round(n * 1000) / 1000;
+  const pick = (num, den, starter) => (den >= minEach && num > 0 ? num / den : (strict ? null : starter));
+  const r3 = (n) => (n === null ? null : strict ? n : Math.round(n * 1000) / 1000);
   return {
-    avgPremium: Math.round(pick(t.premiumWritten, t.appsWritten, STARTER_RATES.avgPremium)),
+    avgPremium: r3(strict ? pick(t.premiumWritten, t.appsWritten) : Math.round(pick(t.premiumWritten, t.appsWritten, STARTER_RATES.avgPremium))),
     closeRate: r3(pick(t.appsWritten, t.apptsSet, STARTER_RATES.closeRate)),
     bookingRate: r3(pick(t.apptsSet, t.conversations, STARTER_RATES.bookingRate)),
     contactRate: r3(pick(t.conversations, t.dials, STARTER_RATES.contactRate)),
@@ -196,12 +198,18 @@ export function productionRed({ role = 'builder', path, plan, dialsDone, now, ti
   return now >= ends && dialsDone < goal * redBelow;
 }
 
-/** Replace {daily.dials}-style tokens with the plan's numbers. */
+/**
+ * Replace {daily.dials}-style tokens with the plan's numbers. With no plan
+ * yet (the baseline), the number is left out rather than guessed:
+ * "Dial block: {daily.dials} dials" reads "Dial block: dials".
+ */
 function fill(title, plan) {
-  return title.replace(/\{(daily|weekly|monthly)\.(\w+)\}/g, (all, level, key) => {
-    const v = plan?.[level]?.[key];
-    return v === undefined ? all : String(v);
-  });
+  return title
+    .replace(/\{(daily|weekly|monthly)\.(\w+)\} ?/g, (all, level, key) => {
+      const v = plan?.[level]?.[key];
+      return v === undefined ? '' : `${v} `;
+    })
+    .replace(/ +$/, '');
 }
 
 /**

@@ -8,6 +8,12 @@ No screens yet — those come next and plug straight into this.
 
 > The blueprint doc is the source of truth for *what* to build. This repo is *how* it's stored and counted.
 
+## No guessed numbers
+
+Daily targets appear only when they can be real: her earnings goal, her contract level (set by you from her contract), and at least 10 days of her own activity with enough of each step to measure it. Until then she runs the **baseline**: the routine with no numbers, logging what she does. `buildSystem()` returns `targetsReady: false` and lists exactly what it's waiting on.
+
+**Demo mode** (`public/index.html`, Demo switch) runs the same engine on a fictional leader's two months of logged activity (`seed/sample.js`, `DEMO`), and shows where every number comes from.
+
 ## The one rule
 
 **Every action leaves one row in `activities`. Every number on every screen is a count or sum of those rows over a timeframe.**
@@ -68,7 +74,7 @@ The system ships as the standard. A leader doesn't build it; she follows it. Eve
 
 | Kind | What | Who |
 | --- | --- | --- |
-| **From her** (under a minute) | Agents selling now? · Someone who can coach? · Start of day (early, standard, late) · Yearly goal | The leader, once (`templates/leader-setup.html`) |
+| **From her** (under a minute) | Agents selling now? · Start of day (early, standard, late) · What she wants to earn | The leader, once (`public/index.html`, which also has a Demo switch) |
 | **From you** (once per agency) | Playbook, promotion rules, elite group requirements, advance terms; each person's contract level | You, in the agency kit (`templates/agency-kit.*.json`) |
 | **Learned** | Conversion rates | Nobody: after 10 days of logging, her real rates replace the starters |
 | **Fixed** | Red line, check times, routines, messages | The standard. Only the kit can reword a message |
