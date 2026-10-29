@@ -4,7 +4,7 @@ import { CORE_VALUES, SCREENS, PARKED } from '../src/core.js';
 
 // "module.export" → the real export, so the core can never point at code that doesn't exist.
 const MODULES = {
-  calls: '../src/calls.js', store: '../src/store.js', career: '../src/career.js', ladder: '../src/ladder.js', metrics: '../src/metrics.js',
+  attention: '../src/attention.js', calls: '../src/calls.js', store: '../src/store.js', career: '../src/career.js', ladder: '../src/ladder.js', metrics: '../src/metrics.js',
   paths: '../src/paths.js', pipeline: '../src/pipeline.js', quality: '../src/quality.js', routines: '../src/routines.js',
   setup: '../src/setup.js', timeframes: '../src/timeframes.js',
 };
@@ -38,6 +38,9 @@ test('no required screen reads parked code', () => {
   assert.ok(PARKED.length > 0);
 });
 
-test('the Team screen sees quality, not just volume', () => {
-  assert.ok(SCREENS.find((s) => s.id === 'team').reads.includes('quality.quality'));
+test('the Team screen sees quality, not just volume', async () => {
+  // The ranking itself checks lapses and no-shows before pace.
+  assert.ok(SCREENS.find((s) => s.id === 'team').reads.includes('attention.teamSummary'));
+  const src = await import('node:fs').then((fs) => fs.readFileSync(new URL('../src/attention.js', import.meta.url), 'utf8'));
+  assert.ok(src.includes('showRate(') && src.includes('chargeback'));
 });

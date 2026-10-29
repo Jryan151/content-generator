@@ -66,7 +66,11 @@ test('a leader is measured by the people under them (sample team)', () => {
   assert.equal(withBook.stage, 'director', 'three agents selling steadily, one at Producer or above');
   assert.equal(withBook.gate.to, 'Upline');
   const noBook = placeOnLadder({ person: { id: LEADER }, team, activities: buildActivities(), dayKey: NOV2, tz: TZ });
-  assert.equal(noBook.stage, 'producer', 'a strong team still needs her selling written down before she builds more');
+  assert.equal(noBook.stage, 'coach', 'agents of hers already selling make her a Coach; the Playbook stays a to-do, not a gate');
+  const solo = placeOnLadder({ person: { id: LEADER }, team: [], activities: buildActivities(), dayKey: NOV2, tz: TZ });
+  assert.equal(solo.stage, 'producer', 'without anyone under her selling, the Playbook is still the gate to Coach');
+  const fromServer = placeOnLadder({ person: { id: LEADER }, teamStages: ['selling', 'starting'], activities: buildActivities(), dayKey: NOV2, tz: TZ });
+  assert.equal(fromServer.stage, 'coach', 'stages worked out elsewhere count the same');
 });
 
 test('while Director is parked, the same leader stays at Coach with a plain next action', () => {
@@ -75,7 +79,7 @@ test('while Director is parked, the same leader stays at Coach with a plain next
   assert.equal(r.stage, 'coach');
   assert.equal(r.gate.to, 'Director');
   assert.equal(r.gate.parked, true);
-  assert.match(r.nextAction, /Director is parked/);
+  assert.match(r.nextAction, /who needs you first/);
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 

@@ -37,7 +37,8 @@ route('GET', '/api/me', 'public', ({ me }) => {
   // What this person can do here, which portal they see, and the other workspaces they belong to.
   const caps = roles.capsFor(me.account, ws);
   const workspaces = roles.membershipsOf(me.account).map(m => ({ id: m.ws, name: store.getWorkspace(m.ws)?.name || '', role: m.role, current: m.ws === me.wsId })).filter(x => x.name);
-  return { ...base, account: store.publicAccount(me.account), termsRequired: needsTerms(me.account), twofaSetupRequired: twofa.needsSetup(me.account), workspace: me.wsId ? wsSummary(me.wsId, caps) : null, acting: admin && !!me.wsId, alerts: admin ? alerts.unreadCount() : 0,
+  const teammate = roles.membership(me.account, me.wsId)?.role === 'teammate';
+  return { ...base, account: store.publicAccount(me.account), termsRequired: needsTerms(me.account), twofaSetupRequired: twofa.needsSetup(me.account), workspace: me.wsId ? (teammate ? { id: ws.id, name: ws.name, onboarded: true } : wsSummary(me.wsId, caps)) : null, acting: admin && !!me.wsId, alerts: admin ? alerts.unreadCount() : 0,
     caps, portal: roles.portalFor(me.account, ws), role: admin ? 'admin' : roles.membership(me.account, me.wsId)?.role || '', workspaces, notices: noticesFor(ws, caps) };
 });
 // Someone in more than one workspace (a reviewer for two agents) switches between them.
@@ -92,7 +93,7 @@ route('POST', '/api/link/check', 'public', ({ body }) => {
   if (!t || orphanInvite(t)) bad(410, linkError);
   if (kind === 'reset') return { kind, email: store.getAccount(t.accountId)?.email || '' };
   // A reviewer invite for someone who already has a login is accepted after logging in (/api/link/join).
-  return { kind, email: t.email, role: t.wsRole === 'reviewer' ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: t.wsRole === 'reviewer' && !!store.findAccountByEmail(t.email) };
+  return { kind, email: t.email, role: ['reviewer', 'teammate'].includes(t.wsRole) ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: ['reviewer', 'teammate'].includes(t.wsRole) && !!store.findAccountByEmail(t.email) };
 });
 
 route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
@@ -103,7 +104,7 @@ route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
   if (!t || orphanInvite(t)) bad(410, linkError);
   let acc;
   if (kind === 'invite') {
-    if (store.findAccountByEmail(t.email)) bad(409, t.wsRole === 'reviewer' ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
+    if (store.findAccountByEmail(t.email)) bad(409, ['reviewer', 'teammate'].includes(t.wsRole) ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
     if (t.wsRole === 'reviewer' && signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
     const askTerms = t.role !== 'admin' && terms().on;
     if (askTerms && body.acceptTerms !== true) bad(400, TERMS_TEXT);
@@ -115,6 +116,8 @@ route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
     }
     acc = store.createAccount({ email: t.email, name: clip(body.name, 80), role: t.role === 'admin' ? 'admin' : 'agent', workspaceId: t.role === 'admin' ? null : t.workspaceId, hash });
     if (t.wsRole === 'reviewer') acc = store.setMembership(acc.id, t.workspaceId, { role: 'reviewer', since: nowIso() });
+    // An agent or recruit joining a leader's team in Agent Reels: that, and nothing else in the workspace.
+    if (t.wsRole === 'teammate') acc = store.setMembership(acc.id, t.workspaceId, { role: 'teammate', since: nowIso() });
     if (askTerms) acc = store.updateAccount(acc.id, termsStamp());
   } else {
     acc = store.getAccount(t.accountId);

@@ -97,7 +97,7 @@ export const ROUTINES = Object.freeze([
   { id: 't-practice', role: 'trainee', tf: 'block', at: '16:00', minutes: 30, part: 'Today', when: { daily: true }, title: 'Practice test: take one and log your score', doneWhen: 'practiceTests' },
   { id: 't-week',     role: 'trainee', tf: '1W', at: '08:45', minutes: 15, part: 'Today', when: { weekday: 1 }, title: 'Plan the week: pick the chapters to cover; book the exam once your practice scores are steady' },
   // ── Agent: blocks of the day (micro) ──
-  { id: 'a-dials',     role: 'agent', tf: 'block', at: '09:00', minutes: 120, part: 'Today',    when: { daily: true }, title: 'Dial block: {daily.dials} dials from the call list', doneWhen: 'dials' },
+  { id: 'a-dials',     role: 'agent', tf: 'block', at: '09:00', minutes: 120, part: 'Today',    when: { daily: true }, title: 'Dial block: {daily.dials} calls from your list', doneWhen: 'dials' },
   { id: 'a-followups', role: 'agent', tf: 'block', at: '13:00', minutes: 30,  part: 'Pipeline', when: { daily: true }, title: 'Clear follow-ups due and send appointment reminders', doneWhen: 'followups' },
   { id: 'a-appts',     role: 'agent', tf: 'block', at: '14:00', minutes: 120, part: 'Playbook', when: { daily: true }, title: 'Run appointments with the Playbook open' },
   { id: 'a-close',     role: 'agent', tf: 'block', at: '16:45', minutes: 15,  part: 'Pipeline', when: { daily: true }, title: 'Log everything; give every lead a next step for tomorrow' },
@@ -120,7 +120,7 @@ export const ROUTINES = Object.freeze([
   { id: 'p-quarter',   role: 'builder', path: 'producer', tf: '1Q', at: '07:15', minutes: 30,  part: 'Team',     when: { firstWorkdayOf: '1Q' }, title: 'Ladder check: steady weeks and your Playbook. Both done means Coach' },
   { id: 'p-month',     role: 'builder', path: 'producer', tf: '1M', at: '07:30', minutes: 45,  part: 'Pipeline', when: { firstWorkdayOf: '1M' }, title: 'Check conversion, reorder leads, call every lapse-risk client' },
   { id: 'p-week',      role: 'builder', path: 'producer', tf: '1W', at: '07:45', minutes: 15,  part: 'Pipeline', when: { weekday: 1 }, title: 'Plan the week: book {weekly.appts} appointments; order leads if under 2 days of calls are left' },
-  { id: 'p-dials',     role: 'builder', path: 'producer', tf: 'block', at: '09:00', minutes: 120, part: 'Today',    when: { daily: true }, title: 'Dial block: {daily.dials} dials', doneWhen: 'dials' },
+  { id: 'p-dials',     role: 'builder', path: 'producer', tf: 'block', at: '09:00', minutes: 120, part: 'Today',    when: { daily: true }, title: 'Dial block: {daily.dials} calls from your list', doneWhen: 'dials' },
   { id: 'p-names',     role: 'builder', path: 'producer', tf: 'block', at: '11:00', minutes: 20,  part: 'Recruiting', when: { daily: true }, recruiting: true, title: 'Names list: one conversation with someone on your list', doneWhen: 'namesConversations' },
   { id: 'p-post',      role: 'builder', path: 'producer', tf: 'block', at: '11:20', minutes: 15,  part: 'Content',  when: { daily: true }, content: true, title: 'Optional: post today’s content', doneWhen: 'posts' },
   { id: 'p-followups', role: 'builder', path: 'producer', tf: 'block', at: '13:00', minutes: 30,  part: 'Pipeline', when: { daily: true }, title: 'Clear every follow-up due; text tomorrow’s appointments', doneWhen: 'followups' },
@@ -134,7 +134,7 @@ export const ROUTINES = Object.freeze([
   { id: 'c-quarter',   role: 'builder', path: 'coach', tf: '1Q', at: '07:15', minutes: 90,  part: 'Training', when: { firstWorkdayOf: '1Q' }, title: 'For each agent, apply the rule: promote, coach plan, or let go' },
   { id: 'c-month',     role: 'builder', path: 'coach', tf: '1M', at: '07:30', minutes: 60,  part: 'Playbook', when: { firstWorkdayOf: '1M' }, title: 'Set every agent’s monthly target; add one winning line to the Playbook; book 2 recruiting interviews' },
   { id: 'c-huddle',    role: 'builder', path: 'coach', tf: '1W', at: '08:15', minutes: 30,  part: 'Team',     when: { weekday: 1 }, title: 'Huddle: each agent says their appointment number for the week; role-play one objection' },
-  { id: 'c-dials',     role: 'builder', path: 'coach', tf: 'block', at: '09:00', minutes: 90,  part: 'Today',    when: { daily: true }, title: 'Your dial block: {daily.dials} dials', doneWhen: 'dials' },
+  { id: 'c-dials',     role: 'builder', path: 'coach', tf: 'block', at: '09:00', minutes: 90,  part: 'Today',    when: { daily: true }, title: 'Your dial block: {daily.dials} calls from your list', doneWhen: 'dials' },
   { id: 'c-recruit',   role: 'builder', path: 'coach', tf: 'block', at: '10:30', minutes: 20,  part: 'Recruiting', when: { daily: true }, recruiting: true, title: 'Recruiting: one next step in the recruiting pipeline', doneWhen: 'recruitSteps' },
   { id: 'c-post',      role: 'builder', path: 'coach', tf: 'block', at: '10:50', minutes: 15,  part: 'Content',  when: { daily: true }, content: true, title: 'Optional: post today’s content', doneWhen: 'posts' },
   { id: 'c-noon',      role: 'builder', path: 'coach', tf: 'block', at: '12:00', minutes: 10,  part: 'Team',     when: { daily: true }, title: 'Noon check: send the noon message to every agent at 0 dials' },
@@ -205,7 +205,7 @@ export function productionRed({ role = 'builder', path, plan, dialsDone, now, ti
 /**
  * Replace {daily.dials}-style tokens with the plan's numbers. With no plan
  * yet (the baseline), the number is left out rather than guessed:
- * "Dial block: {daily.dials} dials" reads "Dial block: dials".
+ * "Dial block: {daily.dials} calls from your list" reads "Dial block: calls from your list".
  */
 function fill(title, plan) {
   return title

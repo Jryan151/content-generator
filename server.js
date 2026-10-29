@@ -64,6 +64,7 @@ import mount_admin from './routes/admin.js';
 import mount_people from './routes/people.js';
 import mount_signoff from './routes/signoff.js';
 import mount_replies from './routes/replies.js';
+import mount_reels from './routes/reels.js';
 
 export const VERSION = '16.0.0';
 const SECURE = PUBLIC_URL.startsWith('https://');
@@ -466,6 +467,9 @@ const ROUTE_CAPS = {
   'GET /api/people': 'people', 'POST /api/people/signoff': 'people', 'POST /api/people/invite': 'people', 'DELETE /api/people/:id': 'people', 'POST /api/people/invites/revoke': 'people',
   // The compliance reviewer's page (v15): theirs alone.
   'GET /api/signoff': 'signoff', 'POST /api/signoff/:id': 'signoff',
+  // Agent Reels (routes/reels.js): your own log, and the leader's team.
+  'GET /api/reels/me': 'team', 'POST /api/reels/sync': 'team',
+  'GET /api/reels/team': 'teamlead', 'POST /api/reels/invite': 'teamlead', 'POST /api/reels/invites/revoke': 'teamlead', 'DELETE /api/reels/team/:id': 'teamlead',
 };
 export const capFor = r => ROUTE_CAPS[`${r.method} ${r.pattern}`] || (r.method === 'GET' ? 'view' : null);
 export const deadCaps = () => Object.keys(ROUTE_CAPS).filter(k => !routes.some(r => `${r.method} ${r.pattern}` === k));
@@ -478,6 +482,8 @@ const CAP_DENIED = {
   data: () => 'Only the agent can download or delete the workspace’s data.',
   people: () => 'Only the agent can invite or remove people.',
   connect: () => 'Only the agent can connect Instagram and Facebook.',
+  team: () => 'Agent Reels isn’t open for your login in this workspace.',
+  teamlead: () => 'Only the team’s leader can see the team and invite people.',
 };
 
 /* ---------------- Audit log: what gets recorded after a route succeeds ---------------- */
@@ -518,6 +524,8 @@ const AUDIT = {
   'DELETE /api/admin/workspaces/:id/delete-request': c => ({ action: 'deletion.declined', ws: c.params.id }),
   'POST /api/videos/:id/fix': c => ({ action: 'video.fixed', target: c.params.id }),
   'POST /api/people/invite': c => ({ action: 'people.invited', target: store.normEmail(c.body.email), detail: 'reviewer' }),
+  'POST /api/reels/invite': c => ({ action: 'people.invited', target: store.normEmail(c.body.email), detail: 'teammate' }),
+  'DELETE /api/reels/team/:id': c => ({ action: 'people.removed', target: emailOf(c.params.id), detail: 'teammate' }),
   'DELETE /api/people/:id': c => ({ action: 'people.removed', target: emailOf(c.params.id) }),
   'POST /api/people/invites/revoke': c => ({ action: 'people.uninvited', target: store.normEmail(c.body.email) }),
   'POST /api/signoff/:id': c => ({ action: c.body.ok === true ? 'video.signedoff' : 'video.sentback', target: c.params.id, detail: clip(c.body.note, 120) }),
@@ -661,6 +669,7 @@ const STATIC = {
   '/agent-system/setup.js': ['agent-system/public/setup.js', 'text/javascript; charset=utf-8'],
   '/agent-system/app.js': ['agent-system/public/app.js', 'text/javascript; charset=utf-8'],
   '/agent-system/state.js': ['agent-system/public/state.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/sync.js': ['agent-system/public/sync.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/setup.js': ['agent-system/src/setup.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/routines.js': ['agent-system/src/routines.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/paths.js': ['agent-system/src/paths.js', 'text/javascript; charset=utf-8'],
@@ -669,6 +678,7 @@ const STATIC = {
   '/agent-system/src/quality.js': ['agent-system/src/quality.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/pipeline.js': ['agent-system/src/pipeline.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/calls.js': ['agent-system/src/calls.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/attention.js': ['agent-system/src/attention.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/store.js': ['agent-system/src/store.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/timeframes.js': ['agent-system/src/timeframes.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/metrics.js': ['agent-system/src/metrics.js', 'text/javascript; charset=utf-8'],
@@ -994,7 +1004,7 @@ export function main() {
 // Mounted last, in the order they were written (the first route that matches a request answers it),
 // with the helpers they share with the rest of the server.
 const ROUTE_CTX = { isStarting: () => startingUp, APPROVAL_NOTE, BASE_HEADERS, pendingInvites, reviewerRoom, CHECKLIST, HttpError, MAX_PER_REQUEST, REJECT_REASONS, SECURE, TERMS_FREE, TERMS_TEXT, TESTS_PER_DAY, VERSION, api, autoPlanState, bad, baseUrl, clientIp, clip, coach, coachGate, draftCfg, draftLimit, draftPicks, emailLimit, enqueueVideos, fixing, getV, ipLimit, jobView, keyProblem, linkError, lowFor, main, media, mindset, needsTerms, newTicket, nextPlanMonday, noticesFor, nowIso, orphanInvite, overCap, ownersOf, plainError, quiet, route, send, sha256File, slug, spendGate, start, startSession, stats, streamFile, supportEmail, terms, termsStamp, tickets, todayFor, twofaLimit, typicalSeconds, usedThisMonth, validTz, videoView, who, workingConfig, wsSummary };
-for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_admin, mount_people, mount_signoff, mount_replies]) mount(ROUTE_CTX);
+for (const mount of [mount_public, mount_account, mount_setup, mount_scripts, mount_mindset, mount_content, mount_studio, mount_videos, mount_brand, mount_social, mount_admin, mount_people, mount_signoff, mount_replies, mount_reels]) mount(ROUTE_CTX);
 
 // On restart (pm2 sends SIGINT), main() hands running videos back and writes what's waiting, then exits.
 // (Compared as real paths: the app folder, or `current`, may be a link.)
