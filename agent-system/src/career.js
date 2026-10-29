@@ -26,6 +26,13 @@ import { levelProgress, LADDER } from './ladder.js';
 
 export const STAGES = Object.freeze([
   {
+    id: 'licensing', name: 'Licensing',
+    focus: 'Pass your licensing exam.',
+    why: 'You can’t sell until you’re licensed. A little study every day beats cramming, and practice test scores tell you when you’re ready to book the exam.',
+    unlocked: ['Today', 'Ladder'],
+    locked: ['Pipeline', 'Recruiting', 'Team'],
+  },
+  {
     id: 'starting', name: 'Starting',
     focus: 'Get your first sale.',
     why: 'Nothing else is real until you have closed once.',
@@ -101,6 +108,7 @@ export function weeksWithASale(activities, { personId, dayKey, tz, outOf }) {
 }
 
 const everSold = (activities, id) => activities.some((a) => a.agent_id === id && a.type === 'app_written');
+const passedExam = (activities, id) => activities.some((a) => a.agent_id === id && a.type === 'license_passed');
 
 /**
  * Place one person on the ladder.
@@ -116,6 +124,21 @@ export function placeOnLadder({ person, team = [], activities, dayKey, tz, ladde
     const s = STAGES[rank(id)];
     return { stage: id, name: s.name, focus: s.focus, why: s.why, unlocked: s.unlocked, locked: s.locked, slipped: false, gate: null, ...extra };
   };
+
+  // Not licensed yet: only for someone who said so (person.licensed === false)
+  // and hasn't logged passing the exam or a sale since.
+  if (person.licensed === false && !passedExam(activities, person.id) && !everSold(activities, person.id)) {
+    const tests = activities.filter((a) => a.agent_id === person.id && a.type === 'practice_test').length;
+    return result('licensing', {
+      gate: { to: 'Starting', requirements: [
+        { label: 'practice tests logged', have: String(tests), need: '—', met: tests > 0 },
+        { label: 'licensing exam passed', have: '0', need: '1', met: false },
+      ] },
+      nextAction: tests === 0
+        ? 'Study today, then take one practice test and log the score.'
+        : 'Keep studying every day. When your practice scores hold steady, book the exam.',
+    });
+  }
 
   if (!everSold(activities, person.id)) {
     return result('starting', {
@@ -182,6 +205,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Which routine a stage runs (feeds todoFor). Starting gets a daily training block. */
 export function routineFor(stageId) {
   switch (stageId) {
+    case 'licensing': return { role: 'trainee', path: null, starting: false };
     case 'starting': return { role: 'agent', path: null, starting: true };
     case 'selling': return { role: 'agent', path: null, starting: false };
     case 'producer': return { role: 'builder', path: 'producer', starting: false };
@@ -193,7 +217,7 @@ export function routineFor(stageId) {
 /** Is a feature open at this stage? Yes or no. */
 export function isUnlocked(stageId, feature) {
   const opensAt = {
-    'Names list': 'producer', Recruiting: 'coach', 'Recruiting pipeline': 'coach', Team: 'coach',
+    Pipeline: 'starting', 'Names list': 'producer', Recruiting: 'coach', 'Recruiting pipeline': 'coach', Team: 'coach',
     'Red list': 'coach', 'Coaches view': 'director', 'All-teams view': 'upline',
   };
   const at = opensAt[feature];

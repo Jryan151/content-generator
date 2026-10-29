@@ -33,7 +33,8 @@ create type activity_type as enum (
   'appt_set', 'appt_held', 'app_written', 'policy_issued',
   'chargeback', 'recruit_added', 'training_task_done',
   'recruit_interviewed', 'recruit_licensed',
-  'names_conversation', 'recruit_step', 'recruit_first_sale'
+  'names_conversation', 'recruit_step', 'recruit_first_sale',
+  'study_session', 'practice_test', 'license_passed'
 );
 
 -- The builder's pipeline: people on their way to becoming producing agents.

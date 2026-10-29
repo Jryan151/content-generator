@@ -9,10 +9,10 @@ import { RECRUIT_STAGES } from './ladder.js';
 /** Client stages in order, with the label a person recognizes. */
 export const LEAD_STAGES = Object.freeze([
   { id: 'new', label: 'New' },
-  { id: 'contacted', label: 'Contacted' },
+  { id: 'contacted', label: 'Talked' },
   { id: 'appointment', label: 'Appointment' },
-  { id: 'application', label: 'Submitted' },
-  { id: 'issued', label: 'Placed' },
+  { id: 'application', label: 'Application sent' },
+  { id: 'issued', label: 'Insurer approved' },
   { id: 'lapse_risk', label: 'Payment missed' },
   { id: 'lost', label: 'Lost' },
 ]);

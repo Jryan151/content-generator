@@ -47,8 +47,8 @@ export const SCREENS = Object.freeze([
   },
   {
     id: 'today', name: 'Today', who: 'Every agent',
-    job: 'The day’s next actions in order: production block first, then one recruiting step only if production is on track. One tap logs each.',
-    reads: ['routines.todoFor', 'routines.productionRed', 'career.routineFor', 'paths.actionsFor'],
+    job: 'One chain: who to call next, one tap for what happened, the next step set for you. Before licensing, a study day instead.',
+    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'paths.actionsFor', 'store.migrate'],
   },
   {
     id: 'pipeline', name: 'Pipeline', who: 'Every agent',
@@ -75,7 +75,6 @@ export const PARKED = Object.freeze([
   { feature: 'Playbook screen', where: 'scripts attach to Today steps once the leader shares them' },
   { feature: 'Commission tracker', where: 'src/parked/commissions.js' },
   { feature: 'Content and the post block', where: 'routines.todoFor({ content: false })' },
-  { feature: 'Licensing study tracker', where: 'not built' },
   { feature: 'Rules beyond production first', where: 'paths.actionsFor beyond the red line' },
   { feature: 'Pricing and billing', where: 'not built' },
   { feature: 'Real estate expansion', where: 'not built' },
