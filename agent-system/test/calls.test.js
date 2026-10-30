@@ -149,6 +149,19 @@ test('booking keeps the meeting time, and meetings sort by time', () => {
   assert.deepEqual(q.meetings.map((l) => l.id), ['early', 'late']);
 });
 
+// Found by the 13-week run: unlogged meetings stayed on Today as "MEETING TODAY" forever. They still
+// wait for a result (that's real business), but oldest first, so Today can show one card at a time.
+test('meetings from earlier days that were never logged come first, oldest first', () => {
+  const r = logCall(fresh, 'booked', { ...opts, meetingOn: today, meetingAt: '13:00' });
+  const leads = [
+    { ...r.lead, id: 'today-1pm' },
+    { ...r.lead, id: 'last-week', meetingOn: addDays(today, -7), meetingAt: '16:00' },
+    { ...r.lead, id: 'yesterday', meetingOn: addDays(today, -1), meetingAt: '09:00' },
+    { ...r.lead, id: 'tomorrow', meetingOn: addDays(today, 1) },
+  ];
+  assert.deepEqual(queueFor(leads, today).meetings.map((l) => l.id), ['last-week', 'yesterday', 'today-1pm']);
+});
+
 test('approval queues a welcome call tomorrow and a call 3 days before the first draft', () => {
   const sent = { ...fresh, stage: 'application', premium: 600 };
   const noDate = approvePolicy(sent, { at, today });

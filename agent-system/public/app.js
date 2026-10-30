@@ -277,13 +277,15 @@ function renderToday() {
   // A full day: her real target once it exists, otherwise the number she set herself. Never a guess.
   const goal = plan?.daily?.dials ?? c.profile.dayCalls ?? null;
   const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
-  const status = dayStatus({ goal, dials: t.dials, now: c.now, stopAt: c.profile.stopAt, workday: isWorkday(c.dayKey), keepGoing: ui.keepGoing, late: c.late });
+  const status = dayStatus({ goal, dials: t.dials, now: c.now, stopAt: c.profile.stopAt, workday: isWorkday(c.dayKey), keepGoing: ui.keepGoing, late: c.late, meetingsLeft: q.meetings.length });
+  // One meeting card at a time, however many are waiting: the rest are named on it.
+  const meetingNow = q.meetings.length ? [meetingCard(c, q.meetings[0], q.meetings.slice(1))] : [];
   const own = ownProduction(c.activities, { me: c.me, dayKey: c.dayKey, tz: c.tz });
   const offToday = !c.demo && isWorkday(c.dayKey) && daysOff(c.activities.filter((a) => a.agent_id === c.me), c.tz).has(c.dayKey) && !ui.keepGoing;
   if (offToday) {
     fill(screen, top, lateCard(c),
       q.saves.map((l) => careCard(c, l, 'save')),
-      q.meetings.map((m) => meetingCard(c, m)),
+      meetingNow,
       h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'DAY OFF'),
         h('div', { class: 'who-big quiet' }, 'You’re off today'),
         h('div', { class: 'muted' }, 'It won’t count against your calls. Tomorrow’s list is set.'),
@@ -294,14 +296,15 @@ function renderToday() {
 
   // Each slot does one job (src/today.js says which show, in which order).
   const notice = lateCard(c) || backupNudge(c);
-  const nowCards = [...q.saves.map((l) => careCard(c, l, 'save')), ...q.meetings.map((m) => meetingCard(c, m))];
+  const nowCards = [...q.saves.map((l) => careCard(c, l, 'save')), ...meetingNow];
   const team = own.down ? ownDownCard(c, own)
     : urgent ? needsYouCard(c, urgent)
     : !teamView(c) ? focusCard('YOUR FOCUS', L.nextAction) : null;
   const SLOT = {
     notice: () => notice,
     now: () => nowCards,
-    next: () => q.care[0] ? careCard(c, q.care[0].lead, q.care[0].kind)
+    next: () => status.callsDone ? callsDoneCard(c, t, q.meetings)
+      : q.care[0] ? careCard(c, q.care[0].lead, q.care[0].kind)
       : weekendQuiet ? weekendCard(q) : next ? callCard(c, next, calls.length) : allSkipped
         ? h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('div', { class: 'who-big quiet' }, `You skipped all ${q.calls.length}`), h('button', { type: 'button', class: 'go', onclick: () => { ui.skip.clear(); renderToday(); } }, 'Start the list again'))
         : emptyQueue(c, goal, t.dials),
@@ -363,6 +366,17 @@ function doneCard(c, { t, goal, byCalls, next }) {
     payLine(payNow(c), { blankOk: false }),
     next ? h('div', {}, h('b', {}, 'Tomorrow starts with: '), next.name) : null,
     h('button', { type: 'button', class: 'link', onclick: () => { ui.keepGoing = true; renderToday(); } }, 'Keep working anyway'));
+}
+
+// Her calls are done, but meetings are still ahead: the day isn't over, the selling part is next.
+function callsDoneCard(c, t, meetings) {
+  const m = meetings[0];
+  const when = m.meetingOn && m.meetingOn < c.dayKey ? `from ${dayShort(m.meetingOn)}, still needs what happened` : m.meetingAt ? `at ${clock(m.meetingAt, true)}` : 'today';
+  return h('section', { class: 'card focus' },
+    h('div', { class: 'kicker' }, 'CALLS DONE'),
+    h('div', { class: 'big' }, `${t.dials} calls. Your meetings are next.`),
+    h('div', { class: 'muted' }, `${m.name} ${when}${meetings.length > 1 ? `, then ${meetings.length - 1} more` : ''}. Your day is done once each one is logged above.`),
+    h('button', { type: 'button', class: 'link', onclick: () => { ui.keepGoing = true; renderToday(); } }, 'Keep calling until then'));
 }
 
 function weekendCard(q) {
@@ -500,19 +514,29 @@ function callCard(c, lead, count) {
            h('button', { type: 'button', class: 'link quiet-link', onclick: () => save('bad_number') }, 'Wrong or bad number'))]);
 }
 
-function meetingCard(c, lead) {
+function meetingCard(c, lead, after = []) {
   const open = ui.open === `applied:${lead.id}`;
+  const missed = lead.meetingOn && lead.meetingOn < c.dayKey;
+  const kicker = missed ? `MEETING ON ${dayShort(lead.meetingOn).toUpperCase()} · NOT LOGGED YET`
+    : lead.meetingAt ? `MEETING TODAY · ${clock(lead.meetingAt, true)}` : 'MEETING TODAY';
+  const earlier = after.filter((m) => m.meetingOn && m.meetingOn < c.dayKey).length;
+  const later = after.filter((m) => !(m.meetingOn && m.meetingOn < c.dayKey));
+  const then = [
+    earlier ? `${earlier} more from earlier days` : null,
+    later.length ? `Then today: ${later.slice(0, 3).map((m) => `${m.meetingAt ? `${clock(m.meetingAt, true)} ` : ''}${m.name}`).join(', ')}${later.length > 3 ? `, and ${later.length - 3} more` : ''}` : null,
+  ].filter(Boolean).join(' · ');
   const done = (outcome, extra = {}) => {
     const msg = { applied: `${lead.name}: application sent. Mark the insurer’s answer in Clients.`, no_sale: `${lead.name}: met, no sale yet. Follow up ${dayShort(addDays(c.dayKey, 3))}.`, no_show: `${lead.name}: no-show. They’re back on tomorrow’s calls.` }[outcome];
     const was = ui.open; ui.open = null;
     if (!act(c, msg, () => { const r = logMeeting(lead, outcome, { at: c.at(), today: c.dayKey, ...extra }); replaceLead(lead, r.lead); return r.rows; })) { ui.open = was; }
   };
   return h('section', { class: 'card call meeting', 'aria-label': `Meeting with ${lead.name}` },
-    h('div', { class: 'kicker' }, lead.meetingAt ? `MEETING TODAY · ${clock(lead.meetingAt, true)}` : 'MEETING TODAY'),
+    h('div', { class: 'kicker' }, kicker),
     h('div', { class: 'who-big' }, lead.name),
-    h('div', { class: 'ask' }, open ? 'Application sent' : 'After the meeting, tap what happened:'),
+    h('div', { class: 'ask' }, open ? 'Application sent' : missed ? 'What happened at that meeting?' : 'After the meeting, tap what happened:'),
     open ? outcomeStep(c, lead, 'applied', (extra) => done('applied', extra))
-      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `applied:${lead.id}`; renderToday(); } else done(o); }));
+      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `applied:${lead.id}`; renderToday(); } else done(o); }),
+    then ? h('div', { class: 'muted' }, then) : null);
 }
 
 // Calls that protect an approved policy: welcome, before the first draft, and the save.
