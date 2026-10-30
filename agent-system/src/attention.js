@@ -26,7 +26,7 @@
 import { totalsFor, keyForCalendarDate, rangeOf, toCalendarDate, bucketKey } from './timeframes.js';
 import { placeOnLadder, weeksWithASale, developedHere } from './career.js';
 import { showRate } from './quality.js';
-import { weekStatus } from './paths.js';
+import { weekStatus } from './rules.js';
 import { payPicture } from './pay.js';
 
 const DAY_MS = 86_400_000;
@@ -176,8 +176,8 @@ export function whoNeedsYou({ members, dayKey, now = '12:00', tz, plan = null })
     facts.lapseShare = ls.share; facts.teamLapseShare = typicalLapse;
     const lapseFlag = lapses > 0 && (ls.book < ATTENTION.lapseSmallBook || typicalLapse === null || ls.share > typicalLapse * ATTENTION.lapseOverTeam);
     if (lapseFlag) {
-      const vs = ls.book >= ATTENTION.lapseSmallBook && typicalLapse !== null ? `: ${pctText(ls.share)} of their book vs the team’s ${pctText(typicalLapse)}` : '';
-      return say('watch', 80 + lapses, `${plural(lapses, 'policy', 'policies')} lapsed this month${vs}`, `Go over the lapse with ${m.name}: was the kitchen-table check really done?`);
+      const vs = ls.book >= ATTENTION.lapseSmallBook && typicalLapse !== null ? `: ${pctText(ls.share)} of their customers vs the team’s ${pctText(typicalLapse)}` : '';
+      return say('watch', 80 + lapses, `${plural(lapses, 'customer', 'customers')} stopped paying this month${vs}`, `Ask ${m.name} about ${lapses === 1 ? 'the customer' : 'the customers'} who stopped paying: were all four checks really done before sending the application?`);
     }
 
     // 4. Selling.
@@ -251,11 +251,11 @@ export function ownPremium(activities, { me, dayKey }) {
 export function trainer(people) {
   const t = people.filter((p) => p.level === 'ok' && p.stage === 'producer').sort((a, b) => b.applications - a.applications)[0];
   if (!t) return null;
-  const helpable = /meetings showed|no applications|calls in 2 weeks|lapsed|meetings on pace/;
+  const helpable = /meetings showed|no applications|calls in 2 weeks|stopped paying|meetings on pace/;
   const l = people.find((p) => p.id !== t.id && p.level !== 'ok' && helpable.test(p.reason));
   if (!l) return { trainerId: t.id, trainerName: t.name, learnerId: null, learnerName: null, action: `Ask ${t.name} to run the next team role-play. Training others starts there.` };
-  const action = /lapsed/.test(l.reason)
-    ? `Have ${t.name} walk ${l.name} through how they do the kitchen-table check.`
+  const action = /stopped paying/.test(l.reason)
+    ? `Have ${t.name} show ${l.name} how they do the four checks before sending an application.`
     : `Have ${t.name} sit in on ${l.name}’s next meeting, then tell you one thing ${l.name} should change.`;
   return { trainerId: t.id, trainerName: t.name, learnerId: l.id, learnerName: l.name, action };
 }

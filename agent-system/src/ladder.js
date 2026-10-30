@@ -18,9 +18,9 @@ export const RECRUIT_STAGES = Object.freeze([
   { id: 'prospect',    label: 'Prospect',    next: 'Book an interview' },
   { id: 'interviewed', label: 'Interviewed', next: 'Start licensing' },
   { id: 'licensing',   label: 'Licensing',   next: 'Check exam date; help them study' },
-  { id: 'licensed',    label: 'Licensed',    next: 'Start the 30-day Training plan' },
+  { id: 'licensed',    label: 'Licensed',    next: 'Help them book their first meetings' },
   { id: 'first_sale',  label: 'First sale',  next: 'Keep them on the daily routine' },
-  { id: 'producing',   label: 'Producing',   next: 'Ready to coach others? Check the ladder' },
+  { id: 'producing',   label: 'Producing',   next: 'Ready to help train others' },
 ]);
 
 /**
@@ -144,7 +144,7 @@ function actionFor(q, fmt) {
     case 'agentsSelling':
       return `Get ${n} more ${n === 1 ? 'person' : 'people'} selling every week. Start with whoever is closest on My people.`;
     case 'agentsDeveloped':
-      return 'Grow one person into a steady seller: a sale in 4 of 6 weeks. Pair them with your strongest agent; that’s how trainers start.';
+      return 'Help one agent get to a sale in 4 of every 6 weeks. Pair them with your best agent so they learn by watching.';
     case 'coachesBuilt':
       return `Grow ${n} more ${n === 1 ? 'person' : 'people'} who train others. Give your strongest seller a first recruit to teach.`;
     default:

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { logCall, logMeeting, queueFor, addDays } from '../src/calls.js';
+import { logCall, logMeeting, queueFor, addDays, needsYouNow } from '../src/calls.js';
 import { totalsFor } from '../src/timeframes.js';
 import { placeOnLadder, routineFor, isUnlocked } from '../src/career.js';
 import { todoFor } from '../src/routines.js';
@@ -67,7 +67,7 @@ test('meetings: applied writes the application, no-show sends them back to call'
   const applied = logMeeting(booked, 'applied', { at, today, premium: 720, checks: allChecks });
   assert.deepEqual(types(applied.rows), ['app_written', 'appt_held']);
   assert.equal(applied.lead.stage, 'application');
-  assert.throws(() => logMeeting(booked, 'applied', { at, today, checks: allChecks }), /premium/);
+  assert.throws(() => logMeeting(booked, 'applied', { at, today, checks: allChecks }), /pay a year/);
   const noShow = logMeeting(booked, 'no_show', { at, today });
   assert.deepEqual(noShow.rows, []);
   assert.equal(noShow.lead.stage, 'contacted');
@@ -117,7 +117,7 @@ const allChecks = Object.fromEntries(KITCHEN_CHECK.map((c) => [c.id, true]));
 
 test('an application can be sent on the first call, after the kitchen-table check', () => {
   assert.throws(() => logCall(fresh, 'applied', { ...opts, premium: 600, checks: { affordable: true } }), /Before sending.*bank details/);
-  assert.throws(() => logCall(fresh, 'applied', { ...opts, checks: allChecks }), /premium/);
+  assert.throws(() => logCall(fresh, 'applied', { ...opts, checks: allChecks }), /pay a year/);
   const r = logCall(fresh, 'applied', { ...opts, premium: 600, checks: allChecks });
   assert.deepEqual(types(r.rows), ['app_written', 'conversation', 'dial']);
   assert.equal(r.lead.stage, 'application');
@@ -229,4 +229,23 @@ test('the day text for the upline reads like a person wrote it', () => {
   const t = { dials: 64, conversations: 6, apptsSet: 1, apptsHeld: 0, appsWritten: 0 };
   assert.equal(dayText(t, { name: 'Jason', dayKey: '2026-11-02' }), 'Jason · Mon, Nov 2: 64 calls, 6 talked, 1 meeting booked, 0 meetings held, 0 applications sent.');
   void checkKitchenTable; void quality;
+});
+
+// Found reading the screens as a first-week agent: a save, a meeting and a first-payment call all showed
+// at once, nine buttons before the first call. Today shows one; the rest are named under it.
+test('one thing at a time before the next call: save, then a meeting that has happened, then care calls', () => {
+  const lead = (id, extra) => ({ id, agent_id: 'me', name: id, ...extra });
+  const q = {
+    saves: [lead('save', { stage: 'lapse_risk' })],
+    meetings: [lead('yesterday', { stage: 'appointment', meetingOn: addDays(today, -1), meetingAt: '16:00' }),
+      lead('at-1pm', { stage: 'appointment', meetingOn: today, meetingAt: '13:00' }),
+      lead('at-4pm', { stage: 'appointment', meetingOn: today, meetingAt: '16:00' })],
+    care: [{ lead: lead('welcome', { stage: 'issued' }), kind: 'welcome' }],
+  };
+  const at = (now) => needsYouNow(q, { today, now });
+  assert.equal(at('09:00').first.kind, 'save');
+  assert.deepEqual(at('09:00').rest.map((x) => x.lead.id), ['yesterday', 'welcome'], 'meetings later today ask for nothing yet');
+  assert.deepEqual(at('09:00').later.map((m) => m.id), ['at-1pm', 'at-4pm']);
+  assert.deepEqual(at('13:30').rest.map((x) => x.lead.id), ['yesterday', 'at-1pm', 'welcome'], 'the 1 PM meeting asks once its time comes');
+  assert.equal(needsYouNow({ saves: [], meetings: [], care: [] }, { today, now: '09:00' }).first, null);
 });

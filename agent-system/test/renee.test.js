@@ -132,5 +132,5 @@ test('the strongest agent gets a trainer step with the person who needs selling 
   const s = teamSummary({ members: t, dayKey: DAY, now: '15:00', tz: TZ });
   assert.equal(s.trainer.trainerName, 'Keisha');
   assert.equal(s.trainer.learnerName, 'Rosa');
-  assert.match(s.trainer.action, /Have Keisha walk Rosa through how they do the kitchen-table check/);
+  assert.match(s.trainer.action, /Have Keisha show Rosa how they do the four checks before sending an application/);
 });

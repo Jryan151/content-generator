@@ -82,7 +82,7 @@ test('while Director is parked, the same leader stays at Coach with a plain next
   assert.equal(r.stage, 'coach');
   assert.equal(r.gate.to, 'Director');
   assert.equal(r.gate.parked, true);
-  assert.match(r.nextAction, /Grow one person into a steady seller/);
+  assert.match(r.nextAction, /Help one agent get to a sale in 4 of every 6 weeks/);
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 

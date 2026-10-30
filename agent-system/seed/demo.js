@@ -40,8 +40,8 @@ import('../src/routines.js').then(({ planDown, ratesFrom, todoFor }) => {
   console.log('');
 });
 
-// ── The two paths: same team, same moment, different instructions (Director is parked) ──
-Promise.all([import('../src/paths.js'), import('../src/routines.js')]).then(([P, R]) => {
+// ── Two leader stages: same team, same moment, different instructions (Director is parked) ──
+Promise.all([import('../src/rules.js'), import('../src/routines.js'), import('../src/career.js')]).then(([P, R, C]) => {
   const team = [
     { id: PEOPLE[1].id, name: 'Devon', startedOn: '2026-05-01', coach: 'Devon' },
     { id: PEOPLE[2].id, name: 'Tasha', startedOn: '2026-07-15', coach: 'Devon' },
@@ -49,13 +49,13 @@ Promise.all([import('../src/paths.js'), import('../src/routines.js')]).then(([P,
   ];
   const plan = R.planDown({ yearlyPremium: 96_000 });
   for (const path of ['producer', 'coach']) {
-    const meta = P.PATHS[path];
-    console.log(`${meta.name.toUpperCase()} — "${meta.motto}"  ${meta.goal}`);
+    const meta = C.STAGES.find((s) => s.id === path);
+    console.log(`${meta.name.toUpperCase()} — ${meta.focus}`);
     for (const t of R.todoFor('2026-10-14', { role: 'builder', path, plan })) {
       console.log(`  ${t.at}  ${t.title}`);
     }
     const acts2 = path === 'producer' ? acts.filter((a) => a.agent_id !== PEOPLE[0].id) : acts;
-    const out = P.actionsFor({ path, dayKey: '2026-10-14', now: '12:05', selfId: PEOPLE[0].id, team, plan, activities: acts2, tz: TZ });
+    const out = P.actionsFor({ stage: path, dayKey: '2026-10-14', now: '12:05', selfId: PEOPLE[0].id, team, plan, activities: acts2, tz: TZ });
     console.log(`  At 12:05 the system says:`);
     if (!out.length) console.log('    (nothing — you are on track)');
     for (const a of out) console.log(`    → ${a.text}`);

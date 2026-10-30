@@ -16,7 +16,7 @@ import { applyCheckins, checkinRow, ownProduction, ownPremium, daysOff, dayOffRo
 import { dayStatus, todayLayout, MORE } from './src/today.js';
 import { payPicture } from './src/pay.js';
 import * as sync from './sync.js';
-import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, addDays, addWorkdays, isWorkday, dayText } from './src/calls.js';
+import { CALL_OUTCOMES, MEETING_OUTCOMES, KITCHEN_CHECK, CARE_CALLS, CARE_OUTCOMES, logCall, logMeeting, logCareCall, approvePolicy, markPaymentMissed, graceDaysLeft, queueFor, needsYouNow, addDays, addWorkdays, isWorkday, dayText } from './src/calls.js';
 import { migrate, readBackup, writeBackup, backupAge } from './src/store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -167,14 +167,30 @@ function replies(list, onPick, disabled = () => false) {
   }, h('b', {}, o.label), h('span', {}, o.hint))));
 }
 
-function meter(c, plan, goal = null) {
+// Her day in one line: the one number she controls (calls), and her next meeting if one is coming.
+function dayLine(c, goal, later = []) {
   const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
-  const cell = (n, goal, label) => h('div', { class: 'stat' }, h('b', {}, goal ? `${n}/${goal}` : n), h('span', {}, label));
-  return h('div', { class: 'stats four' },
-    cell(t.dials, plan?.daily?.dials ?? goal, 'calls'),
-    cell(t.conversations, plan?.daily?.conversations, 'talked'),
-    cell(t.apptsSet, null, 'meetings booked'),
-    cell(t.followups, plan?.daily?.followups, 'follow-ups'));
+  const m = later[0];
+  return h('div', { class: 'card dayline' },
+    h('div', {}, h('span', { class: 'big-num' }, goal ? `${t.dials} of ${goal}` : String(t.dials)), h('span', { class: 'muted' }, ' calls today')),
+    m ? h('div', { class: 'muted' }, `Next meeting: ${m.meetingAt ? `${clock(m.meetingAt, true)}, ` : ''}${m.name}${later.length > 1 ? ` (${later.length} today)` : ''}`) : null);
+}
+
+// The one thing before the next call: a save, a meeting to log, or a welcome / first-payment call.
+function needCard(c, item) {
+  return item.kind === 'meeting' ? meetingCard(c, item.lead) : careCard(c, item.lead, item.kind);
+}
+// What's waiting behind it, named in one quiet line.
+function afterThis(rest) {
+  if (!rest.length) return null;
+  const n = (k) => rest.filter((x) => x.kind === k).length;
+  const say = (count, one, many) => (count ? (count === 1 ? one : `${count} ${many}`) : null);
+  const parts = [
+    say(n('save'), 'a missed payment', 'missed payments'),
+    say(n('meeting'), 'a meeting to log', 'meetings to log'),
+    say(n('welcome') + n('pre_draft'), 'a call to a new customer', 'calls to new customers'),
+  ].filter(Boolean);
+  return h('p', { class: 'muted after-this' }, `After this: ${parts.join(', ')}.`);
 }
 
 function dayBlocks(c, L, plan, own = null) {
@@ -278,14 +294,14 @@ function renderToday() {
   const goal = plan?.daily?.dials ?? c.profile.dayCalls ?? null;
   const t = totalsFor(c.activities, { tf: '1D', key: c.dayKey, tz: c.tz, agentIds: [c.me] });
   const status = dayStatus({ goal, dials: t.dials, now: c.now, stopAt: c.profile.stopAt, workday: isWorkday(c.dayKey), keepGoing: ui.keepGoing, late: c.late, meetingsLeft: q.meetings.length });
-  // One meeting card at a time, however many are waiting: the rest are named on it.
-  const meetingNow = q.meetings.length ? [meetingCard(c, q.meetings[0], q.meetings.slice(1))] : [];
+  // One thing before the next call, however many are waiting: the rest are named under it.
+  const need = needsYouNow(q, { today: c.dayKey, now: c.now });
+  const nowCards = need.first ? [needCard(c, need.first), afterThis(need.rest)] : [];
   const own = ownProduction(c.activities, { me: c.me, dayKey: c.dayKey, tz: c.tz });
   const offToday = !c.demo && isWorkday(c.dayKey) && daysOff(c.activities.filter((a) => a.agent_id === c.me), c.tz).has(c.dayKey) && !ui.keepGoing;
   if (offToday) {
     fill(screen, top, lateCard(c),
-      q.saves.map((l) => careCard(c, l, 'save')),
-      meetingNow,
+      nowCards,
       h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'DAY OFF'),
         h('div', { class: 'who-big quiet' }, 'You’re off today'),
         h('div', { class: 'muted' }, 'It won’t count against your calls. Tomorrow’s list is set.'),
@@ -296,20 +312,19 @@ function renderToday() {
 
   // Each slot does one job (src/today.js says which show, in which order).
   const notice = lateCard(c) || backupNudge(c);
-  const nowCards = [...q.saves.map((l) => careCard(c, l, 'save')), ...meetingNow];
+  // The team slot is for a leader's one team thing, or her own calls being low. An agent's
+  // "focus" lives on Progress: repeating it here every morning was noise.
   const team = own.down ? ownDownCard(c, own)
-    : urgent ? needsYouCard(c, urgent)
-    : !teamView(c) ? focusCard('YOUR FOCUS', L.nextAction) : null;
+    : urgent ? needsYouCard(c, urgent) : null;
   const SLOT = {
     notice: () => notice,
     now: () => nowCards,
     next: () => status.callsDone ? callsDoneCard(c, t, q.meetings)
-      : q.care[0] ? careCard(c, q.care[0].lead, q.care[0].kind)
       : weekendQuiet ? weekendCard(q) : next ? callCard(c, next, calls.length) : allSkipped
         ? h('section', { class: 'card call empty' }, h('div', { class: 'kicker' }, 'CALL NEXT'), h('div', { class: 'who-big quiet' }, `You skipped all ${q.calls.length}`), h('button', { type: 'button', class: 'go', onclick: () => { ui.skip.clear(); renderToday(); } }, 'Start the list again'))
         : emptyQueue(c, goal, t.dials),
     team: () => team,
-    day: () => [meter(c, plan, goal), goal || c.demo ? null : fullDayCard(c), plan?.daily?.dials && !c.demo ? goalNote(c, plan.daily.dials) : null],
+    day: () => [dayLine(c, goal, need.later), goal || c.demo ? null : fullDayCard(c), plan?.daily?.dials && !c.demo ? goalNote(c, plan.daily.dials) : null],
     done: () => doneCard(c, { t, goal, byCalls: status.by === 'calls', next }),
   };
   const layout = todayLayout({ notice: !!notice, now: nowCards.length > 0, team: !!team, done: status.done });
@@ -433,7 +448,7 @@ function payLine(p, { blankOk = true } = {}) {
   if (!p.ready) return blankOk ? h('div', { class: 'muted' }, `Your pay next to your team’s shows once contract levels are in${p.waitingOn?.length ? ` (missing: ${p.waitingOn.join(', ')})` : ''}.`) : null;
   const lost = p.own.clawback + p.team.clawback;
   return h('div', {}, h('b', {}, `Last ${p.days} days: `), `your sales paid you ${usd(p.own.net)}, your team paid you ${usd(p.team.net)}.`,
-    lost ? h('span', { class: 'muted' }, ` After ${usd(lost)} in lapses.`) : null);
+    lost ? h('span', { class: 'muted' }, ` After ${usd(lost)} taken back for customers who stopped paying.`) : null);
 }
 
 function needsYouCard(c, p) {
@@ -467,7 +482,7 @@ function outcomeStep(c, lead, outcome, onDone) {
   }
   // applied: premium plus the four kitchen-table checks
   return h('div', { class: 'stepper' },
-    h('label', { for: id('prem') }, 'Yearly premium on the application'),
+    h('label', { for: id('prem') }, 'What they’ll pay a year'),
     h('span', { class: 'money-in' }, h('span', {}, '$'), h('input', { id: id('prem'), type: 'number', inputmode: 'numeric', min: '1', placeholder: '720' })),
     h('fieldset', { class: 'checks' },
       h('legend', {}, 'Before you send it, check all four:'),
@@ -514,17 +529,11 @@ function callCard(c, lead, count) {
            h('button', { type: 'button', class: 'link quiet-link', onclick: () => save('bad_number') }, 'Wrong or bad number'))]);
 }
 
-function meetingCard(c, lead, after = []) {
+function meetingCard(c, lead) {
   const open = ui.open === `applied:${lead.id}`;
   const missed = lead.meetingOn && lead.meetingOn < c.dayKey;
   const kicker = missed ? `MEETING ON ${dayShort(lead.meetingOn).toUpperCase()} · NOT LOGGED YET`
-    : lead.meetingAt ? `MEETING TODAY · ${clock(lead.meetingAt, true)}` : 'MEETING TODAY';
-  const earlier = after.filter((m) => m.meetingOn && m.meetingOn < c.dayKey).length;
-  const later = after.filter((m) => !(m.meetingOn && m.meetingOn < c.dayKey));
-  const then = [
-    earlier ? `${earlier} more from earlier days` : null,
-    later.length ? `Then today: ${later.slice(0, 3).map((m) => `${m.meetingAt ? `${clock(m.meetingAt, true)} ` : ''}${m.name}`).join(', ')}${later.length > 3 ? `, and ${later.length - 3} more` : ''}` : null,
-  ].filter(Boolean).join(' · ');
+    : lead.meetingAt ? `MEETING · ${clock(lead.meetingAt, true)}` : 'MEETING TODAY';
   const done = (outcome, extra = {}) => {
     const msg = { applied: `${lead.name}: application sent. Mark the insurer’s answer in Clients.`, no_sale: `${lead.name}: met, no sale yet. Follow up ${dayShort(addDays(c.dayKey, 3))}.`, no_show: `${lead.name}: no-show. They’re back on tomorrow’s calls.` }[outcome];
     const was = ui.open; ui.open = null;
@@ -535,8 +544,7 @@ function meetingCard(c, lead, after = []) {
     h('div', { class: 'who-big' }, lead.name),
     h('div', { class: 'ask' }, open ? 'Application sent' : missed ? 'What happened at that meeting?' : 'After the meeting, tap what happened:'),
     open ? outcomeStep(c, lead, 'applied', (extra) => done('applied', extra))
-      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `applied:${lead.id}`; renderToday(); } else done(o); }),
-    then ? h('div', { class: 'muted' }, then) : null);
+      : replies(MEETING_OUTCOMES, (o) => { if (o === 'applied') { ui.open = `applied:${lead.id}`; renderToday(); } else done(o); }));
 }
 
 // Calls that protect an approved policy: welcome, before the first draft, and the save.
@@ -544,8 +552,8 @@ function careCard(c, lead, kind) {
   const spec = CARE_CALLS[kind];
   const left = kind === 'save' ? graceDaysLeft(lead, c.dayKey) : null;
   const sub = kind === 'save'
-    ? (left === null ? 'Grace period end not entered. Check the carrier’s notice.' : left >= 0 ? `${left} day${left === 1 ? '' : 's'} left in the grace period` : 'The grace period has ended. Call the carrier too.')
-    : kind === 'pre_draft' && lead.draftOn ? `First payment drafts ${dayShort(lead.draftOn)}` : `Approved ${lead.approvedOn ? dayShort(lead.approvedOn) : ''}`.trim();
+    ? (left === null ? 'Check the insurer’s letter for the last day to fix it.' : left >= 0 ? `${left} day${left === 1 ? '' : 's'} left to fix it before the policy ends` : 'The last day to fix it has passed. Call the insurer too.')
+    : kind === 'pre_draft' && lead.draftOn ? `First payment comes out ${dayShort(lead.draftOn)}` : `Approved ${lead.approvedOn ? dayShort(lead.approvedOn) : ''}`.trim();
   const pick = (outcome) => {
     const msg = { reached: `${lead.name}: ${spec.label.toLowerCase()} done.`, no_answer: `${lead.name}: no answer. Back tomorrow.`, payment_problem: `${lead.name}: payment problem. A save call is now at the top of Today.`, fixed: `${lead.name}: payment fixed. Policy saved.`, canceling: `${lead.name}: policy lost.` }[outcome];
     act(c, msg, () => { const r = logCareCall(lead, kind, outcome, { at: c.at(), today: c.dayKey }); replaceLead(lead, r.lead); return r.rows; });
@@ -649,7 +657,7 @@ function renderStudyDay(c, L, top) {
     h('section', { class: 'card call' },
       h('div', { class: 'kicker' }, 'STUDY TODAY'),
       h('div', { class: 'who-big' }, today.studySessions ? 'Nice. Another session?' : 'One study session'),
-      h('div', { class: 'muted' }, 'A video lesson, then practice questions on it. About 30 minutes.'),
+      h('div', { class: 'muted' }, 'Study one topic, then answer practice questions on it. About 30 minutes.'),
       h('div', { class: 'ask' }, 'When you finish, tap:'),
       h('div', { class: 'replies two' },
         h('button', { type: 'button', class: 'reply r-talked', onclick: () => act(c, 'Study session logged.', () => [{ agent_id: c.me, type: 'study_session', value: 30, occurred_at: c.at() }]) }, h('b', {}, 'I studied 30 min'), h('span', {}, 'Logs one session')),
@@ -709,14 +717,14 @@ function clientCard(c, lead) {
   let actions = [];
   if (step === 'approve') {
     actions = [h('div', { class: 'stepper' },
-      h('label', { for: id('draft') }, 'Date of the first payment draft'),
+      h('label', { for: id('draft') }, 'Day their first payment comes out'),
       h('input', { id: id('draft'), type: 'date', min: c.dayKey }),
-      h('span', { class: 'muted' }, 'A welcome call tomorrow and a call 3 days before the draft go on Today by themselves.'),
+      h('span', { class: 'muted' }, 'A welcome call tomorrow, and a call 3 days before that payment, go on Today by themselves.'),
       h('button', { type: 'button', class: 'go', onclick: () => run(`${lead.name}: approved. Welcome call queued for tomorrow.`, () => { const r = approvePolicy(lead, { at: c.at(), today: c.dayKey, draftOn: $(id('draft')).value }); replaceLead(lead, r.lead); return r.rows; }) }, 'Save'),
       back)];
   } else if (step === 'missed') {
     actions = [h('div', { class: 'stepper' },
-      h('label', { for: id('grace') }, 'When does the grace period end? (from the carrier’s notice)'),
+      h('label', { for: id('grace') }, 'Last day to fix it before the policy ends (it’s on the insurer’s letter)'),
       h('input', { id: id('grace'), type: 'date' }),
       h('span', { class: 'muted' }, 'Leave it blank if you don’t know yet. A save call goes to the top of Today.'),
       h('button', { type: 'button', class: 'go', onclick: () => run(`${lead.name}: payment missed. A save call is at the top of Today.`, () => { const r = markPaymentMissed(lead, { at: c.at(), today: c.dayKey, graceEndsOn: $(id('grace')).value || null }); replaceLead(lead, r.lead); return r.rows; }) }, 'Start the save'),
@@ -725,13 +733,13 @@ function clientCard(c, lead) {
     if (lead.stage === 'application') actions.push(h('button', { type: 'button', class: 'mini', onclick: () => open('approve') }, 'Insurer approved'));
     if (lead.stage === 'issued') actions.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => open('missed') }, 'Payment missed'));
     if (lead.stage === 'lapse_risk') actions.push(h('button', { type: 'button', class: 'mini', onclick: () => move('issued', 'payment back on') }, 'Paid'));
-    if (['application', 'issued', 'lapse_risk'].includes(lead.stage)) actions.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => move('lost', lead.stage === 'application' ? 'declined' : 'policy lapsed') }, lead.stage === 'application' ? 'Declined' : 'Lapsed'));
+    if (['application', 'issued', 'lapse_risk'].includes(lead.stage)) actions.push(h('button', { type: 'button', class: 'mini quiet', onclick: () => move('lost', lead.stage === 'application' ? 'insurer said no' : 'stopped paying, policy ended') }, lead.stage === 'application' ? 'Insurer said no' : 'Stopped paying'));
   }
   const left = lead.stage === 'lapse_risk' ? graceDaysLeft(lead, c.dayKey) : null;
   const when = lead.stage === 'appointment' && lead.meetingOn ? `Meeting ${dayShort(lead.meetingOn)}${lead.meetingAt ? ` at ${clock(lead.meetingAt, true)}` : ''}`
     : ['new', 'contacted'].includes(lead.stage) ? (lead.nextOn ? `Call ${lead.nextOn <= c.dayKey ? 'today' : dayShort(lead.nextOn)}${lead.callbackAt ? ` at ${clock(lead.callbackAt, true)}` : ''}` : 'In today’s calls')
-    : lead.stage === 'issued' && lead.draftOn ? `Drafts ${dayShort(lead.draftOn)}`
-    : lead.stage === 'lapse_risk' ? (left === null ? 'Save call due' : `${left} day${left === 1 ? '' : 's'} of grace left`)
+    : lead.stage === 'issued' && lead.draftOn ? (lead.draftOn >= c.dayKey ? `First payment ${dayShort(lead.draftOn)}` : 'Paying')
+    : lead.stage === 'lapse_risk' ? (left === null ? 'Call to save it' : `${left} day${left === 1 ? '' : 's'} left to fix it`)
     : lead.stage === 'lost' && lead.lostReason === 'bad_number' ? 'Bad number' : null;
   return h('div', { class: 'item' },
     h('div', { class: 'who' }, h('b', {}, lead.name), h('div', { class: 'muted' }, [lead.premium ? `${usd(lead.premium)} a year` : null, when].filter(Boolean).join(' · '))),
@@ -742,21 +750,28 @@ function renderPipeline() {
   const c = ctx();
   const L = place(c);
   const screen = $('screen-pipeline');
-  const top = head('EVERYONE YOU’RE WORKING WITH', 'Clients');
+  const top = head('AFTER THE SALE', 'Clients');
   if (!isUnlocked(L.stage, 'Clients')) {
     fill(screen, top, h('div', { class: 'card locked' }, h('b', {}, 'Opens when you pass your exam'),
-      h('p', { class: 'muted' }, 'This is where the people you call will live: who’s booked, whose application is out, whose policy the insurer approved.')));
+      h('p', { class: 'muted' }, 'Once you start selling, this shows whose application is with the insurer and who’s paying.')));
     return;
   }
+  // Only what Today can't do: the insurer's answer, and whether they keep paying. People to call
+  // and meetings are on Today; showing them here too was the same list twice.
   const mineLeads = c.leads.filter((l) => l.agent_id === c.me);
-  const order = ['lapse_risk', 'appointment', 'application', 'issued', 'contacted', 'new', 'lost'];
-  const groups = order.map((id) => ({ id, list: mineLeads.filter((l) => l.stage === id) })).filter((g) => g.list.length);
+  const GROUPS = [
+    { id: 'lapse_risk', title: 'Missed a payment' },
+    { id: 'application', title: 'Waiting on the insurer' },
+    { id: 'issued', title: 'Paying' },
+  ];
+  const groups = GROUPS.map((g) => ({ ...g, list: mineLeads.filter((l) => l.stage === g.id) })).filter((g) => g.list.length);
+  const lost = mineLeads.filter((l) => l.stage === 'lost' && l.premium);
   fill(screen, top,
-    h('p', { class: 'muted' }, 'Calls and meetings are logged on Today. Here you mark what the insurer says, and missed payments.'),
-    groups.length ? groups.map(({ id, list }) => h('div', { class: 'card' },
-      h('div', { class: 'stage-h' }, h('span', {}, stageLabel(id)), h('span', { class: 'count' }, list.length)),
+    groups.length ? groups.map(({ title, list }) => h('div', { class: 'card' },
+      h('div', { class: 'stage-h' }, h('span', {}, title), h('span', { class: 'count' }, list.length)),
       list.map((l) => clientCard(c, l))))
-      : h('div', { class: 'card locked' }, h('b', {}, 'No one yet'), h('p', { class: 'muted' }, 'Add people to call on Today. They land here as you work them.'), h('a', { class: 'go as-link', href: '#today' }, 'Go to Today')));
+      : h('div', { class: 'card locked' }, h('b', {}, 'No one here yet'), h('p', { class: 'muted' }, 'When you send an application, the person shows up here until the insurer answers. Then you’ll see who’s paying.'), h('a', { class: 'go as-link', href: '#today' }, 'Go to Today')),
+    lost.length ? h('details', { class: 'more' }, h('summary', {}, `Ended (${lost.length})`), h('div', { class: 'card' }, lost.map((l) => clientCard(c, l)))) : null);
 }
 
 // ── Recruits: one queue, like calls ─────────────────────────────────
@@ -813,8 +828,8 @@ function stillPaying(c) {
   const q = quality({ activities: c.qualityActs, agentIds: [c.me], dayKey: c.dayKey });
   const m = CHECKPOINTS.find((k) => q.activeAt[k].eligible);
   return h('p', { class: 'muted' }, m
-    ? `Of your policies placed ${m}+ months ago, ${q.activeAt[m].active} of ${q.activeAt[m].eligible} are still paying.`
-    : 'Once a policy is 3 months old, you’ll see how many are still paying.');
+    ? `Of your customers from ${m}+ months ago, ${q.activeAt[m].active} of ${q.activeAt[m].eligible} are still paying.`
+    : 'Once a customer has had their policy 3 months, you’ll see how many are still paying.');
 }
 
 function selfRating(c) {

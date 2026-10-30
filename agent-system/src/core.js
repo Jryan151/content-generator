@@ -78,7 +78,7 @@ export const SCREENS = Object.freeze([
  */
 export const SIMPLE = Object.freeze({
   todayMaxSlots: 5,
-  plainWords: Object.freeze(['pipeline', 'override', 'parked', 'production first', 'red list', 'recruiting step', 'names list', 'ladder']),
+  plainWords: Object.freeze(['pipeline', 'override', 'parked', 'production first', 'red list', 'recruiting step', 'names list', 'ladder', 'grace period', 'lapsed', 'lapse', 'draft', 'drafts', 'kitchen-table', 'steady seller', 'placed', 'dial block']),
   jobs: Object.freeze([
     { job: 'Who to call next', feature: 'calls.queueFor' },
     { job: 'Log what happened', feature: 'calls.logCall' },
@@ -96,13 +96,13 @@ export const SIMPLE = Object.freeze({
 
 /** Parked until there's real data. Code stays where it exists, so nothing needs a rebuild. */
 export const PARKED = Object.freeze([
-  { feature: 'Director and Upline paths and views', where: 'paths.PARKED_PATHS, career PARKED_STAGES' },
+  { feature: 'Director and Upline stages and views', where: 'career PARKED_STAGES' },
   { feature: 'Plan cascade and earnings-to-premium math', where: 'routines.planDown (stays off until setup.buildSystem has real data)' },
   { feature: 'Monthly, quarterly and yearly views', where: 'routines ROUTINES above 1W' },
   { feature: 'Playbook screen', where: 'scripts attach to Today steps once the leader shares them' },
   { feature: 'Commission tracker: payments received, late and partial (her pay picture is live: src/pay.js)', where: 'src/parked/commissions.js reconcile' },
   { feature: 'Content and the post block', where: 'routines.todoFor({ content: false })' },
-  { feature: 'Rules beyond production first', where: 'paths.actionsFor beyond the red line' },
+  { feature: 'Rules beyond production first', where: 'rules.actionsFor beyond the red line' },
   { feature: 'Pricing and billing', where: 'not built' },
   { feature: 'Real estate expansion', where: 'not built' },
 ]);

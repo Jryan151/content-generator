@@ -62,7 +62,7 @@ function screenStrings(file) {
 }
 test('screens speak plainly: no insider words in anything a person reads', () => {
   const words = SIMPLE.plainWords.map((w) => new RegExp(`\\b${w}\\b`, 'i'));
-  for (const file of ['../public/app.js', '../src/attention.js', '../src/calls.js', '../src/today.js']) {
+  for (const file of ['../public/app.js', '../src/attention.js', '../src/calls.js', '../src/today.js', '../src/rules.js', '../src/ladder.js']) {
     for (const text of screenStrings(file)) {
       const hit = words.find((w) => w.test(text));
       assert.ok(!hit, `${file}: ${text.slice(0, 90)} uses "${hit}"`);

@@ -29,7 +29,7 @@ export const CALL_OUTCOMES = Object.freeze([
 
 /** What can happen at an appointment. */
 export const MEETING_OUTCOMES = Object.freeze([
-  { id: 'applied',  label: 'Application sent', hint: 'Enter the yearly premium' },
+  { id: 'applied',  label: 'Application sent', hint: 'Enter what they’ll pay a year' },
   { id: 'no_sale',  label: 'Met, no sale yet', hint: 'Follow up in 3 days' },
   { id: 'no_show',  label: 'No-show',          hint: 'Call again tomorrow' },
 ]);
@@ -40,7 +40,7 @@ export const MEETING_OUTCOMES = Object.freeze([
  */
 export const KITCHEN_CHECK = Object.freeze([
   { id: 'affordable',   label: 'They can afford it comfortably every month' },
-  { id: 'draft_date',   label: 'Draft date set right after their income lands' },
+  { id: 'draft_date',   label: 'Payment day set right after their income lands' },
   { id: 'bank_checked', label: 'Bank details read back and confirmed' },
   { id: 'wants_it',     label: 'They want it, not talked into it' },
 ]);
@@ -48,7 +48,7 @@ export const KITCHEN_CHECK = Object.freeze([
 /** Calls that protect a policy once it's approved, plus the save call. */
 export const CARE_CALLS = Object.freeze({
   welcome:   { label: 'Welcome call', why: 'Approved. Tell them what happens next.', outcomes: ['reached', 'no_answer', 'payment_problem'] },
-  pre_draft: { label: 'Before the first payment', why: 'Their first draft is coming. Make sure it still works.', outcomes: ['reached', 'no_answer', 'payment_problem'] },
+  pre_draft: { label: 'Before the first payment', why: 'Their first payment comes out soon. Make sure it will go through.', outcomes: ['reached', 'no_answer', 'payment_problem'] },
   save:      { label: 'Payment missed: save it', why: 'Usually a bank or card issue, not a cancel. Call today.', outcomes: ['fixed', 'no_answer', 'canceling'] },
 });
 export const CARE_OUTCOMES = Object.freeze({
@@ -137,7 +137,7 @@ export function logCall(lead, outcome, { agentId, at, today, meetingOn = null, m
   }
   let checked = null;
   if (outcome === 'applied') {
-    if (!(premium > 0)) throw new Error('Submitting needs the annual premium');
+    if (!(premium > 0)) throw new Error('Enter what they’ll pay a year first.');
     checked = checkKitchenTable(checks);
   }
 
@@ -172,7 +172,7 @@ export function logMeeting(lead, outcome, { at, today, premium = null, checks = 
   }
   const rows = [{ ...base, type: 'appt_held' }];
   if (outcome === 'no_sale') return { lead: { ...clear(lead), stage: 'contacted', nextOn: addWorkdays(today, 3) }, rows };
-  if (!(premium > 0)) throw new Error('Submitting needs the annual premium');
+  if (!(premium > 0)) throw new Error('Enter what they’ll pay a year first.');
   const checked = checkKitchenTable(checks);
   const moved = moveLead(lead, 'application', { at, premium });
   const next = clear(moved.lead);
@@ -187,7 +187,7 @@ export function logMeeting(lead, outcome, { at, today, premium = null, checks = 
  */
 export function approvePolicy(lead, { at, today, draftOn }) {
   if (lead.stage !== 'application') throw new Error('Only a sent application can be approved');
-  if (draftOn && !DAY.test(draftOn)) throw new Error('Enter the first payment draft as a date');
+  if (draftOn && !DAY.test(draftOn)) throw new Error('Enter the day the first payment comes out as a date');
   const moved = moveLead(lead, 'issued', { at });
   const tomorrow = addWorkdays(today, 1);
   const care = { welcome: tomorrow };
@@ -204,7 +204,7 @@ export function approvePolicy(lead, { at, today, draftOn }) {
  */
 export function markPaymentMissed(lead, { at, today, graceEndsOn = null }) {
   if (lead.stage !== 'issued') throw new Error('Only an approved policy can miss a payment');
-  if (graceEndsOn && !DAY.test(graceEndsOn)) throw new Error('Enter the grace period end as a date');
+  if (graceEndsOn && !DAY.test(graceEndsOn)) throw new Error('Enter the last day to fix it as a date');
   const moved = moveLead(lead, 'lapse_risk', { at });
   const next = { ...moved.lead, care: { ...(lead.care || {}), save: today } };
   if (graceEndsOn) next.graceEndsOn = graceEndsOn; else delete next.graceEndsOn;
@@ -277,6 +277,26 @@ export function queueFor(leads, today, { weekendCalls = false } = {}) {
     .sort((a, b) => a.nextOn.localeCompare(b.nextOn) || (a.callbackAt || '99').localeCompare(b.callbackAt || '99'));
   const fresh = leads.filter((l) => l.stage === 'new' && !l.nextOn);
   return { saves, meetings, care, calls: [...due, ...fresh], weekend: false, waiting: 0 };
+}
+
+/**
+ * What needs her before the next call, as ONE line: Today shows the first and names the rest.
+ *   save first (a policy is about to end), then a meeting that has happened and needs what
+ *   happened (earlier days first, then today's once its time has come), then the welcome and
+ *   first-payment calls.
+ * A meeting later today isn't asking for anything yet: it's in `later`, so Today can say
+ * "Next meeting 1:00 PM" without a card with buttons for something that hasn't happened.
+ *   q    queueFor() result      now  'HH:MM'
+ * Returns { first, rest: [...], later: [meetings later today, by time] }, items { kind, lead }.
+ */
+export function needsYouNow(q, { today, now = '23:59' }) {
+  const isDue = (m) => (m.meetingOn ?? today) < today || !m.meetingAt || m.meetingAt <= now;
+  const list = [
+    ...q.saves.map((lead) => ({ kind: 'save', lead })),
+    ...q.meetings.filter(isDue).map((lead) => ({ kind: 'meeting', lead })),
+    ...q.care.map(({ lead, kind }) => ({ kind, lead })),
+  ];
+  return { first: list[0] ?? null, rest: list.slice(1), later: q.meetings.filter((m) => !isDue(m)) };
 }
 
 /** The text an agent sends their upline at the end of the day. */
