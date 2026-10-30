@@ -43,7 +43,7 @@ export const STAGES = Object.freeze([
     id: 'selling', name: 'Selling',
     focus: 'Sell every week.',
     why: 'One sale can be luck. Steady weeks prove you have a process.',
-    unlocked: ['Today', 'Playbook', 'Pipeline', 'Your numbers by week'],
+    unlocked: ['Today', 'Playbook', 'Clients', 'Your numbers by week'],
     locked: ['Recruiting', 'Team'],
   },
   {
@@ -98,13 +98,28 @@ function lastWeeks(dayKey, n) {
   return keys;
 }
 
-/** How many of the last N completed weeks had at least one application. */
+/**
+ * How many of the last N completed weeks had a sale that stuck.
+ * Only business that sticks counts: once someone has any placed policy in their log, a week counts
+ * when an application written that week was placed (matched by client), or a policy was placed that
+ * week with no application on record. Before any placement data exists, applications count, and
+ * `source` says so, so a screen never passes applications off as placed business.
+ */
 export function weeksWithASale(activities, { personId, dayKey, tz, outOf }) {
   const weeks = lastWeeks(dayKey, outOf);
-  // Only this person's applications can count, so scan just those rows.
-  const apps = activities.filter((a) => a.agent_id === personId && a.type === 'app_written');
-  const flags = weeks.map((k) => totalsFor(apps, { tf: '1W', key: k, tz, agentIds: [personId] }).appsWritten > 0);
-  return { count: flags.filter(Boolean).length, outOf, weeks, flags };
+  const mine = activities.filter((a) => a.agent_id === personId && (a.type === 'app_written' || a.type === 'policy_issued'));
+  const placed = mine.filter((a) => a.type === 'policy_issued');
+  let rows, source;
+  if (placed.length) {
+    const appBy = new Map(mine.filter((a) => a.type === 'app_written' && a.lead_id).map((a) => [a.lead_id, a]));
+    rows = placed.map((p) => ({ ...(appBy.get(p.lead_id) || p), type: 'app_written' }));
+    source = 'placed';
+  } else {
+    rows = mine.filter((a) => a.type === 'app_written');
+    source = 'applications';
+  }
+  const flags = weeks.map((k) => totalsFor(rows, { tf: '1W', key: k, tz, agentIds: [personId] }).appsWritten > 0);
+  return { count: flags.filter(Boolean).length, outOf, weeks, flags, source };
 }
 
 const everSold = (activities, id) => activities.some((a) => a.agent_id === id && a.type === 'app_written');
@@ -216,6 +231,8 @@ export function placeOnLadder({ person, team = [], teamStages = null, activities
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const DAY_MS = 86_400_000;
+/** Their first entry here must come within this many days of joining for the app to judge their first month. */
+export const SEEN_FROM_START_DAYS = 7;
 /**
  * Did this person reach Producer on your team? Producer now, and they started from nothing
  * here: they passed their licensing exam on the app, or went their first 30 days on it without
@@ -228,7 +245,9 @@ export function developedHere(m, stageNow) {
   if (!rows.length) return false;
   if (rows.some((a) => a.type === 'license_passed')) return true;
   const first = rows.reduce((mn, a) => (a.occurred_at < mn ? a.occurred_at : mn), rows[0].occurred_at);
-  // When they joined, or their first entry if later: the app can only judge what it has seen.
+  // The app can only judge a first month it saw. Someone who joined well before their first entry here
+  // (a veteran whose history starts mid-stream) was not developed by this team, however late that first logged sale.
+  if (m.startedOn && Date.parse(first) - rangeOf(m.startedOn, '1D').start.getTime() > SEEN_FROM_START_DAYS * DAY_MS) return false;
   const joined = m.startedOn && m.startedOn > first.slice(0, 10) ? rangeOf(m.startedOn, '1D').start.toISOString() : first;
   const firstSale = rows.filter((a) => a.type === 'app_written').reduce((mn, a) => (!mn || a.occurred_at < mn ? a.occurred_at : mn), null);
   return !!firstSale && Date.parse(firstSale) - Date.parse(joined) > 30 * DAY_MS;
@@ -249,7 +268,7 @@ export function routineFor(stageId) {
 /** Is a feature open at this stage? Yes or no. */
 export function isUnlocked(stageId, feature) {
   const opensAt = {
-    Pipeline: 'starting', 'Names list': 'producer', Recruiting: 'coach', 'Recruiting pipeline': 'coach', Team: 'coach',
+    Pipeline: 'starting', Clients: 'starting', Recruits: 'producer', 'Names list': 'producer', Recruiting: 'coach', 'Recruiting pipeline': 'coach', Team: 'coach',
     'Red list': 'coach', 'Coaches view': 'director', 'All-teams view': 'upline',
   };
   const at = opensAt[feature];

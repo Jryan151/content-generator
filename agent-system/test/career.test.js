@@ -54,7 +54,7 @@ test('steady for 8 weeks but no Playbook → still Producer, told to write it', 
 test('steady + Playbook → Coach, even before the first recruit', () => {
   const r = placeOnLadder({ person: { id: ME }, activities: salesIn(7), dayKey: DAY, tz: TZ, playbookReady: true });
   assert.equal(r.stage, 'coach');
-  assert.equal(r.nextAction, 'Get 3 more agents to steady weekly sales. Start with whoever is closest on Team.');
+  assert.equal(r.nextAction, 'Get 3 more people selling every week. Start with whoever is closest on My people.');
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 
@@ -82,7 +82,7 @@ test('while Director is parked, the same leader stays at Coach with a plain next
   assert.equal(r.stage, 'coach');
   assert.equal(r.gate.to, 'Director');
   assert.equal(r.gate.parked, true);
-  assert.match(r.nextAction, /Develop one agent to Producer/);
+  assert.match(r.nextAction, /Grow one person into a steady seller/);
   assert.deepEqual(routineFor(r.stage), { role: 'builder', path: 'coach', starting: false });
 });
 

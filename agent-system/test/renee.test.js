@@ -103,7 +103,7 @@ test('her own calls: a real drop is named; a new user gets no made-up warning', 
   const steady = daily('me', '2026-09-21', '2026-11-04', 'dial', 45);
   const slipping = daily('me', '2026-11-05', '2026-11-18', 'dial', 25);
   const p = ownProduction([...steady, ...slipping], { me: 'me', dayKey: DAY, tz: TZ });
-  assert.deepEqual(p, { down: true, recentPerDay: 25, priorPerDay: 45 });
+  assert.deepEqual(p, { down: true, recentPerDay: 25, priorPerDay: 45, unmarkedZeroDays: [] });
   assert.equal(ownProduction(slipping, { me: 'me', dayKey: DAY, tz: TZ }).down, false);
   const plan = { daily: { dials: 40 } };
   const hidden = todoFor(DAY, { role: 'builder', path: 'coach', plan, tz: TZ, hold: true });

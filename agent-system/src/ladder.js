@@ -142,11 +142,11 @@ function actionFor(q, fmt) {
     case 'playbookReady':
       return 'Finish your Playbook in your own words. It is what every recruit will learn from.';
     case 'agentsSelling':
-      return `Get ${n} more agent${s} to steady weekly sales. Start with whoever is closest on Team.`;
+      return `Get ${n} more ${n === 1 ? 'person' : 'people'} selling every week. Start with whoever is closest on My people.`;
     case 'agentsDeveloped':
-      return 'Develop one agent to Producer: a sale in 4 of 6 weeks. Pair them with your strongest agent; that’s how trainers start.';
+      return 'Grow one person into a steady seller: a sale in 4 of 6 weeks. Pair them with your strongest agent; that’s how trainers start.';
     case 'coachesBuilt':
-      return `Develop ${n} more coach${n === 1 ? '' : 'es'}. Give your strongest Producer the Coach routine and a first recruit.`;
+      return `Grow ${n} more ${n === 1 ? 'person' : 'people'} who train others. Give your strongest seller a first recruit to teach.`;
     default:
       return `Close the gap on ${q.label}.`;
   }

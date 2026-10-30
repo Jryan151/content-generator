@@ -204,6 +204,17 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
 @media (max-width: 520px) { .stats.four { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 380px) { .stats { grid-template-columns: 1fr 1fr; } .tabs a { font-size: 12.5px; } }
 @media (prefers-reduced-motion: no-preference) { .log button { transition: background .15s; } }
+
+/* More: everything that isn't one of Today's five jobs */
+details.more { margin-top: 4px; }
+details.more > summary { list-style: none; cursor: pointer; text-align: center; color: var(--muted); font-weight: 600; padding: 12px; min-height: 44px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more[open] > summary { margin-bottom: 8px; }
+details.more > *:not(summary) { margin-bottom: 10px; }
+.section-h { margin: 12px 0 0; font-size: 18px; }
+.lead { font-size: 16px; margin: 0; }
+.scale { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; }
+.scale .mini { padding: 0; min-height: 44px; }
 </style>
 </head>
 <body>
@@ -223,9 +234,9 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
   <div id="acct-note"></div>
 
   <section class="screen" id="screen-today" aria-label="Today" hidden></section>
-  <section class="screen" id="screen-pipeline" aria-label="Pipeline" hidden></section>
-  <section class="screen" id="screen-ladder" aria-label="Ladder" hidden></section>
-  <section class="screen" id="screen-team" aria-label="Team" hidden></section>
+  <section class="screen" id="screen-pipeline" aria-label="Clients" hidden></section>
+  <section class="screen" id="screen-ladder" aria-label="Progress" hidden></section>
+  <section class="screen" id="screen-team" aria-label="My people" hidden></section>
 
   <div class="screen" id="screen-setup">
   <div id="leader-setup">
@@ -284,9 +295,9 @@ details summary:focus-visible { outline: 2px solid var(--accent); outline-offset
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <nav class="tabs" id="tabs" aria-label="Screens">
   <a href="#today" data-tab="today">Today</a>
-  <a href="#pipeline" data-tab="pipeline">Pipeline</a>
-  <a href="#ladder" data-tab="ladder">Ladder</a>
-  <a href="#team" data-tab="team">Team</a>
+  <a href="#team" data-tab="team">My people</a>
+  <a href="#ladder" data-tab="ladder">Progress</a>
+  <a href="#pipeline" data-tab="pipeline">Clients</a>
   <a href="#setup" data-tab="setup">Setup</a>
 </nav>
 <script type="module" src="setup.js"></script>

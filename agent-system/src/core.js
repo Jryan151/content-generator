@@ -12,20 +12,20 @@ export const CORE_VALUES = Object.freeze([
   {
     id: 'production-first',
     value: 'Production first.',
-    meaning: 'A builder is a producer who never stopped producing. Recruiting work only shows when today’s production is on track.',
-    enforcedBy: ['routines.productionRed', 'career.placeOnLadder'],
+    meaning: 'A builder is a producer who never stopped producing. When her own calls are down (days off don’t count), that comes first and team work waits.',
+    enforcedBy: ['attention.ownProduction', 'career.placeOnLadder'],
   },
   {
     id: 'business-that-sticks',
     value: 'Only business that sticks counts.',
-    meaning: 'Placed and still-active policies are the score, not applications or recruits signed.',
-    enforcedBy: ['quality.quality'],
+    meaning: 'Placed and still-active policies are the score, not applications or recruits signed. Selling every week counts placed policies once there are any.',
+    enforcedBy: ['quality.quality', 'career.weeksWithASale', 'pay.payPicture'],
   },
   {
     id: 'one-next-action',
     value: 'One next action.',
-    meaning: 'Every screen answers “what do I do now?” in black and white.',
-    enforcedBy: ['career.placeOnLadder', 'routines.todoFor'],
+    meaning: 'Every screen answers “what do I do now?” in black and white. Today shows five things at most.',
+    enforcedBy: ['today.todayLayout', 'today.dayStatus', 'career.placeOnLadder'],
   },
   {
     id: 'log-once',
@@ -50,25 +50,49 @@ export const SCREENS = Object.freeze([
   },
   {
     id: 'today', name: 'Today', who: 'Every agent',
-    job: 'One chain: who to call next, one tap for what happened, the next step set for you. Before licensing, a study day instead.',
-    reads: ['calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'attention.teamSummary', 'attention.ownProduction', 'store.migrate'],
+    job: 'One short chain: what can’t wait, the next call, one team thing, her day so far, done. Everything else is behind More. Before licensing, a study day instead.',
+    reads: ['today.todayLayout', 'today.dayStatus', 'calls.queueFor', 'calls.logCall', 'calls.logMeeting', 'calls.logCareCall', 'calls.dayText', 'routines.todoFor', 'routines.productionRed', 'career.routineFor', 'attention.teamSummary', 'attention.ownProduction', 'attention.dayOffRow', 'pay.payPicture', 'store.migrate'],
   },
   {
-    id: 'pipeline', name: 'Pipeline', who: 'Every agent',
-    job: 'Clients: contacted, appointment, submitted, placed. Recruits: name, interviewed, studying, licensed, first sale.',
-    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'calls.approvePolicy', 'calls.markPaymentMissed', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'pipeline.dropRecruit', 'pipeline.daysInStage', 'career.isUnlocked'],
+    id: 'pipeline', name: 'Clients', who: 'Every agent',
+    job: 'Everyone she’s working with, by where they stand: talked, meeting, application sent, approved, payment missed.',
+    reads: ['pipeline.LEAD_STAGES', 'pipeline.moveLead', 'calls.approvePolicy', 'calls.markPaymentMissed', 'career.isUnlocked'],
   },
   {
-    id: 'ladder', name: 'Ladder', who: 'Every agent',
-    job: 'Current stage, why it’s the focus, and the one gate to the next.',
-    reads: ['career.placeOnLadder', 'attention.builderMeasure', 'quality.quality', 'quality.showRate'],
+    id: 'ladder', name: 'Progress', who: 'Every agent',
+    job: 'A leader: what her team paid her next to her own sales, three readings, one step this month. An agent: their focus and the one thing to the next stage.',
+    reads: ['career.placeOnLadder', 'attention.builderMeasure', 'pay.payPicture', 'quality.quality', 'quality.showRate'],
   },
   {
-    id: 'team', name: 'Team', who: 'Leader',
-    job: 'One ranking of who needs you first, with one action each: silence, stalled exams, lapses, no-shows, then pace. Invites on the team site.',
-    reads: ['attention.teamSummary', 'attention.whoNeedsYou', 'attention.applyCheckins', 'attention.trainer', 'ladder.duplication', 'timeframes.whereItBroke'],
+    id: 'team', name: 'My people', who: 'Leader (and a producer with recruits)',
+    job: 'Who could use her, one action each, then her recruits one at a time. Invites on the team site.',
+    reads: ['attention.leaderView', 'attention.teamSummary', 'attention.applyCheckins', 'ladder.RECRUIT_STAGES', 'pipeline.moveRecruit', 'pipeline.dropRecruit', 'pipeline.daysInStage'],
   },
 ]);
+
+/**
+ * Simple, held by tests (test/simple.test.js): the app is for busy people who don't read instructions.
+ *   todayMaxSlots   Today shows at most this many things above "More"
+ *   plainWords      words that never appear in what a person reads on screen
+ *   jobs            one feature per job; a job listed twice, or a feature doing two jobs, fails
+ */
+export const SIMPLE = Object.freeze({
+  todayMaxSlots: 5,
+  plainWords: Object.freeze(['pipeline', 'override', 'parked', 'production first', 'red list', 'recruiting step', 'names list', 'ladder']),
+  jobs: Object.freeze([
+    { job: 'Who to call next', feature: 'calls.queueFor' },
+    { job: 'Log what happened', feature: 'calls.logCall' },
+    { job: 'Protect a policy', feature: 'calls.logCareCall' },
+    { job: 'Is her day done?', feature: 'today.dayStatus' },
+    { job: 'What Today shows', feature: 'today.todayLayout' },
+    { job: 'Is her own selling okay?', feature: 'attention.ownProduction' },
+    { job: 'Who on her team needs her', feature: 'attention.leaderView' },
+    { job: 'Her recruits', feature: 'pipeline.moveRecruit' },
+    { job: 'Is she building?', feature: 'attention.builderMeasure' },
+    { job: 'What she and her team earned', feature: 'pay.payPicture' },
+    { job: 'Where an agent is going next', feature: 'career.placeOnLadder' },
+  ]),
+});
 
 /** Parked until there's real data. Code stays where it exists, so nothing needs a rebuild. */
 export const PARKED = Object.freeze([
@@ -76,7 +100,7 @@ export const PARKED = Object.freeze([
   { feature: 'Plan cascade and earnings-to-premium math', where: 'routines.planDown (stays off until setup.buildSystem has real data)' },
   { feature: 'Monthly, quarterly and yearly views', where: 'routines ROUTINES above 1W' },
   { feature: 'Playbook screen', where: 'scripts attach to Today steps once the leader shares them' },
-  { feature: 'Commission tracker', where: 'src/parked/commissions.js' },
+  { feature: 'Commission tracker: payments received, late and partial (her pay picture is live: src/pay.js)', where: 'src/parked/commissions.js reconcile' },
   { feature: 'Content and the post block', where: 'routines.todoFor({ content: false })' },
   { feature: 'Rules beyond production first', where: 'paths.actionsFor beyond the red line' },
   { feature: 'Pricing and billing', where: 'not built' },

@@ -2,7 +2,7 @@
 // team's start dates. Made up and labeled as demo everywhere it shows, like
 // seed/sample.js. The demo runs the same engine as the real system.
 
-import { LEADER, DEVON, TASHA, MARCUS } from './sample.js';
+import { LEADER, DEVON, TASHA, MARCUS, DEMO } from './sample.js';
 
 /** Morgan's team, with the dates each agent started. */
 export const DEMO_TEAM = Object.freeze([
@@ -10,6 +10,9 @@ export const DEMO_TEAM = Object.freeze([
   { id: TASHA, name: 'Tasha R.', startedOn: '2026-08-24' },
   { id: MARCUS, name: 'Marcus J.', startedOn: '2026-08-31' },
 ]);
+
+/** Contract levels (set by you in the agency kit): Morgan's, and her agents'. Demo only. */
+export const DEMO_LEVELS = Object.freeze({ [LEADER]: DEMO.contractPercent, [DEVON]: 60, [TASHA]: 60, [MARCUS]: 60 });
 
 /** Morgan has written her Playbook in her own words (demo only). */
 export const DEMO_PLAYBOOK_READY = true;

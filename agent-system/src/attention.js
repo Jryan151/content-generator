@@ -27,6 +27,7 @@ import { totalsFor, keyForCalendarDate, rangeOf, toCalendarDate, bucketKey } fro
 import { placeOnLadder, weeksWithASale, developedHere } from './career.js';
 import { showRate } from './quality.js';
 import { weekStatus } from './paths.js';
+import { payPicture } from './pay.js';
 
 const DAY_MS = 86_400_000;
 const LEVELS = { urgent: 0, watch: 1, ok: 2 };
@@ -45,6 +46,9 @@ export const ATTENTION = Object.freeze({
   lowActivityDays: 14,      // ...over the last two weeks
   ownDropShare: 0.8,        // the leader's last 10 workdays under 80% of her 20 before
   eveningShare: 0.6,        // someone who starts logging after 5 PM on 60%+ of their days logs at night
+  lapseBookDays: 365,       // a lapse is judged against the policies placed in the last year
+  lapseOverTeam: 1.5,       // flagged when their lapse share is over 1.5× the team's typical
+  lapseSmallBook: 10,       // under 10 placed policies, any lapse is worth a look
 });
 
 /** Workdays with nothing logged since the last active day, counting today once it's past noon. */
@@ -90,6 +94,15 @@ export function logsAtNight(rows, { dayKey, tz }) {
   return days.length >= 3 && days.filter((hm) => hm >= '17:00').length / days.length >= ATTENTION.eveningShare;
 }
 
+const pctText = (x) => `${Math.round(x * 100)}%`;
+/** Lapses in the last 30 days as a share of the policies placed in the last year. */
+function lapseShare(rows, dayKey) {
+  const since = (d) => rangeOf(shift(dayKey, -d), '1D').start.toISOString();
+  const lapses = rows.filter((a) => a.type === 'chargeback' && a.occurred_at >= since(30)).length;
+  const book = rows.filter((a) => a.type === 'policy_issued' && a.occurred_at >= since(ATTENTION.lapseBookDays)).length;
+  return { lapses, book, share: book ? lapses / book : (lapses ? 1 : 0) };
+}
+
 /** Calls per local day for one person: a Map of 'YYYY-MM-DD' → dials. One pass. */
 function dialsByDay(rows, tz) {
   const m = new Map();
@@ -110,6 +123,8 @@ export function whoNeedsYou({ members, dayKey, now = '12:00', tz, plan = null })
   // Two weeks of calls for everyone selling, so "low" means low for this team, not a number we picked.
   const studyingOf = (m) => m.licensed === false && !(m.activities || []).some((a) => a.type === 'license_passed');
   const calls14 = new Map(members.map((m) => [m.id, studyingOf(m) ? null : dialsSince(dialsByDay(m.activities || [], tz), dayKey, ATTENTION.lowActivityDays)]));
+  // Lapses, measured against each person's own book: a steady seller with a big book always has a few.
+  const lapseOf = new Map(members.map((m) => [m.id, lapseShare(m.activities || [], dayKey)]));
 
   const out = members.map((m) => {
     const rows = m.activities || [];
@@ -155,7 +170,15 @@ export function whoNeedsYou({ members, dayKey, now = '12:00', tz, plan = null })
     const recent = since(14);
     const held = recent.filter((a) => a.type === 'appt_held').length, apps = recent.filter((a) => a.type === 'app_written').length;
     facts.showRate = sr.booked >= 3 ? sr.rate : null; facts.lapses30 = lapses;
-    if (lapses > 0) return say('watch', 80 + lapses, `${plural(lapses, 'policy', 'policies')} lapsed this month`, `Go over the lapse with ${m.name}: was the kitchen-table check really done?`);
+    const ls = lapseOf.get(m.id);
+    const otherShares = members.filter((x) => x.id !== m.id).map((x) => lapseOf.get(x.id)).filter((x) => x.book >= ATTENTION.lapseSmallBook).map((x) => x.share);
+    const typicalLapse = otherShares.length >= 2 ? median(otherShares) : null;
+    facts.lapseShare = ls.share; facts.teamLapseShare = typicalLapse;
+    const lapseFlag = lapses > 0 && (ls.book < ATTENTION.lapseSmallBook || typicalLapse === null || ls.share > typicalLapse * ATTENTION.lapseOverTeam);
+    if (lapseFlag) {
+      const vs = ls.book >= ATTENTION.lapseSmallBook && typicalLapse !== null ? `: ${pctText(ls.share)} of their book vs the team’s ${pctText(typicalLapse)}` : '';
+      return say('watch', 80 + lapses, `${plural(lapses, 'policy', 'policies')} lapsed this month${vs}`, `Go over the lapse with ${m.name}: was the kitchen-table check really done?`);
+    }
 
     // 4. Selling.
     if (sr.booked >= 3 && sr.rate < 0.6) return say('watch', 70, `${sr.held} of ${sr.booked} meetings showed`, `Help ${m.name} confirm every meeting the day before, and book closer to the call.`);
@@ -311,15 +334,41 @@ export const checkinRow = ({ me, personId, at }) => ({ agent_id: me, type: 'chec
  * so a new user never gets a made-up warning.
  */
 export function ownProduction(activities, { me, dayKey, tz }) {
-  const byDay = dialsByDay(activities.filter((a) => a.agent_id === me), tz);
-  const workdaysBefore = (from, n) => { const out = []; let k = from; while (out.length < n) { k = shift(k, -1); if (isWorkday(k)) out.push(k); } return out; };
+  const mineRows = activities.filter((a) => a.agent_id === me);
+  const byDay = dialsByDay(mineRows, tz);
+  const off = daysOff(mineRows, tz);
+  // Days she marked off (a holiday, a sick day) are not "down": they're skipped, like weekends.
+  const workdaysBefore = (from, n) => { const out = []; let k = from; let guard = 0; while (out.length < n && guard++ < 400) { k = shift(k, -1); if (isWorkday(k) && !off.has(k)) out.push(k); } return out; };
   const recentDays = workdaysBefore(dayKey, 10);
   const priorDays = workdaysBefore(recentDays.at(-1), 20);
   const sum = (ks) => ks.reduce((s, k) => s + (byDay.get(k) || 0), 0);
   const priorActive = priorDays.filter((k) => byDay.get(k)).length;
   const recentPerDay = Math.round(sum(recentDays) / 10), priorPerDay = priorActive ? Math.round(sum(priorDays) / priorActive) : null;
   const down = priorActive >= 10 && priorPerDay >= 10 && recentPerDay < priorPerDay * ATTENTION.ownDropShare;
-  return { down, recentPerDay, priorPerDay };
+  return { down, recentPerDay, priorPerDay, unmarkedZeroDays: down ? recentDays.filter((k) => !byDay.get(k)) : [] };
+}
+
+/** The days someone marked off (their own 'day_off' rows), as local day keys. */
+export function daysOff(rows, tz) {
+  return new Set(rows.filter((a) => a.type === 'day_off').map((a) => a.meta?.day || bucketKey(a.occurred_at, '1D', tz)));
+}
+
+/** One 'day_off' row per day. `day` is the local day it covers (it can be marked afterwards). */
+export const dayOffRow = ({ me, day, at, reason = null }) => ({ agent_id: me, type: 'day_off', occurred_at: at, meta: { day, ...(reason ? { reason } : {}) } });
+
+/**
+ * Everything a leader's screens read, in ONE call: the ranking, her check-ins applied, and her pay
+ * next to her team's. The team's site calls this (and only this) so a signed-in leader gets exactly
+ * the tested logic the app and the demo use.
+ *   members      her people: [{ id, name, startedOn?, licensed?, activities }]
+ *   me, mine     her id and her own rows (check-ins, her own sales)
+ *   levels       contract levels set by you { [id]: percent }, or null until they're in (pay stays blank)
+ */
+export function leaderView({ members, me, mine = [], levels = null, dayKey, now, tz, plan = null, payDays = 30 }) {
+  const ranked = applyCheckins(teamSummary({ members, dayKey, now, tz, plan }), mine, { dayKey, tz });
+  const names = Object.fromEntries(members.map((m) => [m.id, m.name]));
+  const pay = payPicture({ me, activities: [...mine, ...members.flatMap((m) => m.activities || [])], names, levels: levels || {}, dayKey, tz, days: payDays });
+  return { ...ranked, pay };
 }
 
 /** The two-minute weekly read for a leader, as plain lines. */

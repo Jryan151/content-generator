@@ -28,6 +28,8 @@ export const ACTIVITY_TYPES = Object.freeze([
   'care_call',           // a welcome, pre-draft or save call on an approved policy (never a sales dial)
   'exam_booked',         // booked the licensing exam; meta.exam_on = 'YYYY-MM-DD'
   'checkin',             // a leader checked in with someone on their team; meta.person_id
+  'day_off',             // a planned or sick day off: own-production checks skip it
+  'self_rating',         // a leader's monthly answer, producer (1) to builder (10); value = 1..10
 ]);
 
 /** Every recruiting action a builder takes. Counts toward the daily recruiting step. */

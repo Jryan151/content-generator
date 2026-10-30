@@ -42,7 +42,7 @@ test('producer → coach: steady selling AND a Playbook in your own words', () =
 
 test('coach → director is measured by agents under you, and the next action targets the closest gap', () => {
   const p = levelProgress({ path: 'coach', metrics: { agentsSelling: 2, agentsDeveloped: 0 } });
-  assert.equal(p.nextAction, 'Get 1 more agent to steady weekly sales. Start with whoever is closest on Team.');
+  assert.equal(p.nextAction, 'Get 1 more person selling every week. Start with whoever is closest on My people.');
 });
 
 test('ready means every box is checked', () => {

@@ -32,6 +32,8 @@ That's why Pipeline, Today and Team can never disagree: they all read the same l
 | `src/career.js` | **Career stages**: places each person on Starting → Selling → Producer → Coach from real activity (Director and Upline parked; `FOCUS_TOP`), with one focus, what's unlocked, one gate and one next action |
 | `src/core.js` | **The core**: the five values (each tied to the code that enforces it), the five required screens and what each reads, and the parked list. `test/core.test.js` fails if any of it points at missing code |
 | `src/quality.js` | **Only business that sticks counts**: submitted → placed → still active at 3, 6 and 12 months, matched by lead. Rates stay blank until there's something real to divide |
+| `src/today.js` | **Today, as one short chain**: `dayStatus()` (is her day done?) and `todayLayout()` (which of the five slots show, in order) |
+| `src/pay.js` | **Her pay next to her team's**: advances on her own placed policies and the override on her team's, last 30 days, after lapses (clawbacks). Blank until contract levels are in |
 | `src/parked/commissions.js` | **Parked.** Commission tracker: expected advances and overrides from issued policies and contract levels, matched to payments marked received; every item is paid, partial, late or due |
 | `src/ladder.js` | **The climb** (Producer → Coach → Director → Upline): duplication metrics (agents producing, coaches, 90-day retention, days to first sale), the recruiting funnel, and level progress with one next action |
 | `src/paths.js` | **The two leader paths** (Producer, Coach; Director parked): a 1-question picker, green/red status by fixed lines, and if-then rules that name the person and say exactly what to do |
@@ -181,6 +183,21 @@ Finishing a training task logs `training_task_done`.
 
 - **Content generator:** stays its own app. `content_posts.generator_ref` points at a post in the generator; marking it posted logs a `post` activity. Nothing in the generator has to change to start.
 - **Mockup:** the five screens in the Agent System Mockup map 1:1 onto these tables (Today = leads due + daily targets + today's post; Team = `rollup()` + `whereItBroke()`).
+
+## The builder stress test
+
+`tools/renee-weekly.mjs` runs "Renee", a top final expense producer with 5 licensed agents and 2 studying, week by week for six months on a copy of this engine, and records what the app showed her, what she did, and how she felt (feelings and choices are a stated model; the app's output is real). `tools/renee-weekly-summary.mjs` compares runs on two copies. Fixes from that run:
+
+- **Her pay next to her team's** (`payPicture`), on the Done card and the Ladder: the reason she kept choosing her own calls was money she could see vs money she couldn't.
+- **Done keeps one team action** ("I talked to them" right there) instead of pushing it to tomorrow.
+- **Days off aren't "down"**: one tap marks today off; "I was off those days" clears a holiday or sick week from `ownProduction`.
+- **Lapses judged against the agent's own book** and the team's typical share, so a steady seller with a big book isn't flagged every month.
+- **"Developed here"** never counts a veteran whose history in the app starts mid-stream.
+- **The full day explains itself** when targets move it, and asks when her workday ends.
+
+## For the team's site
+
+A signed-in leader's screens read **one** engine call: `leaderView()` in `src/attention.js` (the ranking, her check-ins, and her pay next to her team's). The site should send its result as the team payload, so real leaders get exactly the tested logic the app and the demo use.
 
 ## Running it
 

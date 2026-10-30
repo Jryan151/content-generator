@@ -8,9 +8,9 @@
 
 | Value | What it means | Enforced by |
 | --- | --- | --- |
-| **Production first** | A builder is a producer who never stopped producing. Recruiting work only shows when today's production is on track. | `productionRed`, the hold line in `placeOnLadder` |
-| **Only business that sticks counts** | Placed and still-active policies are the score, not applications or recruits signed. | `quality()` |
-| **One next action** | Every screen answers "what do I do now?" in black and white. | `placeOnLadder().nextAction`, `todoFor()` |
+| **Production first** | A builder is a producer who never stopped producing. When her own calls are down (days off don't count), that comes first and team work waits. One check does it. | `ownProduction`, the hold line in `placeOnLadder` |
+| **Only business that sticks counts** | Placed and still-active policies are the score, not applications or recruits signed. "Selling every week" counts placed policies once there are any. | `quality()`, `weeksWithASale`, `payPicture` |
+| **One next action** | Every screen answers "what do I do now?" in black and white. Today shows five things at most. | `todayLayout`, `dayStatus`, `placeOnLadder().nextAction` |
 | **Log once, compute everything** | One tap per action. Every number comes from the activity log. | `addActivity`, `totalsFor`, the stage-change trigger |
 | **Real or blank** | No fake or placeholder numbers. Missing data shows as "needs data." | `buildSystem().waitingOn`, `quality().needsData` |
 
@@ -28,7 +28,15 @@ The stage is computed from activity, never chosen.
 
 Gate counts (weeks with a sale) are starter rules, replaced by the agency's real promotion rules when we have them.
 
-**Known gap:** weekly selling is still counted by applications, because there's no carrier placement data yet. `quality()` tracks placed and still-active alongside it; once placement flows in, the gates switch to placed policies.
+**Weekly selling counts placed policies** once someone has any in their log: a week counts when an application written that week was placed. Before any placement data exists it counts applications and says so (`weeksWithASale().source`).
+
+## Simple (held by `test/simple.test.js`)
+
+Built for busy people who don't read instructions. Drift fails a test instead of piling up quietly.
+
+- **Today shows five things at most** above "More", always in this order, like an effects chain: what can't wait → the next call → one team thing → her day so far → done for today (last). A next call and "done" never show together. Everything else (a quick call, adding people, texting her day, a day off, her schedule) is behind "More". (`src/today.js`)
+- **Plain words.** Nothing a person reads says pipeline, override, parked, production first, red list, recruiting step, names list or ladder.
+- **One feature per job.** `SIMPLE.jobs` in `src/core.js` lists each job once, with the one feature that does it. A fix replaces; it doesn't add a second tool for the same job.
 
 ## Required screens
 
@@ -37,10 +45,10 @@ All five are built in `public/` (`index.html`, `app.js`, `setup.js`) and run on 
 | Screen | Who | What it does | Reads |
 | --- | --- | --- | --- |
 | Setup | Leader, once | Three answers: agents selling now, start of day, what she wants to earn | `buildSystem` |
-| Today | Every agent | One chain: who to call next → one tap for what happened → the next step set for you. Order: missed-payment saves, meetings, welcome and pre-draft calls, then calls. Applications pass the four-point kitchen-table check. "Send my day" drafts the text for the upline. Before licensing, a study day | `queueFor`, `logCall`, `logMeeting`, `todoFor`, `productionRed` |
-| Pipeline | Every agent | Clients: contacted → appointment → submitted → placed. Recruits: name → interviewed → studying → licensed → first sale | lead stages, `RECRUIT_STAGES`, `isUnlocked` |
-| Ladder | Every agent | Current stage, why, and the one gate to the next | `placeOnLadder` |
-| Team | Leader | Each recruit's stage, production on track or not, how much of their business sticks, who needs help today | `placeOnLadder`, `redList`, `duplication`, `quality`, `whereItBroke` |
+| Today | Every agent | Five slots at most, in chain order: missed-payment saves and meetings today → the next call (welcome and pre-draft calls first) → one team thing (or "your calls are low", which comes first) → her day so far → done for today, with what her sales and her team paid her. The rest is behind "More". Days off never count as "down". When targets set her full day, a note says why it moved and asks when her day ends. Before licensing, a study day | `todayLayout`, `dayStatus`, `queueFor`, `logCall`, `ownProduction`, `leaderView` |
+| My people | Leader (and a producer with recruits) | Who could use her, one plain sentence and one button each; then her recruits one at a time, the one needing the next step first | `leaderView`, `applyCheckins`, `moveRecruit`, `daysInStage` |
+| Progress | Every agent | A leader: what her team paid her next to her own sales, three readings (people selling every week, people she grew, team sales vs hers), still paying, this month's one step, and a monthly "producer or builder?" question. An agent: their focus and the one thing to the next stage | `placeOnLadder`, `builderMeasure`, `payPicture`, `quality` |
+| Clients | Every agent | Everyone she's working with, by where they stand; the insurer's answer and missed payments are marked here | lead stages, `approvePolicy`, `markPaymentMissed` |
 
 ## How it holds up over months
 
@@ -61,7 +69,7 @@ Code that exists stays where it is, so nothing needs a rebuild.
 - Plan cascade and earnings-to-premium math (needs her contract level and real rates)
 - Monthly, quarterly and yearly views
 - Playbook screen (scripts attach to Today steps once the leader shares them)
-- Commission tracker (`src/parked/`)
+- Commission tracker: payments received, late and partial (`src/parked/`). Her pay picture is live: `src/pay.js`
 - Content and the post block
 - Rules beyond production first
 - Pricing and billing

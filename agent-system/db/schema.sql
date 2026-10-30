@@ -35,7 +35,7 @@ create type activity_type as enum (
   'recruit_interviewed', 'recruit_licensed',
   'names_conversation', 'recruit_step', 'recruit_first_sale',
   'study_session', 'practice_test', 'license_passed', 'care_call',
-  'exam_booked', 'checkin'
+  'exam_booked', 'checkin', 'day_off', 'self_rating'
 );
 
 -- The builder's pipeline: people on their way to becoming producing agents.
