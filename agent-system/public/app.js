@@ -3,9 +3,9 @@
 //   who to call → what happened (one tap) → what's next (set for you).
 // "Mine" keeps your log on this device (src/store.js); "Demo" runs a
 // fictional leader through the same engine.
-import { state, setMode, onMode, onSystem } from './state.js';
+import { state, setMode, setDemoAs, onMode, onSystem } from './state.js';
 import { buildActivities, TZ, DEMO } from './seed/sample.js';
-import { DEMO_TEAM, DEMO_LEADS, DEMO_RECRUITS, DEMO_PLAYBOOK_READY, DEMO_LEVELS, demoQualityActivities } from './seed/demo-pipeline.js';
+import { DEMO_TEAM, DEMO_LEADS, DEMO_PRODUCER_LEADS, DEMO_RECRUITS, DEMO_PLAYBOOK_READY, DEMO_LEVELS, demoQualityActivities } from './seed/demo-pipeline.js';
 import { placeOnLadder, routineFor, isUnlocked } from './src/career.js';
 import { todoFor } from './src/routines.js';
 import { totalsFor, bucketKey } from './src/timeframes.js';
@@ -71,6 +71,8 @@ function demoData() {
     recruits: DEMO_RECRUITS.map((r) => ({ ...r })),
     names: [],
     profile: { licensed: true },
+    // The producer demo: Devon, one of Morgan's agents, with his own clients and no team.
+    producer: { leads: DEMO_PRODUCER_LEADS.map((l) => ({ ...l })), recruits: [], names: [], profile: { licensed: true } },
     tapMinute: 0,
   };
   return demo;
@@ -80,10 +82,14 @@ function demoData() {
 function ctx() {
   if (state.mode === 'demo') {
     const d = demoData();
+    const p = state.demoAs === 'producer' ? d.producer : null;
     return {
-      demo: true, me: DEMO.leaderId, myName: DEMO.leaderName, tz: TZ, dayKey: DEMO.activityTo, now: '15:00',
-      activities: d.activities, qualityActs: d.quality, profile: d.profile,
-      leads: d.leads, recruits: d.recruits, names: d.names, team: DEMO_TEAM, playbookReady: DEMO_PLAYBOOK_READY,
+      demo: true, demoAs: p ? 'producer' : 'leader',
+      me: p ? DEMO.producerId : DEMO.leaderId, myName: p ? DEMO.producerName : DEMO.leaderName,
+      tz: TZ, dayKey: DEMO.activityTo, now: '15:00',
+      activities: d.activities, qualityActs: d.quality, profile: (p || d).profile,
+      leads: (p || d).leads, recruits: (p || d).recruits, names: (p || d).names,
+      team: p ? [] : DEMO_TEAM, playbookReady: p ? false : DEMO_PLAYBOOK_READY,
       at: () => new Date(Date.UTC(2026, 9, 30, 22, d.tapMinute++ % 59)).toISOString(),
       save: () => {},
     };
@@ -109,14 +115,15 @@ function ctx() {
 }
 
 const sys = () => state.system;
-const planNow = () => (sys()?.targetsReady ? sys().plan : null);
+// The leader's targets are hers; the producer demo has none of its own.
+const planNow = () => (sys()?.targetsReady && !(state.mode === 'demo' && state.demoAs === 'producer') ? sys().plan : null);
 const place = (c) => placeOnLadder({ person: { id: c.me, name: c.myName, licensed: c.profile.licensed ?? true }, team: c.team, activities: c.activities, dayKey: c.dayKey, tz: c.tz, playbookReady: c.playbookReady, teamStages: c.teamStages ?? null });
 
 // ── Every change goes through here, so it can be undone for 10 seconds ──
 let undo = null;
 function act(c, message, change) {
   const snap = {
-    mode: state.mode, acts: c.activities.length, quality: c.demo ? demoData().quality.length : null,
+    mode: state.mode, demoAs: state.demoAs, acts: c.activities.length, quality: c.demo ? demoData().quality.length : null,
     leads: JSON.parse(JSON.stringify(c.leads)), recruits: JSON.parse(JSON.stringify(c.recruits)),
     names: JSON.parse(JSON.stringify(c.names)), profile: { ...c.profile },
   };
@@ -129,7 +136,7 @@ function act(c, message, change) {
   clearTimeout(undo?.timer);
   undo = { snap, timer: setTimeout(() => { undo = null; hideToast(); }, 10_000) };
   toast(message, () => {
-    const s = undo?.snap; if (!s || s.mode !== state.mode) return;
+    const s = undo?.snap; if (!s || s.mode !== state.mode || s.demoAs !== state.demoAs) return;
     const cc = ctx();
     const before = JSON.parse(JSON.stringify(cc.leads));
     if (!cc.demo) sync.noteTruncate(s.acts);
@@ -777,7 +784,7 @@ function renderPipeline() {
 // ── Recruits: one queue, like calls ─────────────────────────────────
 // The recruit who needs the next step most comes first; everyone else waits behind it.
 function recruitsSection(c, L) {
-  if (!isUnlocked(L.stage, 'Recruits') && !c.demo && sync.account.role !== 'leader') return null;
+  if (!isUnlocked(L.stage, 'Recruits') && !(c.demo && c.demoAs === 'leader') && sync.account.role !== 'leader') return null;
   const onSite = sync.account.role === 'leader';
   // Signed in as a leader: once someone starts licensing they join My people and log for themselves.
   const open = c.recruits.filter((r) => r.stage !== 'dropped' && r.stage !== 'producing' && (!onSite || ['prospect', 'interviewed'].includes(r.stage)));
@@ -908,7 +915,7 @@ function buildDemoTeam(c) {
 
 function teamView(c) {
   let raw = null;
-  if (c.demo) raw = (demoTeam ??= buildDemoTeam(c));
+  if (c.demo) raw = c.demoAs === 'producer' ? null : (demoTeam ??= buildDemoTeam(c));
   else if (sync.account.role === 'leader') {
     if (!teamState.error && Date.now() - teamState.at > 60_000) refreshTeam();
     raw = sync.teamNow();
@@ -995,7 +1002,7 @@ function renderTeam() {
   const screen = $('screen-team');
   const top = head('WHO COULD USE YOU', 'My people');
   const L = c.profile.licensed === null ? null : place(c);
-  if (c.demo) { drawTeam(c, screen, top, teamView(c), L); return; }
+  if (c.demo && c.demoAs === 'leader') { drawTeam(c, screen, top, teamView(c), L); return; }
   if (sync.account.role === 'leader') {
     const t = teamView(c);
     if (!t) {
@@ -1025,7 +1032,7 @@ function renderDataCard() {
   let card = $('data-card');
   if (!card) { card = h('section', { id: 'data-card', class: 'card' }); $('screen-setup').prepend(card); }
   const a = sync.account;
-  $('leader-setup').hidden = a.on && a.role === 'agent';   // agents don't set up a leader's system
+  $('leader-setup').hidden = (a.on && a.role === 'agent') || (state.mode === 'demo' && state.demoAs === 'producer');   // agents don't set up a leader's system
   if (state.mode === 'demo') { card.hidden = true; return; }
   card.hidden = false;
   const licenseRow = h('div', { class: 'row' }, h('span', { class: 'muted' }, `License: ${mine.profile.licensed === false ? 'not yet' : mine.profile.licensed ? 'yes' : 'not answered'}`),
@@ -1133,13 +1140,21 @@ function renderAll() {
   $('mode-demo').setAttribute('aria-pressed', String(state.mode === 'demo'));
   const note = $('demo-note');
   note.hidden = state.mode !== 'demo';
-  note.textContent = `Demo: ${DEMO.leaderName} is a made-up leader at 3:00 PM on Friday, Oct 30, with a team of three. Same engine as the real thing. Nothing here is saved.`;
+  $('demo-who').hidden = state.mode !== 'demo';
+  $('demo-leader').setAttribute('aria-pressed', String(state.demoAs === 'leader'));
+  $('demo-producer').setAttribute('aria-pressed', String(state.demoAs === 'producer'));
+  note.textContent = state.demoAs === 'producer'
+    ? `Demo: ${DEMO.producerName} is a made-up agent on ${DEMO.leaderName}’s team at 3:00 PM on Friday, Oct 30. This is what an agent selling every week sees. Same engine as the real thing. Nothing here is saved.`
+    : `Demo: ${DEMO.leaderName} is a made-up leader at 3:00 PM on Friday, Oct 30, with a team of three. Same engine as the real thing. Nothing here is saved.`;
   try { RENDER[tab](); } catch (e) { fill($(`screen-${tab}`), h('p', { class: 'err' }, `This screen hit an error: ${e.message}`)); }
 }
 
 const switchMode = (m) => { ui.open = null; ui.skip.clear(); clearTimeout(undo?.timer); undo = null; hideToast(); setMode(m); };
 $('mode-mine').addEventListener('click', () => switchMode('mine'));
 $('mode-demo').addEventListener('click', () => switchMode('demo'));
+const switchDemo = (who) => { ui.open = null; ui.skip.clear(); clearTimeout(undo?.timer); undo = null; hideToast(); setDemoAs(who); };
+$('demo-leader').addEventListener('click', () => switchDemo('leader'));
+$('demo-producer').addEventListener('click', () => switchDemo('producer'));
 onMode(renderAll);
 onSystem(() => { if (currentTab() !== 'setup') renderAll(); });
 addEventListener('hashchange', () => { ui.open = null; renderAll(); scrollTo(0, 0); });

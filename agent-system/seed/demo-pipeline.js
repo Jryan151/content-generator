@@ -42,6 +42,20 @@ export const DEMO_LEADS = Object.freeze([
   { id: 'demo-lead-14', agent_id: MARCUS, name: 'G. Lee', stage: 'application', premium: 500 },
 ]);
 
+/**
+ * Devon's own call list for the producer demo: his placed clients from
+ * DEMO_LEADS plus people to call today. Kept apart from DEMO_LEADS so the
+ * leader demo's numbers don't change.
+ */
+export const DEMO_PRODUCER_LEADS = Object.freeze([
+  ...DEMO_LEADS.filter((l) => l.agent_id === DEVON),
+  { id: 'demo-p-lead-1', agent_id: DEVON, name: 'V. Morales', stage: 'contacted', premium: null, nextOn: '2026-10-30' },
+  { id: 'demo-p-lead-2', agent_id: DEVON, name: 'N. Baker', stage: 'contacted', premium: null, nextOn: '2026-10-29' },
+  { id: 'demo-p-lead-3', agent_id: DEVON, name: 'W. Price', stage: 'appointment', premium: null, meetingOn: '2026-10-30' },
+  { id: 'demo-p-lead-4', agent_id: DEVON, name: 'I. Torres', stage: 'new', premium: null },
+  { id: 'demo-p-lead-5', agent_id: DEVON, name: 'Y. Bell', stage: 'application', premium: 560 },
+]);
+
 /** People on Morgan's way to becoming agents. */
 export const DEMO_RECRUITS = Object.freeze([
   { id: 'demo-recruit-1', name: 'Aaliyah K.', stage: 'interviewed', since: '2026-10-22T17:00:00.000Z' },

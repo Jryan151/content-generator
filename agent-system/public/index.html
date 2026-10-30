@@ -67,6 +67,8 @@ pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); bord
 @media (max-width: 380px) { .nums { grid-template-columns: 1fr 1fr; } }
 .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 5px; }
 .mode .opt { min-height: 44px; text-align: center; align-items: center; }
+.demo-who { margin-bottom: 8px; }
+.demo-who[hidden] { display: none; }
 .demo-note { background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
 .wait { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; opacity: .9; }
@@ -231,6 +233,10 @@ details.more > *:not(summary) { margin-bottom: 10px; }
     </div>
     <a href="#setup" id="gear" class="gear" aria-label="Settings, backup and setup"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg></a>
     </div>
+  </div>
+  <div class="mode demo-who" id="demo-who" role="group" aria-label="Whose demo" hidden>
+    <button type="button" class="opt" id="demo-leader" aria-pressed="true"><b>Leader</b></button>
+    <button type="button" class="opt" id="demo-producer" aria-pressed="false"><b>Producer</b></button>
   </div>
   <p class="demo-note" id="demo-note" hidden></p>
   <div id="acct-note"></div>
