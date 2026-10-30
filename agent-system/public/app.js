@@ -827,6 +827,14 @@ function selfRating(c) {
          h('div', { class: 'row muted' }, h('span', {}, '1 = producer'), h('span', {}, '10 = builder'))]);
 }
 
+// Where a pay number came from, so a small one never looks like a bug: placed policies, minus lapses.
+function payParts(p) {
+  const part = (x, who) => x.clawback
+    ? `${who} ${usd(x.paid)} on placed policies, minus ${usd(x.clawback)} taken back when a policy lapsed`
+    : `${who} ${usd(x.paid)} on placed policies`;
+  return `${part(p.team, 'Team:')}. ${part(p.own, 'Your own sales:')}.`;
+}
+
 function renderLadder() {
   const c = ctx();
   if (c.profile.licensed === null) { fill($('screen-ladder'), head('WHERE YOU’RE GOING', 'Progress'), h('div', { class: 'card locked' }, h('b', {}, 'Answer one question on Today first'), h('a', { class: 'go as-link', href: '#today' }, 'Go to Today'))); return; }
@@ -840,12 +848,12 @@ function renderLadder() {
     const p = payNow(c);
     fill(screen, head('ARE YOU BUILDING?', 'Progress'),
       h('div', { class: 'card focus' },
-        p?.ready ? [h('div', { class: 'big' }, `Your team paid you ${usd(p.team.net)} in the last 30 days`), h('div', { class: 'muted' }, `Your own sales paid you ${usd(p.own.net)}. Both after lapses.`)]
+        p?.ready ? [h('div', { class: 'big' }, `Your team paid you ${usd(p.team.net)} in the last 30 days`), h('div', { class: 'muted' }, payParts(p))]
           : [h('div', { class: 'big' }, 'What your team pays you shows here'), payLine(p)]),
       b ? h('div', { class: 'card' }, h('table', { class: 'reqs' }, h('tbody', {},
         h('tr', {}, h('td', {}, 'People selling every week'), h('td', { class: 'n2' }, String(b.steady.now)), h('td', { class: 'n2 muted' }, b.steady.before !== b.steady.now ? `was ${b.steady.before}` : '')),
         h('tr', {}, h('td', {}, 'People you grew into steady sellers'), h('td', { class: 'n2' }, String(b.developed.now)), h('td', { class: 'n2 muted' }, b.developed.before !== b.developed.now ? `was ${b.developed.before}` : '')),
-        h('tr', {}, h('td', {}, 'Team sales vs. yours, last 30 days'), h('td', { class: 'n2' }, usd(b.teamPremium.now)), h('td', { class: 'n2 muted' }, usd(mine.now))))),
+        h('tr', {}, h('td', {}, 'Applications sent, last 30 days: team vs. yours (not paid until placed)'), h('td', { class: 'n2' }, usd(b.teamPremium.now)), h('td', { class: 'n2 muted' }, usd(mine.now))))),
         stillPaying(c)) : null,
       h('div', { class: 'card' }, h('div', { class: 'kicker' }, 'THIS MONTH’S ONE STEP'),
         h('b', {}, t.trainer?.action ?? L.nextAction),
