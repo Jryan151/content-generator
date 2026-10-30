@@ -68,6 +68,8 @@ pre { margin: 0; background: color-mix(in srgb, var(--bg) 8%, transparent); bord
 .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 5px; }
 .mode .opt { min-height: 44px; text-align: center; align-items: center; }
 .demo-who { margin-bottom: 8px; }
+.to-content { font-size: 14px; font-weight: 600; color: var(--accent-ink); text-decoration: none; padding: 8px 4px; }
+.to-content[hidden] { display: none; }
 .demo-who[hidden] { display: none; }
 .demo-note { background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
 .wait { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
@@ -243,6 +245,7 @@ details.more > *:not(summary) { margin-bottom: 10px; }
   <div class="topbar">
     <span class="brand">AGENT REELS</span>
     <div class="top-right">
+    <a href="/#/" id="to-content" class="to-content" hidden>Content</a>
     <div class="mode" role="group" aria-label="Mode">
       <button type="button" class="opt" id="mode-mine" aria-pressed="true"><b>Mine</b></button>
       <button type="button" class="opt" id="mode-demo" aria-pressed="false"><b>Demo</b></button>

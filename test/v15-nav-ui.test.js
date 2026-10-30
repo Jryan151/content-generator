@@ -60,7 +60,7 @@ const headings = page => page.$$eval('main h2', h => h.map(x => x.textContent.tr
 test('the agent: lands on Review; three stops and Setup; the menu under the initial; old addresses still open', { skip, timeout: 180000 }, async () => {
   const { page, errors } = await open('ten@example.com', 'tenpass12345');
   await page.waitForFunction(() => location.hash === '#/review' && document.querySelector('main h1'));
-  assert.deepEqual(await tabs(page), ['Review', 'Create', 'Grow', 'Setup']);
+  assert.deepEqual(await tabs(page), ['Team', 'Review', 'Create', 'Grow', 'Setup'], 'Team opens her Agent Reels team');
   // They all fit across a phone.
   assert.ok(await page.$eval('.nav', n => n.scrollWidth <= n.clientWidth + 1), 'no scrolling the tabs');
   // The initial's menu: Account, Guide (no Billing for a comped workspace), Log out; closes on a tap elsewhere.

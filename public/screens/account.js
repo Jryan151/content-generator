@@ -9,7 +9,7 @@ function authPage(inner) {
     <div class="logo"><img src="/icon.svg" alt=""><h1>${esc(S.product)}</h1></div>${inner}</div></div>`;
 }
 function viewLogin() {
-  authPage(`<p class="lede">Short, compliance-checked Reels for life insurance agents.</p>
+  authPage(`<p class="lede">Short, compliance-checked Reels and your team, in one place.</p><p class="small muted">One sign-in for leaders, agents and recruits. You’ll go straight to your own dashboard.</p>
     <form class="stack" data-form="login">
       <label class="field"><span>Email</span><input class="ctl" name="email" type="email" autocomplete="username" required></label>
       <label class="field"><span>Password</span><input class="ctl" name="password" type="password" autocomplete="current-password" required></label>
