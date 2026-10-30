@@ -31,12 +31,25 @@ test('Today never shows more than five things above "More", in chain order, and 
 });
 
 test('one rule says when her day is done: her full day of calls, or her end time on a workday', () => {
-  assert.deepEqual(dayStatus({ goal: 40, dials: 40, now: '11:00' }), { done: true, by: 'calls' });
-  assert.deepEqual(dayStatus({ goal: 40, dials: 12, now: '17:30', stopAt: '17:30' }), { done: true, by: 'time' });
+  assert.deepEqual(dayStatus({ goal: 40, dials: 40, now: '11:00' }), { done: true, by: 'calls', callsDone: false });
+  assert.deepEqual(dayStatus({ goal: 40, dials: 12, now: '17:30', stopAt: '17:30' }), { done: true, by: 'time', callsDone: false });
   assert.equal(dayStatus({ goal: 40, dials: 12, now: '17:30', stopAt: '17:30', workday: false }).done, false, 'no end time on a weekend');
   assert.equal(dayStatus({ goal: 40, dials: 45, keepGoing: true }).done, false);
   assert.equal(dayStatus({ goal: 40, dials: 45, late: true }).done, false, 'never done while catching up after midnight');
   assert.equal(dayStatus({ goal: null, dials: 90 }).done, false, 'no full day set: never a guess');
+});
+
+// Found by the 13-week run: 40 calls by noon said "Done for today" with 1–4 PM meetings still ahead.
+test('her calls being done doesn\'t end a day that still has meetings in it', () => {
+  assert.deepEqual(dayStatus({ goal: 40, dials: 40, now: '11:30', meetingsLeft: 2 }), { done: false, by: null, callsDone: true });
+  assert.deepEqual(dayStatus({ goal: 40, dials: 40, now: '16:30', meetingsLeft: 0 }), { done: true, by: 'calls', callsDone: false }, 'done once they are logged');
+  assert.equal(dayStatus({ goal: 40, dials: 12, now: '11:30', meetingsLeft: 2 }).callsDone, false, 'calls not done yet');
+  assert.equal(dayStatus({ goal: 40, dials: 40, now: '17:30', stopAt: '17:30', meetingsLeft: 1 }).done, true, 'her end time still ends the day');
+  assert.equal(dayStatus({ goal: 40, dials: 40, meetingsLeft: 1, keepGoing: true }).callsDone, false, 'keep calling means the next call shows');
+  for (const meetingsLeft of [0, 3]) {
+    const s = dayStatus({ goal: 40, dials: 40, now: '12:00', meetingsLeft });
+    assert.ok(!(s.done && s.callsDone), 'never both');
+  }
 });
 
 // Every string with a space in it is something a person may read. None of them uses insider words.

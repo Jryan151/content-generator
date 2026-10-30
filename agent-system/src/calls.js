@@ -249,7 +249,7 @@ export function logCareCall(lead, kind, outcome, { at, today }) {
 /**
  * Who to call today, in order:
  *   saves      policies with a missed payment (fewest grace days first)
- *   meetings   meetings today (by time)
+ *   meetings   meetings waiting for a result: any from earlier days first (oldest first), then today's by time
  *   care       welcome and pre-draft calls due
  *   calls      people due (oldest first; set call-back times in order), then new people
  * Weekends are off unless `weekendCalls`: only meetings, call-backs she set for that
@@ -267,7 +267,7 @@ export function queueFor(leads, today, { weekendCalls = false } = {}) {
   const saves = leads.filter((l) => l.stage === 'lapse_risk' && l.care?.save && l.care.save <= today)
     .sort((a, b) => (graceDaysLeft(a, today) ?? 99) - (graceDaysLeft(b, today) ?? 99));
   const meetings = leads.filter((l) => l.stage === 'appointment' && (l.meetingOn ?? today) <= today)
-    .sort((a, b) => (a.meetingAt || '99').localeCompare(b.meetingAt || '99'));
+    .sort((a, b) => (a.meetingOn ?? today).localeCompare(b.meetingOn ?? today) || (a.meetingAt || '99').localeCompare(b.meetingAt || '99'));
   const care = [];
   for (const l of leads) {
     if (l.stage !== 'issued' || !l.care) continue;
