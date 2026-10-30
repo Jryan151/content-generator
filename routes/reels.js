@@ -8,7 +8,11 @@
 //   DELETE /api/reels/team/:id        take someone off the team (their log is archived) (teamlead)
 //   GET    /api/reels/lessons         the team's lessons: published ones for agents, all for the leader (team)
 //   GET    /api/reels/lessons/:id/video|thumb   a lesson's video and picture             (team)
-//   POST   /api/reels/lessons         a new lesson from a video (the body is the file)  (teamlead)
+//   POST   /api/reels/lessons         a new lesson from a short video (the body is the file) (teamlead)
+//   POST   /api/reels/lessons/uploads             a big video, in pieces: start     (teamlead)
+//   PUT    /api/reels/lessons/uploads/:id?offset= one piece (the body)              (teamlead)
+//   GET    /api/reels/lessons/uploads/:id         how much arrived (to carry on)    (teamlead)
+//   POST   /api/reels/lessons/uploads/:id/finish  every piece is in: make the lesson (teamlead)
 //   PUT    /api/reels/lessons/:id     edit, publish or unpublish                        (teamlead)
 //   POST   /api/reels/lessons/:id/move  its place in the course                         (teamlead)
 //   DELETE /api/reels/lessons/:id     delete it and its video                           (teamlead)
@@ -83,7 +87,7 @@ route('DELETE', '/api/reels/team/:id', 'ws', ({ wsId, params }) => {
 });
 
 /* ---------------- Lessons (lib/lessons.js) ---------------- */
-const lessonRun = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof lessons.LessonError) bad(e.status, e.message); throw e; } };
+const lessonRun = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof lessons.LessonError) bad(e.status, e.message, e.received !== undefined ? { received: e.received } : undefined); throw e; } };
 const isLeader = (me, wsId) => roleHere(me, wsId) !== 'teammate';
 // How many of her people tried each lesson, from their own logs.
 function leaderLessons(wsId) {
@@ -125,6 +129,16 @@ route('POST', '/api/reels/lessons', 'ws', async ({ req, me, wsId, ws, url }) => 
     return { lesson, ...lessonsFor(me, wsId) };
   } finally { fs.rmSync(tmp, { force: true }); }
 }, { raw: true });
+
+// A big video, in pieces: no single request is big enough for nginx or Cloudflare to refuse.
+route('POST', '/api/reels/lessons/uploads', 'ws', ({ wsId, ws, body }) => { spendGate(ws); return lessonRun(() => lessons.startUpload(wsId, { size: body.size, type: body.type })); });
+route('GET', '/api/reels/lessons/uploads/:id', 'ws', ({ wsId, params }) => lessonRun(() => lessons.uploadStatus(wsId, params.id)));
+route('PUT', '/api/reels/lessons/uploads/:id', 'ws', ({ req, wsId, params, url }) =>
+  lessonRun(() => lessons.addPiece(wsId, params.id, url.searchParams.get('offset'), req, req.headers['content-length'])), { raw: true });
+route('POST', '/api/reels/lessons/uploads/:id/finish', 'ws', ({ me, wsId, params, body }) => lessonRun(async () => {
+  const { ready, ...lesson } = await lessons.finishUpload(wsId, params.id, { step: body.step || null });
+  return { lesson, ...lessonsFor(me, wsId) };
+}));
 
 route('PUT', '/api/reels/lessons/:id', 'ws', ({ me, wsId, params, body }) => lessonRun(() => { lessons.edit(wsId, params.id, body); return lessonsFor(me, wsId); }));
 route('POST', '/api/reels/lessons/:id/move', 'ws', ({ me, wsId, params, body }) => lessonRun(() => { lessons.move(wsId, params.id, body.to); return lessonsFor(me, wsId); }));

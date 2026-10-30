@@ -68,7 +68,8 @@ nginx passes everything to port 3100. The site's `server { … }` block needs:
 ```
     client_max_body_size 200m;     # agents upload their own clips (Brand); everything else is small
 
-    # A leader's lesson videos (Agent Reels → My people) are bigger: a few minutes from a phone.
+    # A leader's lesson videos (Agent Reels → My people) go up in 32 MB pieces, so they pass this and
+    # Cloudflare's 100 MB per request whatever their size; this block just stops nginx buffering them.
     location /api/reels/lessons {
         client_max_body_size 500m;
         proxy_request_buffering off;
