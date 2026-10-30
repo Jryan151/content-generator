@@ -14,6 +14,8 @@ export function tempEnv() {
   process.env.PUBLIC_URL = '';
   process.env.TWO_FACTOR = 'off';   // tests that cover two-factor login turn it back on themselves
   delete process.env.STRIPE_SECRET_KEY;
+  // Gone when the test file finishes, so test runs (each update runs them all) don't fill /tmp.
+  process.on('exit', () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } });
   return root;
 }
 
@@ -231,7 +233,7 @@ export async function startStubs() {
       } catch (e) { return json(200, { choices: [{ message: { content: '{"scenes":[]}' } }], usage: { prompt_tokens: 10, completion_tokens: 10 }, note: e.message }); }
     }
     // Speech to text: a lesson video's words (lib/lessons.js).
-    if (url.pathname === '/v1/audio/transcriptions') { calls.stt = (calls.stt || 0) + 1; return json(200, { text: 'When they say they need to think about it, ask what part. Usually it is the price. Then show the smaller option.', duration: 6, words: [{ word: 'When', start: 0, end: 0.3 }] }); }
+    if (url.pathname === '/v1/audio/transcriptions') { calls.stt = (calls.stt || 0) + 1; const next = sttQueue.shift(); return json(200, next || { text: 'When they say they need to think about it, ask what part. Usually it is the price. Then show the smaller option.', duration: 6, words: [{ word: 'When', start: 0, end: 0.3 }] }); }
     if (url.pathname === '/v1/audio/speech') { calls.speech++; res.writeHead(200, { 'Content-Type': 'audio/mpeg' }); return res.end(fs.readFileSync(mp3)); }
     if (url.pathname === '/pixabay/') {
       calls.search++;
@@ -257,6 +259,11 @@ export async function startStubs() {
 }
 
 // A logged-in fetch for the app's own API.
+// The next transcriptions the stub hands back, in order (then the default one). For tests that need
+// real word timings, such as the automatic lesson edit.
+const sttQueue = [];
+export const queueTranscript = (...t) => { sttQueue.push(...t); };
+
 export function client(port) {
   let cookie = '';
   const call = async (method, p, body) => {

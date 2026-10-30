@@ -20,6 +20,7 @@ test.after(() => { server.close(); stubs.close(); });
 const port = server.address().port;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lesson-'));
+test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 const clipWith = (name, args) => { const f = path.join(dir, name); spawnSync('ffmpeg', ['-y', '-v', 'error', ...args, f]); return f; };
 const talking = clipWith('talk.mp4', ['-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=6', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=6', '-shortest', '-c:v', 'libx264', '-c:a', 'aac']);
 const silent = clipWith('silent.mp4', ['-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=6', '-c:v', 'libx264']);
