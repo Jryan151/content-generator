@@ -827,14 +827,6 @@ function selfRating(c) {
          h('div', { class: 'row muted' }, h('span', {}, '1 = producer'), h('span', {}, '10 = builder'))]);
 }
 
-// Where a pay number came from, so a small one never looks like a bug: placed policies, minus lapses.
-function payParts(p) {
-  const part = (x, who) => x.clawback
-    ? `${who} ${usd(x.paid)} on placed policies, minus ${usd(x.clawback)} taken back when a policy lapsed`
-    : `${who} ${usd(x.paid)} on placed policies`;
-  return `${part(p.team, 'Team:')}. ${part(p.own, 'Your own sales:')}.`;
-}
-
 function renderLadder() {
   const c = ctx();
   if (c.profile.licensed === null) { fill($('screen-ladder'), head('WHERE YOU’RE GOING', 'Progress'), h('div', { class: 'card locked' }, h('b', {}, 'Answer one question on Today first'), h('a', { class: 'go as-link', href: '#today' }, 'Go to Today'))); return; }
@@ -846,27 +838,42 @@ function renderLadder() {
     const b = t.builder;
     const mine = ownPremium(c.activities, { me: c.me, dayKey: c.dayKey });
     const p = payNow(c);
-    fill(screen, head('ARE YOU BUILDING?', 'Progress'),
+    // One question (what did I make?), one number, one step. The rest is folded under Details.
+    fill(screen, head('YOUR MONEY', 'Progress'),
       h('div', { class: 'card focus' },
-        p?.ready ? [h('div', { class: 'big' }, `Your team paid you ${usd(p.team.net)} in the last 30 days`), h('div', { class: 'muted' }, payParts(p))]
-          : [h('div', { class: 'big' }, 'What your team pays you shows here'), payLine(p)]),
-      b ? h('div', { class: 'card' }, h('table', { class: 'reqs' }, h('tbody', {},
-        h('tr', {}, h('td', {}, 'People selling every week'), h('td', { class: 'n2' }, String(b.steady.now)), h('td', { class: 'n2 muted' }, b.steady.before !== b.steady.now ? `was ${b.steady.before}` : '')),
-        h('tr', {}, h('td', {}, 'People you grew into steady sellers'), h('td', { class: 'n2' }, String(b.developed.now)), h('td', { class: 'n2 muted' }, b.developed.before !== b.developed.now ? `was ${b.developed.before}` : '')),
-        h('tr', {}, h('td', {}, 'Applications sent, last 30 days: team vs. yours (not paid until placed)'), h('td', { class: 'n2' }, usd(b.teamPremium.now)), h('td', { class: 'n2 muted' }, usd(mine.now))))),
-        stillPaying(c)) : null,
-      h('div', { class: 'card' }, h('div', { class: 'kicker' }, 'THIS MONTH’S ONE STEP'),
-        h('b', {}, t.trainer?.action ?? L.nextAction),
-        t.trainer ? h('div', { class: 'muted' }, `${t.trainer.trainerName} sells steadily. Teaching someone is how they become your trainer, and it takes work off you.`) : null),
-      selfRating(c));
+        p?.ready ? [h('div', { class: 'big' }, `You made ${usd(p.own.net + p.team.net)} in the last 30 days`), h('div', { class: 'muted' }, moneyParts(p))]
+          : [h('div', { class: 'big' }, 'What you make shows here'), payLine(p)]),
+      h('div', { class: 'card' }, h('div', { class: 'kicker' }, 'YOUR ONE STEP THIS MONTH'),
+        h('b', {}, t.trainer?.action ?? L.nextAction)),
+      h('details', { class: 'more' }, h('summary', {}, 'Details'),
+        b ? h('div', { class: 'card' }, h('table', { class: 'reqs' }, h('tbody', {},
+          h('tr', {}, h('td', {}, 'Agents with a sale most weeks'), h('td', { class: 'n2' }, String(b.steady.now))),
+          h('tr', {}, h('td', {}, 'Agents you trained to that'), h('td', { class: 'n2' }, String(b.developed.now))),
+          h('tr', {}, h('td', {}, 'Applications sent this month: your team'), h('td', { class: 'n2' }, usd(b.teamPremium.now))),
+          h('tr', {}, h('td', {}, 'Applications sent this month: you'), h('td', { class: 'n2' }, usd(mine.now))))),
+          h('p', { class: 'muted' }, 'An application pays only once the insurer approves it and the customer keeps paying.'),
+          stillPaying(c)) : null,
+        selfRating(c)));
     return;
   }
+  // An agent: where you are, and how far to the next step. Said once.
   const next = L.gate?.requirements?.find((r) => !r.met);
   fill(screen, head('WHERE YOU’RE GOING', 'Progress'),
-    focusCard(`YOU’RE AT: ${L.name.toUpperCase()}`, L.focus, L.why),
-    h('div', { class: 'card' }, h('b', {}, 'Next: '), L.nextAction,
-      next ? h('p', { class: 'muted' }, `${next.have}${next.need === '—' ? '' : ` of ${next.need}`}: ${next.label}`) : null),
-    L.stage === 'licensing' ? null : h('div', { class: 'card' }, stillPaying(c)));
+    focusCard(`NEXT: ${L.focus.replace(/\.$/, '').toUpperCase()}`,
+      next ? `${next.label[0].toUpperCase()}${next.label.slice(1)}: ${next.have}${next.need === '—' ? '' : ` of ${next.need}`}` : L.nextAction),
+    // "Still paying" means nothing before a first policy, so it waits until there is one.
+    c.activities.some((a) => a.agent_id === c.me && a.type === 'policy_issued') ? h('div', { class: 'card' }, stillPaying(c)) : null);
+}
+
+// The money in plain words: what you made, split into yours and your team's, and what a cancel took back.
+function moneyParts(p) {
+  const team = p.team.clawback
+    ? `${usd(p.team.net)} from your team (${usd(p.team.paid)}, minus ${usd(p.team.clawback)} back when a customer stopped paying)`
+    : `${usd(p.team.net)} from your team`;
+  const own = p.own.clawback
+    ? `${usd(p.own.net)} from your own sales (${usd(p.own.paid)}, minus ${usd(p.own.clawback)} back when a customer stopped paying)`
+    : `${usd(p.own.net)} from your own sales`;
+  return `${own}. ${team}.`;
 }
 
 // ── Team ────────────────────────────────────────────────────────────
