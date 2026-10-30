@@ -323,7 +323,7 @@ function shell(view) {
       <div class="me-menu"><button class="me-btn" data-act="menu" aria-expanded="false" aria-controls="mePop" aria-label="Account and guide"${['account', 'guide'].includes(view) ? ' aria-current="page"' : ''}>${esc(initial)}</button>
         <div class="me-pop" id="mePop" hidden><p class="small muted">${esc(me.account.name || me.account.email)}</p>${menu.map(([k, l]) => `<a href="#/${k}"${k === view ? ' aria-current="page"' : ''}>${esc(l)}</a>`).join('')}<button class="danger" data-act="logout">Log out</button></div></div></div>
     ${me.acting ? `<div class="acting"><span>You’re working in <b>${esc(ws.name)}</b>’s workspace.</span><button class="btn sm" data-act="leave-ws">Back to Admin</button></div>` : ''}
-    <nav class="nav" aria-label="Sections">${tabs.map(([k, label, n, key = k]) => `<a href="#/${k}"${key === here ? ' aria-current="page"' : ''}>${label}${n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}</nav></header>
+    <nav class="nav" aria-label="Sections">${can('teamlead') ? '<a href="/agent-system/#team" data-team-link>Team</a>' : ''}${tabs.map(([k, label, n, key = k]) => `<a href="#/${k}"${key === here ? ' aria-current="page"' : ''}>${label}${n ? `<span class="badge">${n}</span>` : ''}</a>`).join('')}</nav></header>
     ${(me.notices || []).length ? `<div class="notices" role="status">${me.notices.map(n => `<div class="note small">${esc(n.text)}</div>`).join('')}</div>` : ''}
     <main id="main"></main><div class="savebar" id="savebar" hidden></div>
     ${ws?.onboarded && can('coach') ? '<button class="coach-fab" data-act="coach-open" aria-label="Open the coach"><span aria-hidden="true">✦</span> Coach</button>' : ''}`;
@@ -418,6 +418,15 @@ function freshAfterLogin() {
   if (S.prevAccount && S.prevAccount !== S.me?.account?.id) { location.hash = '#/'; location.reload(); return true; }
   pushCheck(); watchJobs();
   return false;
+}
+
+// Someone sent here from the team page (Agent Reels) while signed out goes back there once signed in.
+// Recruits always land there anyway (render); this brings a leader back to her team instead of Review.
+function afterLoginGo() {
+  let back = '';
+  try { back = sessionStorage.getItem('afterLogin') || ''; sessionStorage.removeItem('afterLogin'); } catch { /* no storage: the usual home */ }
+  if (back === 'team' && can('team')) { location.replace('/agent-system/'); return; }
+  go('');
 }
 
 /* ================= Can't do it right now ================= */
@@ -1796,14 +1805,14 @@ document.addEventListener('submit', async e => {
     if (kind === 'login') {
       const r = await api('/api/login', { method: 'POST', body: { email: data.email, password: data.password } });
       if (r.twofa) { S.ticket = r.ticket; return viewTwofaLogin(); }
-      await refreshMe(); registerSw(); if (freshAfterLogin()) return; go(''); return;
+      await refreshMe(); registerSw(); if (freshAfterLogin()) return; afterLoginGo(); return;
     }
     if (kind === 'login2fa') {
       const r = await api('/api/login/2fa', { method: 'POST', body: { ticket: S.ticket, code: data.code } });
       S.ticket = null; S.ticketMsg = '';
       await refreshMe(); registerSw();
       if (r.usedBackup) toast(`Backup code used. ${r.backupLeft} left${r.backupLeft <= 3 ? ': make new ones under Account' : ''}.`);
-      if (freshAfterLogin()) return; go(''); return;
+      if (freshAfterLogin()) return; afterLoginGo(); return;
     }
     if (kind === 'link') {
       if (data.password !== data.password2) throw new Error('The two passwords don’t match.');

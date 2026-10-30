@@ -1284,6 +1284,7 @@ function renderAll() {
   // My people: her team, and her recruits from the day she starts a names list (Producer).
   const teamOpen = c.demo ? !!L && isUnlocked(L.stage, 'Team') : (a.on && a.role === 'leader') || (!!L && isUnlocked(L.stage, 'Recruits'));
   $('mode-demo').closest('.mode').hidden = a.on && a.role === 'agent';
+  $('to-content').hidden = !(a.on && a.role === 'leader');   // her content and videos, on the main site
   drawAccountNote();
   let tab = currentTab();
   if (tab === 'team' && !teamOpen) tab = 'today';
@@ -1330,6 +1331,13 @@ const localMine = mine;
         if (currentTab() === 'setup') renderDataCard();
       },
     });
+    // On the team's site but signed out: everyone signs in on the one sign-in page, then comes back
+    // here, so nobody works on a log that only lives on this phone. ?demo keeps the demo open to show people.
+    if (!doc && sync.account.signedOut && !new URLSearchParams(location.search).has('demo')) {
+      try { sessionStorage.setItem('afterLogin', 'team'); } catch { /* they land on their home page instead */ }
+      location.replace('/#/login');
+      return;
+    }
     if (doc) {
       mine = doc;
       if (sync.account.role === 'agent' && state.mode === 'demo') setMode('mine');

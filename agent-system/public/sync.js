@@ -12,6 +12,7 @@ import { migrate } from './src/store.js';
 export const account = {
   on: false,          // signed in and on a team
   site: false,        // this page is on the team's site (it can sign in)
+  signedOut: false,   // on the team's site but nobody is signed in (the server said 401)
   role: null,         // 'leader' | 'agent'
   me: null, team: null,
   rev: 0, status: 'saved', error: '', lost: 0,
@@ -61,6 +62,7 @@ export async function start({ local, onChange }) {
   try { res = await fetch('/api/reels/me', { headers: { Accept: 'application/json' }, credentials: 'same-origin' }); } catch { return null; }
   const type = res.headers.get('content-type') || '';
   account.site = type.includes('json');
+  account.signedOut = account.site && res.status === 401;
   if (!res.ok || !account.site) return null;
   const d = await json(res);
   Object.assign(account, { on: true, role: d.role, me: d.account, team: d.team });
