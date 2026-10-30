@@ -1,13 +1,8 @@
-// The two paths for a leader, and the rules that make each one black and white.
+// The leader rules: fixed lines that turn into "if THIS, then do THAT" with a name in it.
 //
-// The focus is producer to builder: getting a producer through their first
-// recruits without their own sales dropping. So there are two paths, Producer
-// and Coach. Director is parked (PARKED_PATHS) until Coaches are getting their
-// recruits to steady sales; its rules stay here so nothing has to be rebuilt.
-//
-// One yes/no question seeds the path on day one. After that, career.js places
-// people from real activity. Agents never pick a path: every agent gets the
-// same simple day.
+// There is one ladder: the career stages in career.js. A leader's rules depend on her stage
+// (producer or coach; director is parked). One yes/no question at setup picks the stage she
+// starts at; after that her real activity places her (career.js). Agents never pick anything.
 //
 // Black and white means: every status is green or red by a fixed number, and
 // every rule is "if THIS, then do THAT" with a person's name in it. Nobody has
@@ -15,52 +10,20 @@
 
 import { totalsFor, keyForCalendarDate, previousKey, rangeOf } from './timeframes.js';
 
-export const PATHS = Object.freeze({
-  producer: {
-    name: 'Producer',
-    motto: 'I sell, and I get ready to build.',
-    goal: 'Steady sales and a process worth copying.',
-    for: 'Producers with no agents selling under them yet.',
-    day: 'Production first, then one names-list conversation a day. The system handles reminders and follow-ups.',
-    graduates: 'A sale in 6 of the last 8 weeks and your Playbook written → Coach.',
-  },
-  coach: {
-    name: 'Coach',
-    motto: 'I sell and I train.',
-    goal: 'Keep producing while every new agent gets productive fast.',
-    for: 'Leaders building their first team.',
-    day: 'Mornings are your production, plus one recruiting step. Afternoons are the team’s.',
-    graduates: 'Finish line for now. Director is parked.',
-  },
-});
-
-/** Parked until the producer-to-builder window is proven. Not offered at setup. */
-export const PARKED_PATHS = Object.freeze({
-  director: {
-    name: 'Director',
-    motto: 'My team sells.',
-    goal: 'The team produces without you on the phones.',
-    for: 'Leaders with coaches under them.',
-    day: 'No dial block. You recruit, develop coaches, and handle only what’s red.',
-    graduates: '3 coaches you developed → Upline.',
-  },
-});
+/** The leader stages these rules know. Director is parked (career.js PARKED_STAGES). */
+const LEADER_STAGES = Object.freeze(['producer', 'coach', 'director']);
 
 /**
- * One yes/no question → one path. It only seeds day one; after 10 days of
- * logging, real activity decides (career.js).
+ * One yes/no question → the stage she starts at. It only seeds day one; after that her
+ * activity places her (career.js).
  *   Do you have agents under you who are selling right now?   no → producer, yes → coach
  */
-export const PATH_QUESTIONS = Object.freeze([
-  { id: 'hasAgents', text: 'Do you have agents under you who are selling right now?' },
-]);
+export const START_QUESTION = Object.freeze({ id: 'hasAgents', text: 'Do you have agents under you who are selling right now?' });
 
-export function choosePath({ hasAgents }) {
+export function startingStage({ hasAgents }) {
   if (typeof hasAgents !== 'boolean') throw new Error('Answer yes or no: do you have agents selling right now?');
   return hasAgents ? 'coach' : 'producer';
 }
-
-const isKnownPath = (path) => Boolean(PATHS[path] || PARKED_PATHS[path]);
 
 /** The fixed lines. Change them per team; never make them fuzzy. */
 export const THRESHOLDS = Object.freeze({
@@ -74,7 +37,7 @@ export const THRESHOLDS = Object.freeze({
 
 /** Scripts for the rules, so nobody has to decide what to say. */
 export const MESSAGES = Object.freeze({
-  noon: (name) => `Hey ${name}, no dials on the board yet today. What's in the way? Let's get your first 5 done in the next 30 minutes.`,
+  noon: (name) => `Hey ${name}, no calls on the board yet today. What's in the way? Let's get your first 5 done in the next 30 minutes.`,
   trainingSkipped: (name) => `Hey ${name}, today's training step is still open. It takes 15 minutes. Can you finish it before 5?`,
 });
 
@@ -110,15 +73,15 @@ const daysBetween = (fromKey, toKey) =>
  * each one sentence with a name in it, ordered most urgent first.
  *
  * input:
- *   path      'producer' | 'coach' (or the parked 'director')
+ *   stage     her career stage: 'producer' | 'coach' (or the parked 'director')
  *   dayKey    '2026-10-30'   now  '15:00' (the leader's local time)
  *   selfId    the leader's id (their own production counts too)
  *   team      [{ id, name, startedOn: 'YYYY-MM-DD', coach: 'Name' }]  (agents under them)
  *   plan      planDown() result (daily.dials, daily.posts, weekly.appts)
  *   activities, tz
  */
-export function actionsFor({ path, dayKey, now, selfId, team = [], plan, activities, tz, thresholds = THRESHOLDS, messages = MESSAGES }) {
-  if (!isKnownPath(path)) throw new Error(`Unknown path: ${path}`);
+export function actionsFor({ stage, dayKey, now, selfId, team = [], plan, activities, tz, thresholds = THRESHOLDS, messages = MESSAGES }) {
+  if (!LEADER_STAGES.includes(stage)) throw new Error(`Unknown leader stage: ${stage}`);
   if (!/^\d{2}:\d{2}$/.test(now)) throw new Error('now must be HH:MM');
   const day = rangeOf(dayKey, '1D').start;
   const isFriday = day.getUTCDay() === 5;
@@ -129,29 +92,29 @@ export function actionsFor({ path, dayKey, now, selfId, team = [], plan, activit
   const today = (id) => totalsFor(activities, { tf: '1D', key: dayKey, tz, agentIds: [id] });
   const actions = [];
   const add = (priority, rule, text, who = null) => actions.push({ priority, rule, text, who });
-  const routeTo = (agent) => (path === 'director' ? (agent.coach || 'their coach') : null);
+  const routeTo = (agent) => (stage === 'director' ? (agent.coach || 'their coach') : null);
 
   // ── Your own production (Producer and Coach) ──
-  if (path !== 'director') {
+  if (stage !== 'director') {
     const me = today(selfId);
     if (T.postBy && now >= T.postBy && me.posts < (plan?.daily?.posts ?? 1)) {
       add(2, 'post-now', 'Post now. Today’s post is still waiting.');
     }
     const goal = plan?.daily?.dials ?? 0;
     if (goal && now >= T.selfHalfDialsBy && me.dials < goal / 2) {
-      add(2, 'add-dial-block', `Add a 30-minute dial block at 1:30. You have ${goal - me.dials} dials left.`);
+      add(2, 'add-dial-block', `Add a 30-minute call block at 1:30. You have ${goal - me.dials} calls left.`);
     }
   }
 
   // ── Your team (Coach and Director) ──
-  if (path !== 'producer') {
+  if (stage !== 'producer') {
     for (const a of team) {
       const t = today(a.id);
       const coach = routeTo(a);
       if (now >= T.noonCheck && t.dials === 0) {
         add(1, 'noon-zero', coach
-          ? `Tell ${coach} to call ${a.name}. Zero dials at noon.`
-          : `Send ${a.name} the noon message. Zero dials so far.`, a.name);
+          ? `Tell ${coach} to call ${a.name}. Zero calls at noon.`
+          : `Send ${a.name} the noon message. Zero calls so far.`, a.name);
         actions.at(-1).message = M.noon(a.name);
       }
       const isNew = a.startedOn && daysBetween(a.startedOn, dayKey) < T.newAgentDays && daysBetween(a.startedOn, dayKey) >= 0;

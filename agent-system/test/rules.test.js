@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { choosePath, actionsFor, redList, weekStatus, PATHS, PARKED_PATHS } from '../src/paths.js';
+import { startingStage, actionsFor, redList, weekStatus } from '../src/rules.js';
 import { todoFor, planDown, productionRed } from '../src/routines.js';
 import { buildActivities, TZ, LEADER, DEVON, TASHA, MARCUS } from '../seed/sample.js';
 
@@ -12,19 +12,17 @@ const team = [
 ];
 const plan = { daily: { dials: 15, posts: 1 }, weekly: { appts: 3 } };
 
-test('one yes/no answer picks exactly one of the two paths', () => {
-  assert.equal(choosePath({ hasAgents: false }), 'producer');
-  assert.equal(choosePath({ hasAgents: true }), 'coach');
-  assert.equal(choosePath({ hasAgents: true, hasCoach: true }), 'coach', 'Director is parked: never chosen at setup');
-  assert.throws(() => choosePath({ hasAgents: 'maybe' }), /yes or no/);
-  assert.deepEqual(Object.keys(PATHS), ['producer', 'coach']);
-  assert.deepEqual(Object.keys(PARKED_PATHS), ['director']);
+test('one yes/no answer picks the stage she starts at', () => {
+  assert.equal(startingStage({ hasAgents: false }), 'producer');
+  assert.equal(startingStage({ hasAgents: true }), 'coach');
+  assert.equal(startingStage({ hasAgents: true, hasCoach: true }), 'coach', 'Director is parked: never chosen at setup');
+  assert.throws(() => startingStage({ hasAgents: 'maybe' }), /yes or no/);
 });
 
 test('every path has a full day, and the days are different', () => {
   const p = planDown({ yearlyPremium: 96_000 });
   const ids = {};
-  for (const path of [...Object.keys(PATHS), ...Object.keys(PARKED_PATHS)]) {
+  for (const path of ['producer', 'coach', 'director']) {
     const list = todoFor('2026-10-28', { role: 'builder', path, plan: p });
     assert.ok(list.length >= 5, `${path} has ${list.length} items`);
     assert.deepEqual(list.map((t) => t.at), [...list.map((t) => t.at)].sort(), `${path} is in time order`);
@@ -41,29 +39,29 @@ test('a leader without a path is told to pick one', () => {
 });
 
 test('coach at noon: the agent with zero dials gets named', () => {
-  const out = actionsFor({ path: 'coach', dayKey: '2026-10-14', now: '12:05', selfId: LEADER, team, plan, activities: acts, tz: TZ });
+  const out = actionsFor({ stage: 'coach', dayKey: '2026-10-14', now: '12:05', selfId: LEADER, team, plan, activities: acts, tz: TZ });
   const noon = out.filter((a) => a.rule === 'noon-zero');
   assert.deepEqual(noon.map((a) => a.who), ['Marcus']);
-  assert.equal(noon.at(0).text, 'Send Marcus the noon message. Zero dials so far.');
+  assert.equal(noon.at(0).text, 'Send Marcus the noon message. Zero calls so far.');
 });
 
 test('director at noon: the same problem is routed to the coach, not handled personally', () => {
-  const out = actionsFor({ path: 'director', dayKey: '2026-10-14', now: '12:05', selfId: LEADER, team, plan, activities: acts, tz: TZ });
-  assert.equal(out.find((a) => a.rule === 'noon-zero').text, 'Tell Devon to call Marcus. Zero dials at noon.');
+  const out = actionsFor({ stage: 'director', dayKey: '2026-10-14', now: '12:05', selfId: LEADER, team, plan, activities: acts, tz: TZ });
+  assert.equal(out.find((a) => a.rule === 'noon-zero').text, 'Tell Devon to call Marcus. Zero calls at noon.');
   assert.ok(!out.some((a) => a.rule === 'add-dial-block' || a.rule === 'post-now'), 'directors get no production rules');
 });
 
 test('before noon, nothing fires for the team', () => {
-  const out = actionsFor({ path: 'coach', dayKey: '2026-10-14', now: '09:30', selfId: LEADER, team, plan, activities: acts, tz: TZ });
+  const out = actionsFor({ stage: 'coach', dayKey: '2026-10-14', now: '09:30', selfId: LEADER, team, plan, activities: acts, tz: TZ });
   assert.ok(!out.some((a) => a.rule === 'noon-zero'));
 });
 
 test('producer gets only rules about their own day; the post reminder is opt-in', () => {
   const quiet = [{ agent_id: LEADER, type: 'dial', occurred_at: '2026-10-14T16:00:00Z' }];
-  const out = actionsFor({ path: 'producer', dayKey: '2026-10-14', now: '12:30', selfId: LEADER, team, plan, activities: quiet, tz: TZ });
+  const out = actionsFor({ stage: 'producer', dayKey: '2026-10-14', now: '12:30', selfId: LEADER, team, plan, activities: quiet, tz: TZ });
   assert.deepEqual(out.map((a) => a.rule), ['add-dial-block']);
-  assert.match(out.find((a) => a.rule === 'add-dial-block').text, /14 dials left/);
-  const withContent = actionsFor({ path: 'producer', dayKey: '2026-10-14', now: '12:30', selfId: LEADER, team, plan, activities: quiet, tz: TZ, thresholds: { postBy: '10:00' } });
+  assert.match(out.find((a) => a.rule === 'add-dial-block').text, /14 calls left/);
+  const withContent = actionsFor({ stage: 'producer', dayKey: '2026-10-14', now: '12:30', selfId: LEADER, team, plan, activities: quiet, tz: TZ, thresholds: { postBy: '10:00' } });
   assert.deepEqual(withContent.map((a) => a.rule).sort(), ['add-dial-block', 'post-now']);
 });
 
@@ -79,25 +77,25 @@ test('production comes first: red dials hide the day’s recruiting step', () =>
 });
 
 test('Friday: a red week means a 1:1; red two weeks running means a decision', () => {
-  const out = actionsFor({ path: 'coach', dayKey: '2026-10-16', now: '15:00', selfId: LEADER, team, plan, activities: acts, tz: TZ });
+  const out = actionsFor({ stage: 'coach', dayKey: '2026-10-16', now: '15:00', selfId: LEADER, team, plan, activities: acts, tz: TZ });
   const marcus = out.filter((a) => a.who === 'Marcus');
   assert.ok(marcus.some((a) => a.rule === 'week-red'), JSON.stringify(marcus));
 
   const ts = (d) => `2026-10-${d}T17:00:00Z`;
   const goodEarlier = [5, 6, 7].map((d) => ({ agent_id: TASHA, type: 'appt_set', occurred_at: ts(String(d).padStart(2, '0')) }));
-  const twoWeeksRed = actionsFor({ path: 'coach', dayKey: '2026-10-23', now: '15:00', selfId: LEADER, team: [team[1]], plan, activities: goodEarlier, tz: TZ });
+  const twoWeeksRed = actionsFor({ stage: 'coach', dayKey: '2026-10-23', now: '15:00', selfId: LEADER, team: [team[1]], plan, activities: goodEarlier, tz: TZ });
   assert.equal(twoWeeksRed.at(0).rule, 'red-two-weeks');
   assert.equal(twoWeeksRed.at(0).priority, 0);
 });
 
 test('new agent who skipped training gets a call; veterans do not', () => {
-  const out = actionsFor({ path: 'coach', dayKey: '2026-10-20', now: '16:45', selfId: LEADER, team, plan, activities: acts, tz: TZ });
+  const out = actionsFor({ stage: 'coach', dayKey: '2026-10-20', now: '16:45', selfId: LEADER, team, plan, activities: acts, tz: TZ });
   const skipped = out.filter((a) => a.rule === 'training-skipped').map((a) => a.who);
   assert.deepEqual(skipped, ['Marcus']);
 });
 
 test('weekends are quiet', () => {
-  assert.deepEqual(actionsFor({ path: 'coach', dayKey: '2026-10-17', now: '12:30', selfId: LEADER, team, plan, activities: acts, tz: TZ }), []);
+  assert.deepEqual(actionsFor({ stage: 'coach', dayKey: '2026-10-17', now: '12:30', selfId: LEADER, team, plan, activities: acts, tz: TZ }), []);
 });
 
 test('red list shows only agents under pace, nobody green', () => {

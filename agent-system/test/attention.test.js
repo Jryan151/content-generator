@@ -45,7 +45,7 @@ test('quiet days skip weekends, and today counts only after noon', () => {
 
 test('a lapse outranks a no-show problem, and pace only counts with real targets', () => {
   const lapsed = { id: 'x', name: 'X', activities: [...rows('x', DAY, 'dial', 10), ...rows('x', '2026-10-20', 'chargeback', 1)] };
-  assert.match(whoNeedsYou({ members: [lapsed], dayKey: DAY, now: '15:00', tz: TZ })[0].action, /kitchen-table check/);
+  assert.match(whoNeedsYou({ members: [lapsed], dayKey: DAY, now: '15:00', tz: TZ })[0].action, /four checks really done/);
 });
 
 test('the team summary: one ranking, stages, counts and a top', () => {

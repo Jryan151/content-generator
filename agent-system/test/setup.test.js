@@ -6,7 +6,7 @@ import {
   buildSystem, trainingFromPlaybook, LEARN_AFTER_DAYS, premiumForIncome,
 } from '../src/setup.js';
 import { todoFor, ratesFrom } from '../src/routines.js';
-import { actionsFor } from '../src/paths.js';
+import { actionsFor } from '../src/rules.js';
 import { levelProgress } from '../src/ladder.js';
 import { buildActivities, TZ, LEADER, MARCUS, TEAM_IDS } from '../seed/sample.js';
 
@@ -19,7 +19,7 @@ test('her whole setup is three answers', () => {
 
 test('nothing filled in still runs, shows no numbers, and says who it is waiting on', () => {
   const s = buildSystem();
-  assert.equal(s.path, 'coach');
+  assert.equal(s.stage, 'coach');
   assert.equal(s.targetsReady, false, 'no data means the baseline: no guessed targets');
   assert.equal(s.plan, null);
   assert.equal(s.rates, null);
@@ -27,9 +27,9 @@ test('nothing filled in still runs, shows no numbers, and says who it is waiting
   assert.ok(s.waitingOn.you.includes('Playbook: Opening the call'));
   assert.ok(s.waitingOn.you.some((w) => /contract level/.test(w)));
   assert.match(s.waitingOn.learning.at(0), /0 so far/);
-  const list = todoFor('2026-10-28', { role: 'builder', path: s.path, plan: s.plan, times: s.times });
+  const list = todoFor('2026-10-28', { role: 'builder', path: s.stage, plan: s.plan, times: s.times });
   assert.ok(list.length > 0, 'the routine still runs');
-  assert.equal(list.find((t) => t.id === 'c-dials').title, 'Your dial block: calls from your list', 'no number is shown, and none is made up');
+  assert.equal(list.find((t) => t.id === 'c-dials').title, 'Your call block: calls from your list', 'no number is shown, and none is made up');
   assert.ok(list.every((t) => !/\{|\}/.test(t.title)));
 });
 
@@ -99,7 +99,7 @@ test('the agency kit (filled by you) supplies playbook, training and promotion r
 test('only the kit can reword a message, and it must keep {name}', () => {
   const kit = { ...emptyAgencyKit(), messages: { noon: 'Yo {name}, dials?' } };
   const s = buildSystem({ kit });
-  const out = actionsFor({ path: 'coach', dayKey: '2026-10-14', now: '12:05', selfId: LEADER,
+  const out = actionsFor({ stage: 'coach', dayKey: '2026-10-14', now: '12:05', selfId: LEADER,
     team: [{ id: MARCUS, name: 'Marcus', startedOn: '2026-09-01' }], plan: s.plan, activities: buildActivities(), tz: TZ, messages: s.messages });
   assert.equal(out.find((a) => a.rule === 'noon-zero').message, 'Yo Marcus, dials?');
   assert.equal(validateAgencyKit({ ...emptyAgencyKit(), messages: { noon: 'no name here' } }).ok, false);

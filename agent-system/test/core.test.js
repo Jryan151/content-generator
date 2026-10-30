@@ -5,7 +5,7 @@ import { CORE_VALUES, SCREENS, PARKED } from '../src/core.js';
 // "module.export" → the real export, so the core can never point at code that doesn't exist.
 const MODULES = {
   attention: '../src/attention.js', calls: '../src/calls.js', store: '../src/store.js', career: '../src/career.js', ladder: '../src/ladder.js', metrics: '../src/metrics.js',
-  paths: '../src/paths.js', pipeline: '../src/pipeline.js', quality: '../src/quality.js', routines: '../src/routines.js',
+  rules: '../src/rules.js', pipeline: '../src/pipeline.js', quality: '../src/quality.js', routines: '../src/routines.js',
   setup: '../src/setup.js', timeframes: '../src/timeframes.js', pay: '../src/pay.js', today: '../src/today.js',
 };
 async function resolve(ref) {
@@ -31,7 +31,7 @@ test('exactly the five required screens, each reading only real engine functions
 });
 
 test('no required screen reads parked code', () => {
-  const parkedRefs = ['planDown', 'commissions', 'PARKED_PATHS'];
+  const parkedRefs = ['planDown', 'commissions', 'PARKED_STAGES'];
   for (const s of SCREENS) {
     for (const ref of s.reads) assert.ok(!parkedRefs.some((p) => ref.includes(p)), `${s.name} reads parked ${ref}`);
   }

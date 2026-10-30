@@ -36,7 +36,7 @@ export const STAGES = Object.freeze([
     id: 'starting', name: 'Starting',
     focus: 'Get your first sale.',
     why: 'Nothing else is real until you have closed once.',
-    unlocked: ['Today', 'Playbook', '30-day Training'],
+    unlocked: ['Today'],
     locked: ['Recruiting', 'Team'],
   },
   {
@@ -162,7 +162,7 @@ export function placeOnLadder({ person, team = [], teamStages = null, activities
   if (!everSold(activities, person.id)) {
     return result('starting', {
       gate: { to: 'Selling', requirements: [{ label: 'first application', have: '0', need: '1', met: false }] },
-      nextAction: 'Get your first sale. Work the 30-day plan and hit today’s dials.',
+      nextAction: 'Get your first sale. Make today’s calls.',
     });
   }
 

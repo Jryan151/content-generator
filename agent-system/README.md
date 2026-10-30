@@ -36,7 +36,7 @@ That's why Pipeline, Today and Team can never disagree: they all read the same l
 | `src/pay.js` | **Her pay next to her team's**: advances on her own placed policies and the override on her team's, last 30 days, after lapses (clawbacks). Blank until contract levels are in |
 | `src/parked/commissions.js` | **Parked.** Commission tracker: expected advances and overrides from issued policies and contract levels, matched to payments marked received; every item is paid, partial, late or due |
 | `src/ladder.js` | **The climb** (Producer → Coach → Director → Upline): duplication metrics (agents producing, coaches, 90-day retention, days to first sale), the recruiting funnel, and level progress with one next action |
-| `src/paths.js` | **The two leader paths** (Producer, Coach; Director parked): a 1-question picker, green/red status by fixed lines, and if-then rules that name the person and say exactly what to do |
+| `src/rules.js` | **The leader rules**: the one setup question that picks her starting stage, green/red status by fixed lines, and if-then rules that name the person and say exactly what to do. There is one ladder: the career stages |
 | `src/routines.js` | **What to do** at each timeframe: the plan cascade (yearly goal → daily dials) and each role's routine, from the blocks of a day up to the year |
 | `src/timeframes.js` | Micro-inside-macro math: buckets (1D/1W/1M/1Q/1Y), roll-ups, period-over-period, and `whereItBroke()` — the zoom-in loop |
 | `seed/sample.js` | A sample team and two months of activity where one agent stalls in week 3 |
@@ -127,18 +127,13 @@ Pay is private: only the person paid can see their payments, not their upline. T
 
 Alongside the stages, `duplication()` reports how a builder's team is doing: agents *producing* (a sale in the last 30 days), *staying* (active in the last 14 days), 90-day retention, and median days to first sale. The **recruiting pipeline** (prospect → interviewed → licensing → licensed → first sale → producing) logs every stage change, so recruiting shows up in the same timeframes as selling. It opens at Coach.
 
-## Two paths, black and white
+## One ladder, black and white
 
-Each leader stage runs one routine. On day one, one yes/no question seeds it (agents selling under you? no → Producer, yes → Coach); once there's activity, the career stage decides. Agents never pick: every agent gets the same day.
-
-| Path | Motto | Their day | Moves on when |
-| --- | --- | --- | --- |
-| Producer | I sell, and I get ready to build. | Production first, then one names-list conversation a day | A sale in 6 of 8 weeks + Playbook written → Coach |
-| Coach | I sell and I train. | Mornings produce plus one recruiting step, afternoons coach | Finish line for now |
+There is one ladder: the career stages above. A leader's day and rules depend on her stage (Producer or Coach). On day one, one yes/no question picks the stage she starts at (agents selling under you? no → Producer, yes → Coach); once there's activity, her real sales place her. Agents never pick: every agent gets the same day.
 
 **Production comes first.** Once the dial block is over, dials under 70% of the day's goal are red, and that day's recruiting step is hidden (`productionRed`, `todoFor({ now })`). **Content is optional:** the post block and the post reminder only appear when turned on.
 
-Rules are fixed lines, not judgment calls: under 70% of pace is **red**, zero dials at noon gets **the noon message**, red two weeks running means **decide: coaching plan or let go**. `npm run demo` shows both paths reacting to the same moment. The parked Director path routes the same problems to the agent's coach.
+Rules are fixed lines, not judgment calls: under 70% of pace is **red**, zero dials at noon gets **the noon message**, red two weeks running means **decide: coaching plan or let go**. `npm run demo` shows both stages reacting to the same moment. The parked Director stage routes the same problems to the agent's coach.
 
 ## Timeframe keys
 

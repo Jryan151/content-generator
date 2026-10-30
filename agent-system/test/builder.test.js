@@ -44,13 +44,13 @@ test('lapses are judged against the agent’s own book and the team’s typical 
   const r = Object.fromEntries(whoNeedsYou({ members: team, dayKey: '2026-10-29', now: '15:00', tz: TZ }).map((x) => [x.id, x]));
   assert.equal(r.keisha.level, 'ok', '2 of 60 is normal for this team');
   assert.equal(r.jordan.level, 'watch');
-  assert.match(r.jordan.reason, /6 policies lapsed this month: 20% of their book vs the team’s 3%/);
+  assert.match(r.jordan.reason, /6 customers stopped paying this month: 20% of their customers vs the team’s 3%/);
 });
 
 test('a new agent’s first lapse still gets a look', () => {
   const team = [book('keisha', 60, 2), book('dante', 50, 1), book('new', 4, 1)];
   const r = whoNeedsYou({ members: team, dayKey: '2026-10-29', now: '15:00', tz: TZ }).find((x) => x.id === 'new');
-  assert.match(r.reason, /1 policy lapsed this month$/);
+  assert.match(r.reason, /1 customer stopped paying this month$/);
 });
 
 test('"developed here" never counts a veteran whose history starts mid-stream', () => {

@@ -2,7 +2,7 @@
 // no starter numbers. "My setup" shows targets only once they can be real;
 // "Demo" runs the same engine on a fictional leader's logged activity.
 import { buildSystem, emptyLeaderSetup, premiumForIncome } from './src/setup.js';
-import { PATHS } from './src/paths.js';
+import { STAGES } from './src/career.js';
 import { buildActivities, TZ, DEMO } from './seed/sample.js';
 import { state, setMode, onMode, setSystem } from './state.js';
 
@@ -40,7 +40,7 @@ function render() {
 
   const sys = systemFor(s);
   if (s.hasAgents === null) { $('rp').textContent = 'Answer question 1'; $('motto').textContent = ''; }
-  else { const p = PATHS[sys.path]; $('rp').textContent = `${p.name} routine`; $('motto').textContent = `${p.motto} ${p.day} Your stage is on the Ladder; once you log activity, it picks your routine.`; }
+  else { const st = STAGES.find((x) => x.id === sys.stage); $('rp').textContent = `You start at: ${st.name}`; $('motto').textContent = `${st.focus} From here, your real sales move you up. You’ll see where you are on Progress.`; }
 
   const after = $('after'); after.replaceChildren();
   if (sys.targetsReady) {

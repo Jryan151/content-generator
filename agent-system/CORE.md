@@ -65,7 +65,7 @@ Every screen reads the `activities` log: who, what action, which client or recru
 
 Code that exists stays where it is, so nothing needs a rebuild.
 
-- Director and Upline paths and views
+- Director and Upline stages and views
 - Plan cascade and earnings-to-premium math (needs her contract level and real rates)
 - Monthly, quarterly and yearly views
 - Playbook screen (scripts attach to Today steps once the leader shares them)

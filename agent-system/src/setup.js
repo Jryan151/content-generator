@@ -13,7 +13,8 @@
 //   buildSystem({ leader, kit, activities, agentIds }) → what the engine runs on
 
 import { planDown, ratesFrom, ROUTINES } from './routines.js';
-import { THRESHOLDS, MESSAGES, choosePath, PARKED_PATHS } from './paths.js';
+import { THRESHOLDS, MESSAGES, startingStage } from './rules.js';
+import { PARKED_STAGES } from './career.js';
 import { LADDER } from './ladder.js';
 import { toCalendarDate } from './timeframes.js';
 import { STARTER_COMP } from './parked/commissions.js';
@@ -37,9 +38,9 @@ export function premiumForIncome(income, contractPercent) {
 
 /** Start-of-day presets: every routine shifts together. */
 export const START_PRESETS = Object.freeze({
-  early: { label: 'Early', shiftMinutes: -60, example: 'Dial block at 8:00' },
-  standard: { label: 'Standard', shiftMinutes: 0, example: 'Dial block at 9:00' },
-  late: { label: 'Late', shiftMinutes: 60, example: 'Dial block at 10:00' },
+  early: { label: 'Early', shiftMinutes: -60, example: 'Call block at 8:00' },
+  standard: { label: 'Standard', shiftMinutes: 0, example: 'Call block at 9:00' },
+  late: { label: 'Late', shiftMinutes: 60, example: 'Call block at 10:00' },
 });
 
 /** Conversion rates switch from starters to hers after this much logging. */
@@ -165,11 +166,11 @@ export function buildSystem({ leader = emptyLeaderSetup(), kit = emptyAgencyKit(
   if (!lv.ok || !kv.ok) throw new Error(`Setup has errors:\n  ${[...lv.errors, ...kv.errors].join('\n  ')}`);
   const waitingOn = { her: [], you: [], learning: [] };
 
-  // Her three answers. The first only seeds the path; activity decides after that.
+  // Her three answers. The first only picks the stage she starts at; her activity decides after that.
   if (blank(leader.hasAgents)) waitingOn.her.push('Agents selling now?');
   if (blank(leader.start)) waitingOn.her.push('Start of day');
   if (blank(leader.yearlyIncome)) waitingOn.her.push('Yearly earnings goal');
-  const path = choosePath({ hasAgents: leader.hasAgents ?? true });
+  const stage = startingStage({ hasAgents: leader.hasAgents ?? true });
   const start = leader.start || 'standard';
   // No guessed numbers. Every target comes from her answer, her real
   // contract level, and her own logged activity. Until all three exist she
@@ -229,7 +230,7 @@ export function buildSystem({ leader = emptyLeaderSetup(), kit = emptyAgencyKit(
         const v = given[q.pct ? `${q.metric}Percent` : q.metric];
         if (blank(v)) {
           // Rungs into a parked stage keep their starters quietly: not something to fill in yet.
-          if (!PARKED_PATHS[rung.to] && rung.to !== 'upline') waitingOn.you.push(`Promotion rule: ${rung.from} → ${rung.to}, ${q.label}`);
+          if (!PARKED_STAGES.includes(rung.to)) waitingOn.you.push(`Promotion rule: ${rung.from} → ${rung.to}, ${q.label}`);
           return { ...q, isStarter: true };
         }
         return { ...q, need: q.pct ? v / 100 : v, isStarter: false };
@@ -249,7 +250,7 @@ export function buildSystem({ leader = emptyLeaderSetup(), kit = emptyAgencyKit(
 
   return {
     name: leader.name || '',
-    path, start, plan, rates, ratesSource, times,
+    stage, start, plan, rates, ratesSource, times,
     yearlyIncome, yearlyPremium, contractPercent: contract,
     targetsReady: plan !== null, // false = baseline: the routine, no numbers
     measuredFrom: { daysLogged: logged, ...basedOn },
