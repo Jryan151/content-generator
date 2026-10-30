@@ -1086,7 +1086,7 @@ function openSheet(label, ...kids) {
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheet) closeSheet(); });
 
 function lessonVideo(c, l) {
-  if (l.hasVideo && !c.demo) return h('video', { class: 'lesson-video', src: `/api/reels/lessons/${l.id}/video`, poster: `/api/reels/lessons/${l.id}/thumb`, controls: true, playsinline: true, preload: 'metadata' });
+  if (l.hasVideo && !c.demo) return h('video', { class: 'lesson-video', src: `/api/reels/lessons/${l.id}/video${l.v ? `?v=${l.v}` : ''}`, poster: `/api/reels/lessons/${l.id}/thumb`, controls: true, playsinline: true, preload: 'metadata' });
   return c.demo ? h('p', { class: 'muted' }, 'On your team’s site, the leader’s video plays here.') : null;
 }
 function lessonLayers(c, l) {
@@ -1121,7 +1121,7 @@ function lessonsSection(c) {
     h('div', { class: 'kicker' }, 'LESSONS FOR YOUR TEAM'),
     h('b', {}, 'Teach it once on video. Your team learns it any time.'),
     h('p', { class: 'muted' }, c.demo ? 'On your own team, you add a lesson here from a video on your phone.'
-      : 'Record 2 to 5 minutes on your phone. The words are written out for you, with a first version of the lesson. You check it, then publish.'),
+      : 'Record 2 to 5 minutes on your phone and just teach: long pauses are trimmed and the sound is cleaned up for you. Say “Mango start”, “Mango back”, “Mango redo” or “Mango end” to cut while you record. You check it, then publish.'),
     c.demo ? null : uploadControl(),
     d.lessons.length ? d.lessons.map((l, i) => lessonRow(c, l, i, d.lessons.length)) : h('p', { class: 'muted' }, 'No lessons yet.'));
 }
@@ -1167,6 +1167,7 @@ function editLesson(id) {
   openSheet(l.title || 'Lesson',
     h('div', { class: 'kicker' }, l.published ? `PUBLISHED · ${l.tried} OF ${l.teamSize} TRIED IT` : 'NOT PUBLISHED · ONLY YOU CAN SEE IT'),
     lessonVideo({ demo: false }, l),
+    editBox(id, l, run),
     l.note ? h('p', { class: 'muted' }, l.note) : null,
     field('Title', h('input', { id: 'le-title', class: 'text-in', type: 'text', maxlength: '80', value: l.title })),
     field('The point: the problem and the fix, in 1 or 2 sentences', h('textarea', { id: 'le-point', rows: '3', maxlength: '240' }, l.point)),
@@ -1183,6 +1184,16 @@ function editLesson(id) {
       i > 0 ? h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.moveLesson(id, i - 1), 'Moved earlier in the course.') }, 'Earlier in the course') : null,
       i < n - 1 ? h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.moveLesson(id, i + 1), 'Moved later in the course.') }, 'Later in the course') : null,
       del));
+}
+
+// What the automatic edit did (lib/autoedit.js), and one tap back to the video as she recorded it.
+function editBox(id, l, run) {
+  if (!l.edit) return null;
+  const orig = l.edit.using === 'original';
+  return h('div', { class: 'stepper' },
+    h('p', { class: 'muted' }, orig ? 'Showing your video as recorded. Your team sees this version.' : l.edit.summary),
+    h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.saveLesson(id, { version: orig ? 'edited' : 'original' }), orig ? 'Back to the edited video.' : 'Switched to your video as recorded.') },
+      orig ? 'Use the edited video' : 'Use the original instead'));
 }
 
 // ── Settings: your data (under the gear, with Setup) ────────────────
