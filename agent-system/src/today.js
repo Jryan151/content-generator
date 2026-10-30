@@ -18,7 +18,7 @@
 export const TODAY_MAX_SLOTS = 5;
 
 /** What lives behind "More", in this order. */
-export const MORE = Object.freeze(['quickCall', 'addPeople', 'sendDay', 'dayOff', 'schedule']);
+export const MORE = Object.freeze(['quickCall', 'addPeople', 'lessons', 'sendDay', 'dayOff', 'schedule']);
 
 /**
  * Is her day done? One rule, used by Today and anything that asks.

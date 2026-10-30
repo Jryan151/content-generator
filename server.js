@@ -470,6 +470,9 @@ const ROUTE_CAPS = {
   // Agent Reels (routes/reels.js): your own log, and the leader's team.
   'GET /api/reels/me': 'team', 'POST /api/reels/sync': 'team',
   'GET /api/reels/team': 'teamlead', 'POST /api/reels/invite': 'teamlead', 'POST /api/reels/invites/revoke': 'teamlead', 'DELETE /api/reels/team/:id': 'teamlead',
+  // The team's lessons (lib/lessons.js): everyone on the team learns from them; only the leader makes them.
+  'GET /api/reels/lessons': 'team', 'GET /api/reels/lessons/:id/video': 'team', 'GET /api/reels/lessons/:id/thumb': 'team',
+  'POST /api/reels/lessons': 'teamlead', 'PUT /api/reels/lessons/:id': 'teamlead', 'POST /api/reels/lessons/:id/move': 'teamlead', 'DELETE /api/reels/lessons/:id': 'teamlead',
 };
 export const capFor = r => ROUTE_CAPS[`${r.method} ${r.pattern}`] || (r.method === 'GET' ? 'view' : null);
 export const deadCaps = () => Object.keys(ROUTE_CAPS).filter(k => !routes.some(r => `${r.method} ${r.pattern}` === k));

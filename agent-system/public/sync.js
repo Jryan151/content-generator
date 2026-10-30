@@ -231,3 +231,45 @@ export async function removeFromTeam(id) {
   team = null;
   return d;
 }
+
+/* ---------------- The team's lessons (the server's lib/lessons.js) ---------------- */
+// Everyone on the team reads them; only the leader adds, edits, orders and deletes.
+let lessonData = null, lessonsAt = 0, lessonsLoading = null;
+export const lessonsNow = () => lessonData;
+export async function loadLessons({ force = false } = {}) {
+  if (!account.on) return null;
+  if (!force && lessonData && Date.now() - lessonsAt < 60_000) return lessonData;
+  lessonsLoading ??= fetch('/api/reels/lessons', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    .then(async (res) => { const d = await json(res); if (!res.ok) throw new Error(d.error || 'Couldn’t load your lessons.'); lessonData = d; lessonsAt = Date.now(); return d; })
+    .finally(() => { lessonsLoading = null; });
+  return lessonsLoading;
+}
+async function lessonCall(method, url, body) {
+  const res = await fetch(url, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const d = await json(res);
+  if (!res.ok) throw new Error(d.error || 'Something went wrong. Try again.');
+  lessonData = { ...lessonData, ...d }; lessonsAt = Date.now();
+  return d;
+}
+export const saveLesson = (id, body) => lessonCall('PUT', `/api/reels/lessons/${encodeURIComponent(id)}`, body);
+export const moveLesson = (id, to) => lessonCall('POST', `/api/reels/lessons/${encodeURIComponent(id)}/move`, { to });
+export const deleteLesson = (id) => lessonCall('DELETE', `/api/reels/lessons/${encodeURIComponent(id)}`);
+/** Send a video; onProgress(0..1) while it uploads. Resolves with the new lesson (still being prepared). */
+export function uploadLesson(file, { step = '', onProgress = () => {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `/api/reels/lessons${step ? `?step=${encodeURIComponent(step)}` : ''}`);
+    x.withCredentials = true;
+    x.setRequestHeader('Content-Type', file.type && file.type.startsWith('video/') ? file.type : 'video/mp4');
+    x.setRequestHeader('Accept', 'application/json');
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onerror = () => reject(new Error('The upload stopped. Check your signal and try again.'));
+    x.onload = () => {
+      let d = {}; try { d = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status < 200 || x.status >= 300) return reject(new Error(d.error || (x.status === 413 ? 'That video is too large.' : 'The upload didn’t work. Try again.')));
+      lessonData = { ...lessonData, ...d }; lessonsAt = Date.now();
+      resolve(d.lesson);
+    };
+    x.send(file);
+  });
+}
