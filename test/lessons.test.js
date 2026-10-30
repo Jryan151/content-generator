@@ -112,3 +112,39 @@ test('the leader orders the course and deletes a lesson with its video', async (
   assert.deepEqual(gone.data.lessons.map((l) => l.id), [lessonId]);
   assert.ok(!fs.existsSync(file));
 });
+
+// Phone video is big (1080p at 60 fps is about 100 MB a minute), and Cloudflare's free plan refuses any
+// single request over 100 MB. So big videos go up in pieces; a dropped signal only resends one piece.
+test('a big video goes up in pieces: retries are fine, gaps are refused with where to carry on', async () => {
+  const bytes = fs.readFileSync(talking);
+  const put = (id, offset, body) => fetch(`http://127.0.0.1:${port}/api/reels/lessons/uploads/${id}?offset=${offset}`, { method: 'PUT', headers: { cookie: mel.cookie, 'Content-Type': 'application/octet-stream' }, body }).then(async (r) => ({ status: r.status, data: await r.json() }));
+  const start = await mel.post('/api/reels/lessons/uploads', { size: bytes.length, type: 'video/mp4' });
+  assert.equal(start.status, 200, JSON.stringify(start.data));
+  assert.equal(start.data.pieceMB, 32);
+  const id = start.data.uploadId, third = Math.ceil(bytes.length / 3);
+  const a = bytes.subarray(0, third), b = bytes.subarray(third, 2 * third), c = bytes.subarray(2 * third);
+  assert.equal((await put(id, 0, a)).data.received, a.length);
+  assert.equal((await put(id, 0, a)).data.received, a.length, 'the same piece twice (a retry) is fine');
+  const gap = await put(id, 2 * third, c);
+  assert.equal(gap.status, 409); assert.equal(gap.data.received, a.length, 'says where to carry on');
+  assert.equal((await mel.post(`/api/reels/lessons/uploads/${id}/finish`, {})).status, 409, 'not before every piece is in');
+  await put(id, third, b); await put(id, 2 * third, c);
+  assert.equal((await mel.get(`/api/reels/lessons/uploads/${id}`)).data.received, bytes.length);
+  const done = await mel.post(`/api/reels/lessons/uploads/${id}/finish`, { step: 'open' });
+  assert.equal(done.status, 200, JSON.stringify(done.data));
+  const l = await waitReady(team.id, done.data.lesson.id);
+  assert.equal(l.status, 'ready', l.error); assert.equal(l.step, 'open');
+  assert.match(l.transcript, /think about it/);
+  assert.equal((await mel.get(`/api/reels/lessons/uploads/${id}`)).status, 404, 'a finished upload is gone');
+});
+
+test('uploads in pieces: plain limits, and nobody else can touch one', async () => {
+  const huge = await mel.post('/api/reels/lessons/uploads', { size: 5 * 1024 ** 3, type: 'video/mp4' });
+  assert.equal(huge.status, 413); assert.match(huge.data.error, /1080p/);
+  assert.equal((await mel.post('/api/reels/lessons/uploads', { size: 1000, type: 'image/png' })).status, 415);
+  const start = await mel.post('/api/reels/lessons/uploads', { size: 1000, type: 'video/mp4' });
+  assert.equal((await jay.post('/api/reels/lessons/uploads', { size: 1000, type: 'video/mp4' })).status, 403, 'agents don’t add lessons');
+  const ann = await login('ann@example.com', 'annpass123456');
+  assert.equal((await ann.get(`/api/reels/lessons/uploads/${start.data.uploadId}`)).status, 404, 'another team can’t see it');
+  assert.equal((await mel.get('/api/reels/lessons/uploads/u0000000000000000')).status, 404);
+});

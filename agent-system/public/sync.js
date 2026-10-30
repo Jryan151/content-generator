@@ -254,22 +254,53 @@ async function lessonCall(method, url, body) {
 export const saveLesson = (id, body) => lessonCall('PUT', `/api/reels/lessons/${encodeURIComponent(id)}`, body);
 export const moveLesson = (id, to) => lessonCall('POST', `/api/reels/lessons/${encodeURIComponent(id)}/move`, { to });
 export const deleteLesson = (id) => lessonCall('DELETE', `/api/reels/lessons/${encodeURIComponent(id)}`);
-/** Send a video; onProgress(0..1) while it uploads. Resolves with the new lesson (still being prepared). */
-export function uploadLesson(file, { step = '', onProgress = () => {} } = {}) {
+// A video goes up in pieces (32 MB each): no single request is big enough for nginx or Cloudflare to
+// refuse, and a dropped signal only resends the piece it was on.
+const UP = '/api/reels/lessons/uploads';
+async function upCall(method, url, body) {
+  const res = await fetch(url, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const d = await json(res);
+  if (!res.ok) throw Object.assign(new Error(d.error || 'The upload didn’t work. Try again.'), { status: res.status, received: d.received });
+  return d;
+}
+function putPiece(id, offset, blob, onSent) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', `/api/reels/lessons${step ? `?step=${encodeURIComponent(step)}` : ''}`);
+    x.open('PUT', `${UP}/${encodeURIComponent(id)}?offset=${offset}`);
     x.withCredentials = true;
-    x.setRequestHeader('Content-Type', file.type && file.type.startsWith('video/') ? file.type : 'video/mp4');
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.setRequestHeader('Accept', 'application/json');
-    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
-    x.onerror = () => reject(new Error('The upload stopped. Check your signal and try again.'));
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
+    x.onerror = () => reject(Object.assign(new Error('The signal dropped. Trying again…'), { status: 0 }));
     x.onload = () => {
-      let d = {}; try { d = JSON.parse(x.responseText); } catch { /* not JSON */ }
-      if (x.status < 200 || x.status >= 300) return reject(new Error(d.error || (x.status === 413 ? 'That video is too large.' : 'The upload didn’t work. Try again.')));
-      lessonData = { ...lessonData, ...d }; lessonsAt = Date.now();
-      resolve(d.lesson);
+      let d = {}; try { d = JSON.parse(x.responseText); } catch { /* not JSON: something in front of the app answered */ }
+      if (x.status >= 200 && x.status < 300) return resolve(d);
+      reject(Object.assign(new Error(d.error || 'A piece of the video didn’t go through.'), { status: x.status, received: d.received }));
     };
-    x.send(file);
+    x.send(blob);
   });
+}
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Send a video; onProgress(0..1) while it uploads. Resolves with the new lesson (still being prepared). */
+export async function uploadLesson(file, { step = '', onProgress = () => {} } = {}) {
+  const start = await upCall('POST', UP, { size: file.size, type: file.type && file.type.startsWith('video/') ? file.type : 'video/mp4' });
+  const id = start.uploadId, piece = start.pieceMB * 1024 * 1024;
+  let at = start.received, misses = 0;
+  while (at < file.size) {
+    const end = Math.min(file.size, at + piece);
+    try {
+      at = (await putPiece(id, at, file.slice(at, end), (sent) => onProgress((at + sent) / file.size))).received;
+      misses = 0;
+    } catch (e) {
+      // Refusals that sending again won't fix go straight to her; anything else waits and carries on.
+      if ([400, 404, 413, 415, 507].includes(e.status) || ++misses > 8) throw e;
+      if (e.received !== undefined) { at = e.received; continue; }
+      await pause(Math.min(30_000, 1000 * 2 ** misses));
+      try { at = (await upCall('GET', `${UP}/${encodeURIComponent(id)}`)).received; } catch { /* still no signal: the next try asks again */ }
+    }
+  }
+  onProgress(1);
+  const d = await upCall('POST', `${UP}/${encodeURIComponent(id)}/finish`, { step: step || null });
+  lessonData = { ...lessonData, ...d }; lessonsAt = Date.now();
+  return d.lesson;
 }
