@@ -6,14 +6,25 @@
 //   POST   /api/reels/invite          invite an agent or recruit to the team          (teamlead)
 //   POST   /api/reels/invites/revoke  take back an invite                             (teamlead)
 //   DELETE /api/reels/team/:id        take someone off the team (their log is archived) (teamlead)
+//   GET    /api/reels/lessons         the team's lessons: published ones for agents, all for the leader (team)
+//   GET    /api/reels/lessons/:id/video|thumb   a lesson's video and picture             (team)
+//   POST   /api/reels/lessons         a new lesson from a video (the body is the file)  (teamlead)
+//   PUT    /api/reels/lessons/:id     edit, publish or unpublish                        (teamlead)
+//   POST   /api/reels/lessons/:id/move  its place in the course                         (teamlead)
+//   DELETE /api/reels/lessons/:id     delete it and its video                           (teamlead)
 // Accepting an invite goes through the site's own invite links (routes/public.js, routes/people.js).
 import * as store from '../lib/store.js';
 import * as auth from '../lib/auth.js';
 import * as roles from '../lib/roles.js';
 import * as reels from '../lib/reels.js';
+import * as lessons from '../lib/lessons.js';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { DIRS } from '../lib/paths.js';
 
 export default function mount(ctx) {
-const { bad, baseUrl, pendingInvites, route, validTz } = ctx;
+const { HttpError, bad, baseUrl, pendingInvites, route, spendGate, streamFile, validTz } = ctx;
 const run = (fn) => { try { return fn(); } catch (e) { if (e instanceof reels.ReelsError) bad(e.status, e.message, e.data); throw e; } };
 const roleHere = (me, wsId) => (me.account.role === 'admin' ? 'admin' : roles.membership(me.account, wsId)?.role || '');
 const invitesView = (wsId) => pendingInvites(wsId, 'teammate').map((t) => ({ email: t.email, at: new Date(t.createdAt).toISOString() }));
@@ -70,4 +81,52 @@ route('DELETE', '/api/reels/team/:id', 'ws', ({ wsId, params }) => {
   if (!roles.membershipsOf(left).length) { auth.deleteSessionsFor(a.id); store.deleteAccount(a.id); }
   return { ok: true, invites: invitesView(wsId) };
 });
+
+/* ---------------- Lessons (lib/lessons.js) ---------------- */
+const lessonRun = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof lessons.LessonError) bad(e.status, e.message); throw e; } };
+const isLeader = (me, wsId) => roleHere(me, wsId) !== 'teammate';
+// How many of her people tried each lesson, from their own logs.
+function leaderLessons(wsId) {
+  const team = reels.teammates(wsId);
+  const rows = Object.fromEntries(team.map(({ account }) => [account.id, reels.getDoc(wsId, account.id).activities || []]));
+  return lessons.leaderView(wsId, { tried: lessons.triedBy(rows), teamSize: team.length });
+}
+const lessonsFor = (me, wsId) => (isLeader(me, wsId) ? { role: 'leader', lessons: leaderLessons(wsId) } : { role: 'agent', lessons: lessons.agentView(wsId) });
+
+route('GET', '/api/reels/lessons', 'ws', ({ me, wsId }) => ({ ...lessonsFor(me, wsId), steps: lessons.STEPS, maxMB: lessons.MAX_UPLOAD_MB(), maxMinutes: lessons.LIMITS.maxMinutes }));
+// An agent only ever gets a published lesson's files.
+const lessonFile = (kind, type) => ({ req, res, me, wsId, params }) => {
+  const l = lessons.get(wsId, params.id);
+  if (!l || (!isLeader(me, wsId) && !(l.published && l.status === 'ready'))) bad(404, 'That lesson isn’t here anymore.');
+  const f = lessons.fileOf(wsId, l.id, kind);
+  if (!f) bad(404, 'This lesson has no video yet.');
+  streamFile(req, res, f, type);
+};
+route('GET', '/api/reels/lessons/:id/video', 'ws', lessonFile('video', 'video/mp4'));
+route('GET', '/api/reels/lessons/:id/thumb', 'ws', lessonFile('thumb', 'image/jpeg'));
+
+// The video file itself is the request body (Content-Type: video/…); ?step= is optional.
+route('POST', '/api/reels/lessons', 'ws', async ({ req, me, wsId, ws, url }) => {
+  if (!/^video\//.test(req.headers['content-type'] || '')) bad(415, 'Choose a video file.');
+  spendGate(ws); // the transcript and the draft use the AI allowance
+  const mb = lessons.MAX_UPLOAD_MB(), limit = mb * 1024 * 1024;
+  const tooBig = `That video is too large. Keep it under ${mb} MB (a 2 to 5 minute lesson is plenty).`;
+  if (Number(req.headers['content-length']) > limit) bad(413, tooBig);
+  const tmp = path.join(DIRS.work, `lesson-upload-${crypto.randomBytes(6).toString('hex')}`);
+  try {
+    await new Promise((resolve, reject) => {
+      let size = 0;
+      const out = fs.createWriteStream(tmp);
+      req.on('data', (c) => { size += c.length; if (size > limit) { reject(new HttpError(413, tooBig)); req.destroy(); out.destroy(); } });
+      req.pipe(out);
+      out.on('finish', resolve); out.on('error', reject); req.on('error', reject);
+    });
+    const { ready, ...lesson } = await lessonRun(() => lessons.create(wsId, tmp, { step: url.searchParams.get('step') || null }));
+    return { lesson, ...lessonsFor(me, wsId) };
+  } finally { fs.rmSync(tmp, { force: true }); }
+}, { raw: true });
+
+route('PUT', '/api/reels/lessons/:id', 'ws', ({ me, wsId, params, body }) => lessonRun(() => { lessons.edit(wsId, params.id, body); return lessonsFor(me, wsId); }));
+route('POST', '/api/reels/lessons/:id/move', 'ws', ({ me, wsId, params, body }) => lessonRun(() => { lessons.move(wsId, params.id, body.to); return lessonsFor(me, wsId); }));
+route('DELETE', '/api/reels/lessons/:id', 'ws', ({ me, wsId, params }) => lessonRun(() => { lessons.remove(wsId, params.id); return lessonsFor(me, wsId); }));
 }

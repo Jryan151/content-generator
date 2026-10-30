@@ -68,6 +68,18 @@ nginx passes everything to port 3100. The site's `server { … }` block needs:
 ```
     client_max_body_size 200m;     # agents upload their own clips (Brand); everything else is small
 
+    # A leader's lesson videos (Agent Reels → My people) are bigger: a few minutes from a phone.
+    location /api/reels/lessons {
+        client_max_body_size 500m;
+        proxy_request_buffering off;
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:3100;
         proxy_http_version 1.1;

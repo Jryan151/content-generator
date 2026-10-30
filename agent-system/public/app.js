@@ -5,7 +5,7 @@
 // fictional leader through the same engine.
 import { state, setMode, setDemoAs, onMode, onSystem } from './state.js';
 import { buildActivities, TZ, DEMO } from './seed/sample.js';
-import { DEMO_TEAM, DEMO_LEADS, DEMO_PRODUCER_LEADS, DEMO_RECRUITS, DEMO_PLAYBOOK_READY, DEMO_LEVELS, demoQualityActivities } from './seed/demo-pipeline.js';
+import { DEMO_TEAM, DEMO_LEADS, DEMO_PRODUCER_LEADS, DEMO_RECRUITS, DEMO_PLAYBOOK_READY, DEMO_LEVELS, demoQualityActivities, DEMO_LESSONS, DEMO_LESSON_TRIED } from './seed/demo-pipeline.js';
 import { placeOnLadder, routineFor, isUnlocked } from './src/career.js';
 import { todoFor } from './src/routines.js';
 import { totalsFor, bucketKey } from './src/timeframes.js';
@@ -321,8 +321,10 @@ function renderToday() {
   const notice = lateCard(c) || backupNudge(c);
   // The team slot is for a leader's one team thing, or her own calls being low. An agent's
   // "focus" lives on Progress: repeating it here every morning was noise.
+  const lesson = !isLeaderView(c) && isWorkday(c.dayKey) ? nextLesson(c) : null;
   const team = own.down ? ownDownCard(c, own)
-    : urgent ? needsYouCard(c, urgent) : null;
+    : urgent ? needsYouCard(c, urgent)
+    : lesson ? lessonCard(c, lesson) : null;
   const SLOT = {
     notice: () => notice,
     now: () => nowCards,
@@ -352,6 +354,7 @@ function moreCard(c, L, plan, own, { canTakeOff }) {
   const items = {
     quickCall: () => quickCall(c),
     addPeople: () => addPeople(c),
+    lessons: () => { const n = lessonsFor(c).length; return n && !isLeaderView(c) ? h('button', { type: 'button', class: 'card quick', onclick: () => openLessonList(c) }, h('b', {}, `All lessons (${n})`), h('span', { class: 'muted' }, 'Watch or read any of them again')) : null; },
     sendDay: () => sendMyDay(c),
     dayOff: () => canTakeOff && !c.demo ? h('button', { type: 'button', class: 'card quick', onclick: () => act(c, 'Marked today off. It won’t count against your calls.', () => [dayOffRow({ me: c.me, day: c.dayKey, at: c.at() })]) }, h('b', {}, 'Taking today off'), h('span', { class: 'muted' }, 'It won’t count against your calls')) : null,
     schedule: () => dayBlocks(c, L, plan, own),
@@ -784,7 +787,7 @@ function renderPipeline() {
 // ── Recruits: one queue, like calls ─────────────────────────────────
 // The recruit who needs the next step most comes first; everyone else waits behind it.
 function recruitsSection(c, L) {
-  if (!isUnlocked(L.stage, 'Recruits') && !(c.demo && c.demoAs === 'leader') && sync.account.role !== 'leader') return null;
+  if (!(L && isUnlocked(L.stage, 'Recruits')) && !(c.demo && c.demoAs === 'leader') && sync.account.role !== 'leader') return null;
   const onSite = sync.account.role === 'leader';
   // Signed in as a leader: once someone starts licensing they join My people and log for themselves.
   const open = c.recruits.filter((r) => r.stage !== 'dropped' && r.stage !== 'producing' && (!onSite || ['prospect', 'interviewed'].includes(r.stage)));
@@ -991,6 +994,7 @@ function drawTeam(c, screen, top, t, L, { real = false } = {}) {
     h('p', { class: 'lead' }, need === 0 ? 'Everyone is fine today.' : `${need} ${need === 1 ? 'person could' : 'people could'} use you. Everyone else is fine.`),
     t.people.map((p) => personCard(c, p, real)),
     recruitsSection(c, L),
+    lessonsSection(c),
     real ? inviteCard(t) : null,
     real && t.archived?.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Off the team'), h('span', { class: 'muted' }, ` ${t.archived.length}`)),
       h('p', { class: 'muted' }, 'Their sales stay in your history. Invite them again and their log comes back.'),
@@ -1013,7 +1017,7 @@ function renderTeam() {
     }
     if (!t.people.length) {
       fill(screen, top, h('div', { class: 'card focus' }, h('div', { class: 'kicker' }, 'START HERE'), h('div', { class: 'big' }, 'Nobody is on your team yet'),
-        h('div', { class: 'muted' }, 'Invite your agents below. Once they log on their own phones, this shows who could use you.')), recruitsSection(c, L), inviteCard(t));
+        h('div', { class: 'muted' }, 'Invite your agents below. Once they log on their own phones, this shows who could use you.')), recruitsSection(c, L), lessonsSection(c), inviteCard(t));
       return;
     }
     drawTeam(c, screen, top, t, L, { real: true });
@@ -1025,6 +1029,160 @@ function renderTeam() {
     h('p', { class: 'muted' }, sync.account.site
       ? 'Sign in under the gear (top right) to invite your agents. Their days show up here.'
       : 'Your agents show up here once you use Agent Reels on your team’s site and invite them. Switch to Demo to see a full team.'));
+}
+
+// ── Lessons: the team's guide (the server's lib/lessons.js) ─────────
+// The leader teaches once, on video; agents learn it any time: one lesson a day on Today, all of them
+// under More. Each lesson has four layers, so every kind of learner gets theirs: the point, what to do,
+// her video, and the exact words.
+const STEP_LABEL = { basics: 'The basics', open: 'Opening the call', need: 'Finding the need', qualify: 'Health and budget', options: 'Showing options', close: 'Closing' };
+const isLeaderView = (c) => (c.demo ? c.demoAs === 'leader' : sync.account.role === 'leader');
+const minutes = (s) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
+let lessonPoll = null;
+function lessonData(c) {
+  if (c.demo) return { role: c.demoAs === 'leader' ? 'leader' : 'agent', lessons: DEMO_LESSONS.map((l) => ({ ...l, status: 'ready', published: true, tried: DEMO_LESSON_TRIED[l.id] ?? 0, teamSize: 3 })) };
+  if (!sync.account.on) return { role: null, lessons: [] };
+  const d = sync.lessonsNow();
+  if (!d) { sync.loadLessons().then(() => renderAll(), () => {}); return null; }
+  if (d.lessons.some((l) => l.status === 'processing') && !lessonPoll) {
+    lessonPoll = setTimeout(() => { lessonPoll = null; sync.loadLessons({ force: true }).then(() => { if (!sheet) renderAll(); }, () => {}); }, 5000);
+  }
+  return d;
+}
+/** The course as an agent sees it: published lessons, in order. */
+const lessonsFor = (c) => (lessonData(c)?.lessons || []).filter((l) => l.published !== false && (l.status ?? 'ready') === 'ready');
+const triedOn = (c) => new Map(c.activities.filter((a) => a.agent_id === c.me && a.type === 'lesson_tried' && a.meta?.lesson_id).map((a) => [a.meta.lesson_id, a.occurred_at]));
+/** One a day: the next lesson not tried yet, unless one was tried today already. */
+function nextLesson(c) {
+  const tried = triedOn(c);
+  if ([...tried.values()].some((at) => bucketKey(at, '1D', c.tz) === c.dayKey)) return null;
+  return lessonsFor(c).find((l) => !tried.has(l.id)) || null;
+}
+function lessonCard(c, l) {
+  return h('section', { class: 'card lesson' },
+    h('div', { class: 'kicker' }, `TODAY’S LESSON${l.step ? ` · ${STEP_LABEL[l.step].toUpperCase()}` : ''}`),
+    h('div', { class: 'big' }, l.title),
+    h('div', { class: 'muted' }, l.point),
+    h('div', { class: 'inline' },
+      h('button', { type: 'button', class: 'go', onclick: () => openLesson(c, l) }, l.hasVideo ? `Watch it (${minutes(l.seconds)})` : 'Open the lesson'),
+      h('button', { type: 'button', class: 'mini', onclick: () => triedIt(c, l) }, 'I tried it')));
+}
+function triedIt(c, l) {
+  closeSheet();
+  act(c, `Nice: “${l.title}” is done. Your next lesson comes tomorrow.`, () => [{ agent_id: c.me, type: 'lesson_tried', occurred_at: c.at(), meta: { lesson_id: l.id } }]);
+}
+
+// A lesson opens over the screen, and closes back to where you were.
+let sheet = null;
+function closeSheet() { sheet?.remove(); sheet = null; document.body.classList.remove('sheet-open'); }
+function openSheet(label, ...kids) {
+  closeSheet();
+  sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, onclick: (e) => { if (e.target === sheet) closeSheet(); } },
+    h('div', { class: 'sheet-in' }, h('div', { class: 'row' }, h('span'), h('button', { type: 'button', class: 'link', onclick: closeSheet }, 'Close')), ...kids));
+  document.body.append(sheet);
+  document.body.classList.add('sheet-open');
+  sheet.querySelector('.sheet-in').focus?.();
+}
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheet) closeSheet(); });
+
+function lessonVideo(c, l) {
+  if (l.hasVideo && !c.demo) return h('video', { class: 'lesson-video', src: `/api/reels/lessons/${l.id}/video`, poster: `/api/reels/lessons/${l.id}/thumb`, controls: true, playsinline: true, preload: 'metadata' });
+  return c.demo ? h('p', { class: 'muted' }, 'On your team’s site, the leader’s video plays here.') : null;
+}
+function lessonLayers(c, l) {
+  return [
+    h('div', { class: 'kicker' }, l.step ? STEP_LABEL[l.step].toUpperCase() : 'LESSON'),
+    h('h2', {}, l.title),
+    lessonVideo(c, l),
+    h('div', { class: 'layer' }, h('div', { class: 'kicker' }, 'THE POINT'), h('p', {}, l.point)),
+    h('div', { class: 'layer' }, h('div', { class: 'kicker' }, 'DO THIS'), h('ol', { class: 'do-this' }, l.doThis.map((x) => h('li', {}, x)))),
+    l.transcript ? h('details', { class: 'layer' }, h('summary', {}, h('b', {}, 'Read every word'), h('span', { class: 'muted' }, ' the transcript')), h('p', { class: 'transcript' }, l.transcript)) : null,
+  ];
+}
+function openLesson(c, l) {
+  const at = triedOn(c).get(l.id);
+  openSheet(l.title, lessonLayers(c, l),
+    isLeaderView(c) ? null : at ? h('p', { class: 'muted' }, `You tried this ${dayShort(bucketKey(at, '1D', c.tz))}.`)
+      : h('button', { type: 'button', class: 'go', onclick: () => triedIt(c, l) }, 'I tried it'));
+}
+function openLessonList(c) {
+  const tried = triedOn(c);
+  openSheet('All lessons', h('h2', {}, 'All lessons'),
+    lessonsFor(c).map((l) => h('button', { type: 'button', class: 'card quick', onclick: () => openLesson(c, l) },
+      h('b', {}, `${tried.has(l.id) ? '✓ ' : ''}${l.title}`), h('span', { class: 'muted' }, [l.step ? STEP_LABEL[l.step] : null, minutes(l.seconds)].filter(Boolean).join(' · ')))));
+}
+
+// The leader's side, on My people: add a lesson from a video, edit it, publish it, see who tried it.
+function lessonsSection(c) {
+  if (!isLeaderView(c)) return null;
+  const d = lessonData(c);
+  if (!d) return h('p', { class: 'muted' }, 'Loading your lessons…');
+  return h('section', { class: 'card' },
+    h('div', { class: 'kicker' }, 'LESSONS FOR YOUR TEAM'),
+    h('b', {}, 'Teach it once on video. Your team learns it any time.'),
+    h('p', { class: 'muted' }, c.demo ? 'On your own team, you add a lesson here from a video on your phone.'
+      : 'Record 2 to 5 minutes on your phone. The words are written out for you, with a first version of the lesson. You check it, then publish.'),
+    c.demo ? null : uploadControl(),
+    d.lessons.length ? d.lessons.map((l, i) => lessonRow(c, l, i, d.lessons.length)) : h('p', { class: 'muted' }, 'No lessons yet.'));
+}
+function uploadControl() {
+  if (ui.uploading !== undefined) return h('p', { id: 'upload-prog', class: 'muted' }, `Uploading… ${Math.round(ui.uploading * 100)}%. Keep this page open.`);
+  const input = h('input', { type: 'file', accept: 'video/*', class: 'file-in', onchange: async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    ui.uploading = 0; renderAll();
+    try {
+      await sync.uploadLesson(f, { onProgress: (p) => { ui.uploading = p; const el = $('upload-prog'); if (el) el.textContent = `Uploading… ${Math.round(p * 100)}%. Keep this page open.`; } });
+      toast('Uploaded. The words and a first version show up here in a few minutes.');
+    } catch (err) { toast(err.message, null, true); }
+    delete ui.uploading; renderAll();
+  } });
+  return h('label', { class: 'go as-btn upload-btn' }, input, 'Add a lesson from a video');
+}
+function lessonRow(c, l, i, n) {
+  const sub = l.status === 'processing' ? 'Being prepared: the video, the words, and a first version. A few minutes.'
+    : l.status === 'failed' ? l.error
+      : [l.step ? STEP_LABEL[l.step] : null, l.published ? `${l.tried} of ${l.teamSize} tried it` : 'Not published: only you can see it'].filter(Boolean).join(' · ');
+  return h('div', { class: 'item' },
+    h('div', { class: 'who' }, h('b', {}, l.title || 'New lesson'), h('div', { class: l.status === 'failed' ? 'err' : 'muted' }, sub)),
+    l.status === 'processing' ? null : h('div', { class: 'acts' },
+      h('button', { type: 'button', class: 'mini', onclick: () => (c.demo ? openLesson(c, l) : editLesson(l.id)) }, c.demo ? 'Open' : l.status === 'failed' ? 'Remove' : 'Edit')));
+}
+function editLesson(id) {
+  const all = sync.lessonsNow()?.lessons || [];
+  const i = all.findIndex((x) => x.id === id), l = all[i], n = all.length;
+  if (!l) return;
+  const run = async (fn, msg) => { try { await fn(); toast(msg); closeSheet(); renderAll(); } catch (e) { toast(e.message, null, true); } };
+  const del = h('button', { type: 'button', class: 'link quiet-link', onclick: (e) => {
+    if (!e.target.dataset.sure) { e.target.dataset.sure = '1'; e.target.textContent = 'Tap again to delete it and its video'; return; }
+    run(() => sync.deleteLesson(id), 'Lesson deleted.');
+  } }, 'Delete');
+  if (l.status === 'failed') { openSheet('Lesson', h('h2', {}, 'This video didn’t work'), h('p', { class: 'err' }, l.error), del); return; }
+  const field = (label, el) => h('label', { class: 'field' }, h('span', {}, label), el);
+  const doThis = [0, 1, 2].map((k) => h('input', { id: `le-do${k}`, class: 'text-in', type: 'text', maxlength: '140', value: l.doThis[k] || '' }));
+  const fields = () => ({
+    title: $('le-title').value, point: $('le-point').value, doThis: doThis.map((x) => x.value),
+    step: $('le-step').value || null, transcript: $('le-tr').value,
+  });
+  openSheet(l.title || 'Lesson',
+    h('div', { class: 'kicker' }, l.published ? `PUBLISHED · ${l.tried} OF ${l.teamSize} TRIED IT` : 'NOT PUBLISHED · ONLY YOU CAN SEE IT'),
+    lessonVideo({ demo: false }, l),
+    l.note ? h('p', { class: 'muted' }, l.note) : null,
+    field('Title', h('input', { id: 'le-title', class: 'text-in', type: 'text', maxlength: '80', value: l.title })),
+    field('The point: the problem and the fix, in 1 or 2 sentences', h('textarea', { id: 'le-point', rows: '3', maxlength: '240' }, l.point)),
+    field('Do this: up to 3 things to try on their next calls', doThis),
+    field('Part of the call', h('select', { id: 'le-step' }, h('option', { value: '' }, 'Pick one'),
+      Object.entries(STEP_LABEL).map(([v, t]) => h('option', { value: v, selected: l.step === v }, t)))),
+    h('details', {}, h('summary', {}, h('b', {}, 'The exact words'), h('span', { class: 'muted' }, ' fix any word the transcript got wrong')),
+      h('textarea', { id: 'le-tr', rows: '10' }, l.transcript)),
+    h('div', { class: 'inline' },
+      h('button', { type: 'button', class: 'go', onclick: () => run(() => sync.saveLesson(id, { ...fields(), published: true }), l.published ? 'Saved. Your team sees the change.' : 'Published. It’s in your team’s lessons now.') }, l.published ? 'Save' : 'Save and publish'),
+      l.published ? h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.saveLesson(id, { published: false }), 'Unpublished. Only you can see it now.') }, 'Unpublish')
+        : h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.saveLesson(id, fields()), 'Saved. Only you can see it.') }, 'Save for now')),
+    h('div', { class: 'inline' },
+      i > 0 ? h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.moveLesson(id, i - 1), 'Moved earlier in the course.') }, 'Earlier in the course') : null,
+      i < n - 1 ? h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.moveLesson(id, i + 1), 'Moved later in the course.') }, 'Later in the course') : null,
+      del));
 }
 
 // ── Settings: your data (under the gear, with Setup) ────────────────

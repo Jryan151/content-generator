@@ -80,3 +80,21 @@ export function demoQualityActivities() {
   }
   return rows;
 }
+
+// The demo team's lessons: what Morgan has taught on video. No video files in the demo, so each one shows
+// its words; on a real team the video plays above them.
+export const DEMO_LESSONS = Object.freeze([
+  { id: 'ldemo00001', step: 'open', title: 'The first 10 seconds', seconds: 154, hasVideo: false,
+    point: 'People hang up when they don’t know why you’re calling. Say your name, why you’re calling, and ask for two minutes.',
+    doThis: ['Say “you asked about covering final costs” in your first sentence', 'Ask for two minutes, then stop talking'],
+    transcript: 'Here’s the thing about the first ten seconds. They don’t know you, and they’re waiting for a reason to hang up. So give them the reason you’re calling right away. Say your name, say they asked about covering final costs, and ask for two minutes. Then stop talking. Let them say yes.' },
+  { id: 'ldemo00002', step: 'need', title: 'Let them say who they’re protecting', seconds: 201, hasVideo: false,
+    point: 'They buy for the people they love, not for the policy. Ask who would handle everything, and let them answer in their own words.',
+    doThis: ['Ask: “If something happened tomorrow, who would be handling everything?”', 'Write down the name they say and use it later'],
+    transcript: 'Nobody buys final expense because of the policy. They buy it for their daughter, their husband, their grandkids. So ask: if something happened tomorrow, who would be handling everything? Then be quiet. Write the name down. When you show options later, use that name.' },
+  { id: 'ldemo00003', step: 'close', title: 'When they need to think about it', seconds: 176, hasVideo: false,
+    point: 'Most of the time it’s the price. Ask which part they need to think about, then show the smaller option.',
+    doThis: ['Ask “Which part do you want to think about?”', 'Have a smaller option ready before every meeting'],
+    transcript: 'When they say they need to think about it, don’t push and don’t hang up. Ask which part. Nine times out of ten it’s the price. That’s why you always walk in with a smaller option ready. Show it, and let them pick.' },
+]);
+export const DEMO_LESSON_TRIED = Object.freeze({ ldemo00001: 3, ldemo00002: 2, ldemo00003: 1 });

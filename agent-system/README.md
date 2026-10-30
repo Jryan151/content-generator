@@ -160,6 +160,19 @@ Where it broke
 → Fix the agent, not the month: check in with Marcus J.
 ```
 
+## Lessons: teach it once, on video
+
+The leader teaches on video once, and every agent can learn it any time of day, instead of another meeting (`lib/lessons.js`, `routes/reels.js`). One lesson, four layers, so every kind of learner gets theirs:
+
+| Layer | What it is |
+| --- | --- |
+| The point | 1–2 sentences: the problem and the fix |
+| Do this | 1–3 things to try on the next calls |
+| Video | The leader explaining it in her own words |
+| Transcript | The exact words, to read at your own speed |
+
+She adds a lesson from a phone video on **My people**; the server makes a phone-friendly copy, writes the transcript and drafts the other layers. Nothing reaches her team until she publishes. Agents get **one lesson a day on Today** (after their calls, in course order) and all of them under **More**; "I tried it" is a `lesson_tried` row in their own log, so she sees who did it, not just who watched. Each lesson can belong to a step of the call (open, need, qualify, options, close), so the course and her playbook are the same thing. nginx needs the larger upload size in SETUP.md.
+
 ## Automatic logging
 
 Moving a lead in the Pipeline writes the activity for you, so agents never log twice:

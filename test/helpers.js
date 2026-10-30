@@ -75,6 +75,7 @@ function openaiReply(body) {
   const last = msgs[msgs.length - 1];
   const user = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content || '');
   if (Array.isArray(last?.content)) { const n = last.content.filter(c => c.type === 'image_url').length, never = /Search used: "funeral test/.test(String(last.content[0]?.text || '')); return { clips: Array.from({ length: n }, (_, i) => ({ n: i + 1, score: never && i === 1 ? 1 : i === 0 ? 4 : 3, reason: never && i === 1 ? 'a funeral' : 'looks right' })) }; }
+  if (sys.includes('training video into a short lesson card')) return { title: 'When they need to think about it', point: 'Most of the time it is the price. Ask which part, then show the smaller option.', doThis: ['Ask “which part?” on your next 5 calls', 'Have a smaller option ready'], step: 'close' };
   if (sys.includes('You review short-form videos')) return { scores: [{ draft: 1, hook: 4, insight: 5, bridge: 4, cta: 4, flow: 4, note: 'solid' }, { draft: 2, hook: 3, insight: 4, bridge: 4, cta: 4, flow: 4, note: 'ok' }], best: 1 };
   if (user.includes('weekly check-in.')) {
     const ids = between(user, 'Use only these worry ids: ', ';').split(',').map(x => x.trim()).filter(Boolean);
@@ -229,6 +230,8 @@ export async function startStubs() {
         return json(200, { choices: [{ message: { content: JSON.stringify(openaiReply(body)) } }], usage: { prompt_tokens: 1200, completion_tokens: 300 } });
       } catch (e) { return json(200, { choices: [{ message: { content: '{"scenes":[]}' } }], usage: { prompt_tokens: 10, completion_tokens: 10 }, note: e.message }); }
     }
+    // Speech to text: a lesson video's words (lib/lessons.js).
+    if (url.pathname === '/v1/audio/transcriptions') { calls.stt = (calls.stt || 0) + 1; return json(200, { text: 'When they say they need to think about it, ask what part. Usually it is the price. Then show the smaller option.', duration: 6, words: [{ word: 'When', start: 0, end: 0.3 }] }); }
     if (url.pathname === '/v1/audio/speech') { calls.speech++; res.writeHead(200, { 'Content-Type': 'audio/mpeg' }); return res.end(fs.readFileSync(mp3)); }
     if (url.pathname === '/pixabay/') {
       calls.search++;
