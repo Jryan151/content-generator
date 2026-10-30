@@ -40,7 +40,7 @@ Built for busy people who don't read instructions. Drift fails a test instead of
 
 ## Required screens
 
-All five are built in `public/` (`index.html`, `app.js`, `setup.js`) and run on the engine. **Mine** logs to the phone only until the shared database is connected; **Demo** runs a fictional leader's data (`seed/sample.js`, `seed/demo-pipeline.js`).
+All five are built in `public/` (`index.html`, `app.js`, `setup.js`) and run on the engine. **Mine** logs to the phone only until the shared database is connected; **Demo** has two made-up people on the same timeline: **Leader** (Morgan, with a team) and **Producer** (Devon, one of her agents, no team), so both views can be checked (`seed/sample.js`, `seed/demo-pipeline.js`, `test/demo.test.js`).
 
 | Screen | Who | What it does | Reads |
 | --- | --- | --- | --- |

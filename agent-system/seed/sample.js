@@ -91,6 +91,8 @@ export const TEAM_IDS = [LEADER, DEVON, TASHA, MARCUS];
 export const DEMO = Object.freeze({
   leaderName: 'Morgan',
   leaderId: LEADER,
+  producerName: 'Devon',   // the producer demo: one of Morgan's agents, same timeline
+  producerId: DEVON,
   contractPercent: 80,
   activityFrom: '2026-09-01',
   activityTo: '2026-10-30',
