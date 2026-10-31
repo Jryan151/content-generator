@@ -520,6 +520,7 @@ const AUDIT = {
   'POST /api/facebook/page': 'facebook.connected',
   'POST /api/admin/invite': (c, out) => ({ action: 'invite.created', target: store.normEmail(c.body.email), ws: out?.workspaceId || '', detail: c.body.role === 'admin' ? 'admin' : '' }),
   'POST /api/admin/reset': c => ({ action: 'reset.created', target: emailOf(c.body.accountId) }),
+  'POST /api/admin/signin-link': c => ({ action: 'signin_link.created', target: emailOf(c.body.accountId) }),
   'POST /api/admin/accounts/:id': c => ({ action: c.body.disabled ? 'account.disabled' : 'account.enabled', target: emailOf(c.params.id), ws: store.getAccount(c.params.id)?.workspaceId || '' }),
   'POST /api/admin/accounts/:id/reset-2fa': c => ({ action: 'twofa.reset', target: emailOf(c.params.id), ws: store.getAccount(c.params.id)?.workspaceId || '' }),
   'POST /api/admin/open': c => (c.body.workspaceId ? { action: 'admin.open', ws: c.body.workspaceId } : { action: 'admin.leave', ws: c.me.wsId || '' }),

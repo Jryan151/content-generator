@@ -45,6 +45,16 @@ async function viewLink(kind, token) {
     </form>`);
 }
 
+// A one-tap sign-in link from the admin: just a Sign in button.
+async function viewSigninLink(token) {
+  authPage('<p class="empty"><span class="spin"></span> Checking your link…</p>');
+  let info;
+  try { info = await api('/api/link/check', { method: 'POST', body: { token, kind: 'signin' } }); }
+  catch (e) { return authPage(`<div class="note err">${esc(e.message)}</div><a class="btn" href="#/login">Go to log in</a>`); }
+  authPage(`<p class="lede">Welcome${info.email ? `, <b>${esc(info.email)}</b>` : ''}.</p>
+    <div class="stack"><button class="btn primary big" data-act="signin-go" data-token="${esc(token)}">Sign in</button><div class="status" data-st></div></div>`);
+}
+
 /* ================= Two-factor login ================= */
 function viewTwofaLogin(msg = S.ticketMsg || '') {
   authPage(`<p class="lede">${esc(msg || 'Enter the 6-digit code from your authenticator app.')}</p>
@@ -152,4 +162,4 @@ function dataPanel(dr) {
       <div class="row"><button class="btn danger">Request deletion</button></div><div class="status" data-st></div></form></details>`}</section>`;
 }
 
-export { drawSessions, drawTwofa, loadSessions, termsLinks, viewAccount, viewLink, viewLogin, viewTerms, viewTwofaLogin, viewTwofaRequired };
+export { drawSessions, drawTwofa, loadSessions, termsLinks, viewAccount, viewLink, viewLogin, viewSigninLink, viewTerms, viewTwofaLogin, viewTwofaRequired };

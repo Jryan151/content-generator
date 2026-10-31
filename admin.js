@@ -2,6 +2,7 @@
 //   node admin.js create-admin you@example.com          first admin (prints a one-time password)
 //   node admin.js invite agent@example.com "Jane Doe Insurance" [--ws <workspaceId>]
 //   node admin.js reset someone@example.com             prints a password reset link
+//   node admin.js signin-link someone@example.com       prints a one-tap sign-in link (no password; single use, 30 days)
 //   node admin.js list                                  workspaces, members and this month's use
 //   node admin.js delete-workspace <workspaceId> --yes  remove a workspace, its videos and its logins
 //   node admin.js reset-2fa someone@example.com         turn off two-factor login (lost phone); they set it up again
@@ -62,6 +63,14 @@ switch (cmd) {
     const acc = store.findAccountByEmail(args[0] || '') || die('No account with that email.');
     record({ action: 'reset.created', who: 'cli', target: acc.email, ws: acc.workspaceId || '' });
     console.log(`\nReset link for ${acc.email}, valid 7 days:\n${base}/#/reset/${auth.createLink('reset', { accountId: acc.id }, 'cli')}\n`);
+    break;
+  }
+  case 'signin-link': {
+    const acc = store.findAccountByEmail(args[0] || '') || die('No account with that email.');
+    if (acc.role === 'admin') die('Admins sign in with their password (and two-factor).');
+    if (acc.disabled) die('That account is disabled.');
+    record({ action: 'signin_link.created', who: 'cli', target: acc.email, ws: acc.workspaceId || '' });
+    console.log(`\nSign-in link for ${acc.email}, valid ${auth.SIGNIN_LINK_DAYS} days, works once:\n${base}/#/signin/${auth.createLink('signin', { accountId: acc.id }, 'cli', { days: auth.SIGNIN_LINK_DAYS })}\n`);
     break;
   }
   case 'list': {
@@ -246,5 +255,5 @@ Restart so the server uses the new key: pm2 restart generator`);
     break;
   }
   default:
-    console.log('Commands: create-admin <email> · invite <email> "<name>" [--comp] [--ws <id>] · reset <email> · reset-2fa <email> · list · comp <workspaceId> on|off · delete-workspace <workspaceId> --yes · storage status|migrate|rollback · backup-now · restore-test [file] · decrypt-backup <file.enc> <out.tar.gz>');
+    console.log('Commands: create-admin <email> · invite <email> "<name>" [--comp] [--ws <id>] · reset <email> · signin-link <email> · reset-2fa <email> · list · comp <workspaceId> on|off · delete-workspace <workspaceId> --yes · storage status|migrate|rollback · backup-now · restore-test [file] · decrypt-backup <file.enc> <out.tar.gz>');
 }
