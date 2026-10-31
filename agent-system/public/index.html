@@ -28,7 +28,9 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
-main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px calc(96px + env(safe-area-inset-bottom, 0px)); }
+main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: calc(20px + env(safe-area-inset-top, 0px)) calc(96px + env(safe-area-inset-bottom, 0px)); }
+/* The phone's clock and battery sit over a solid strip: content scrolls under it, never through it. */
+body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 50; pointer-events: none; }
 .wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 .eyebrow { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--accent); }
 h1 { margin: 6px 0 0; font-size: clamp(26px, 6vw, 34px); line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; }
