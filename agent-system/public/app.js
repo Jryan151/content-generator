@@ -9,6 +9,7 @@ import { DEMO_TEAM, DEMO_LEADS, DEMO_PRODUCER_LEADS, DEMO_RECRUITS, DEMO_PLAYBOO
 import { placeOnLadder, routineFor, isUnlocked } from './src/career.js';
 import { todoFor } from './src/routines.js';
 import { totalsFor, bucketKey } from './src/timeframes.js';
+import { lessonRows as lessonRowsOf, nextLesson as nextLessonOf } from './src/course.js';
 import { RECRUIT_STAGES } from './src/ladder.js';
 import { quality, CHECKPOINTS } from './src/quality.js';
 import { LEAD_STAGES, moveLead, nextRecruitStage, moveRecruit, addRecruit, dropRecruit, daysInStage } from './src/pipeline.js';
@@ -1051,25 +1052,30 @@ function lessonData(c) {
 }
 /** The course as an agent sees it: published lessons, in order. */
 const lessonsFor = (c) => (lessonData(c)?.lessons || []).filter((l) => l.published !== false && (l.status ?? 'ready') === 'ready');
-const triedOn = (c) => new Map(c.activities.filter((a) => a.agent_id === c.me && a.type === 'lesson_tried' && a.meta?.lesson_id).map((a) => [a.meta.lesson_id, a.occurred_at]));
-/** One a day: the next lesson not tried yet, unless one was tried today already. */
-function nextLesson(c) {
-  const tried = triedOn(c);
-  if ([...tried.values()].some((at) => bucketKey(at, '1D', c.tz) === c.dayKey)) return null;
-  return lessonsFor(c).find((l) => !tried.has(l.id)) || null;
-}
+const lessonRows = (c, type) => lessonRowsOf(c.activities, c.me, type);
+const triedOn = (c) => new Map([...lessonRows(c, 'lesson_tried')].map(([id, a]) => [id, a.occurred_at]));
+/** One a day; watching is enough to move on (src/course.js). */
+const nextLesson = (c) => nextLessonOf(lessonsFor(c), c.activities, { me: c.me, dayKey: c.dayKey, tz: c.tz });
 function lessonCard(c, l) {
+  const seen = lessonRows(c, 'lesson_watched').has(l.id);
   return h('section', { class: 'card lesson' },
     h('div', { class: 'kicker' }, `TODAY’S LESSON${l.step ? ` · ${STEP_LABEL[l.step].toUpperCase()}` : ''}`),
     h('div', { class: 'big' }, l.title),
+    l.doThis?.length ? h('ol', { class: 'do-this' }, l.doThis.map((x) => h('li', {}, x))) : null,
     h('div', { class: 'muted' }, l.point),
+    seen ? h('div', { class: 'muted' }, 'Tried it on a call? Open it and say how it went.') : null,
     h('div', { class: 'inline' },
-      h('button', { type: 'button', class: 'go', onclick: () => openLesson(c, l) }, l.hasVideo ? `Watch it (${minutes(l.seconds)})` : 'Open the lesson'),
-      h('button', { type: 'button', class: 'mini', onclick: () => triedIt(c, l) }, 'I tried it')));
+      h('button', { type: 'button', class: 'go', onclick: () => openLesson(c, l) }, l.hasVideo && !seen ? `Watch it (${minutes(l.seconds)})` : 'Open the lesson')));
 }
-function triedIt(c, l) {
+const HOW = { good: 'It went well', okay: 'It was okay', not_great: 'Not great' };
+function triedIt(c, l, how) {
   closeSheet();
-  act(c, `Nice: “${l.title}” is done. Your next lesson comes tomorrow.`, () => [{ agent_id: c.me, type: 'lesson_tried', occurred_at: c.at(), meta: { lesson_id: l.id } }]);
+  const msg = how === 'not_great' ? `Thanks for being honest. ${sync.account.team?.leaderName || 'Your leader'} will see this one didn’t go well yet.` : `Nice: “${l.title}” is done. Your next lesson comes tomorrow.`;
+  act(c, msg, () => [{ agent_id: c.me, type: 'lesson_tried', occurred_at: c.at(), meta: { lesson_id: l.id, how } }]);
+}
+function skipLesson(c, l) {
+  closeSheet();
+  act(c, `Skipped “${l.title}”. Your next lesson is on Today.`, () => [{ agent_id: c.me, type: 'lesson_known', occurred_at: c.at(), meta: { lesson_id: l.id } }]);
 }
 
 // A lesson opens over the screen, and closes back to where you were.
@@ -1100,10 +1106,17 @@ function lessonLayers(c, l) {
   ];
 }
 function openLesson(c, l) {
-  const at = triedOn(c).get(l.id);
-  openSheet(l.title, lessonLayers(c, l),
-    isLeaderView(c) ? null : at ? h('p', { class: 'muted' }, `You tried this ${dayShort(bucketKey(at, '1D', c.tz))}.`)
-      : h('button', { type: 'button', class: 'go', onclick: () => triedIt(c, l) }, 'I tried it'));
+  const leader = isLeaderView(c);
+  // Opening it is enough to move on in the course (logged once).
+  if (!leader && !c.demo && !lessonRows(c, 'lesson_watched').has(l.id)) { const before = JSON.parse(JSON.stringify(c.leads)); c.activities.push({ agent_id: c.me, type: 'lesson_watched', occurred_at: c.at(), meta: { lesson_id: l.id } }); c.save(before); }
+  const done = lessonRows(c, 'lesson_tried').get(l.id);
+  const after = leader ? null : done
+    ? h('p', { class: 'muted' }, `You tried this ${dayShort(bucketKey(done.occurred_at, '1D', c.tz))}${done.meta?.how ? `: ${HOW[done.meta.how].toLowerCase()}` : ''}.`)
+    : h('div', { class: 'stepper' },
+      h('b', {}, 'Tried it on a call? How did it go?'),
+      h('div', { class: 'inline' }, Object.entries(HOW).map(([k, t]) => h('button', { type: 'button', class: k === 'good' ? 'go' : 'mini', onclick: () => triedIt(c, l, k) }, t))),
+      lessonRows(c, 'lesson_known').has(l.id) ? null : h('button', { type: 'button', class: 'link', onclick: () => skipLesson(c, l) }, 'I already know this, skip it'));
+  openSheet(l.title, lessonLayers(c, l), after);
 }
 function openLessonList(c) {
   const tried = triedOn(c);
@@ -1142,7 +1155,7 @@ function uploadControl() {
 function lessonRow(c, l, i, n) {
   const sub = l.status === 'processing' ? 'Being prepared: the video, the words, and a first version. A few minutes.'
     : l.status === 'failed' ? l.error
-      : [l.step ? STEP_LABEL[l.step] : null, l.published ? `${l.tried} of ${l.teamSize} tried it` : 'Not published: only you can see it'].filter(Boolean).join(' · ');
+      : [l.step ? STEP_LABEL[l.step] : null, l.published ? `${l.tried} of ${l.teamSize} tried it${l.struggled ? ` · ${l.struggled} said it didn’t go well` : ''}` : 'Not published: only you can see it', l.edit?.warnings?.length && l.edit.using !== 'original' ? 'Check the edit' : null].filter(Boolean).join(' · ');
   return h('div', { class: 'item' },
     h('div', { class: 'who' }, h('b', {}, l.title || 'New lesson'), h('div', { class: l.status === 'failed' ? 'err' : 'muted' }, sub)),
     l.status === 'processing' ? null : h('div', { class: 'acts' },
@@ -1192,6 +1205,7 @@ function editBox(id, l, run) {
   const orig = l.edit.using === 'original';
   return h('div', { class: 'stepper' },
     h('p', { class: 'muted' }, orig ? 'Showing your video as recorded. Your team sees this version.' : l.edit.summary),
+    orig ? null : (l.edit.warnings || []).map((w) => h('p', { class: 'err' }, w)),
     h('button', { type: 'button', class: 'mini', onclick: () => run(() => sync.saveLesson(id, { version: orig ? 'edited' : 'original' }), orig ? 'Back to the edited video.' : 'Switched to your video as recorded.') },
       orig ? 'Use the edited video' : 'Use the original instead'));
 }

@@ -94,7 +94,21 @@ test('"I tried it" lands in the agent’s own log, and the leader sees who tried
   const sync = await jay.post('/api/reels/sync', { rev: me.rev, acts: { base: 0, add: [row] }, client: 'dTESTPHONE' });
   assert.equal(sync.status, 200, JSON.stringify(sync.data));
   const view = (await mel.get('/api/reels/lessons')).data.lessons.find((l) => l.id === lessonId);
-  assert.equal(view.tried, 1); assert.equal(view.teamSize, 1);
+  assert.equal(view.tried, 1); assert.equal(view.teamSize, 1); assert.equal(view.struggled, 0);
+});
+
+test('watching and skipping save; a try that went badly shows on the leader’s side', async () => {
+  const me = (await jay.get('/api/reels/me')).data;
+  const now = new Date().toISOString();
+  const add = [
+    { agent_id: 'me', type: 'lesson_watched', occurred_at: now, meta: { lesson_id: lessonId } },
+    { agent_id: 'me', type: 'lesson_known', occurred_at: now, meta: { lesson_id: 'lother' } },
+    { agent_id: 'me', type: 'lesson_tried', occurred_at: now, meta: { lesson_id: lessonId, how: 'not_great' } },
+  ];
+  const sync = await jay.post('/api/reels/sync', { rev: me.rev, acts: { base: me.log.activities.length, add }, client: 'dTESTPHONE' });
+  assert.equal(sync.status, 200, JSON.stringify(sync.data));
+  const view = (await mel.get('/api/reels/lessons')).data.lessons.find((l) => l.id === lessonId);
+  assert.equal(view.tried, 1, 'still one person'); assert.equal(view.struggled, 1, 'their latest answer: not great');
 });
 
 test('another team sees none of it', async () => {

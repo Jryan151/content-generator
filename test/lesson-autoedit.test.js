@@ -59,6 +59,41 @@ test('“back” never reaches past an earlier command, and the trigger word alo
   assert.equal(kept(alone), 'I love mango smoothies'); assert.deepEqual(alone.commands, []);
 });
 
+test('stress-test fixes: "back" and "redo" stay within reach and find sentence starts', () => {
+  // Two "backs" in a row cut two sentences.
+  const twice = ae.plan([...run('one two three', 0), ...run('bad sentence one', 1.6), ...run('bad sentence two', 3.2), ...run('mango back', 4.8), ...run('mango back', 5.6), ...run('good ending', 6.6)], 8, {});
+  assert.equal(kept(twice), 'one two three good ending');
+  // "redo" with no long pause before it acts like "back" instead of wiping everything.
+  const redo = ae.plan([...run('point one is this', 0), ...run('point two is that', 2.0), ...run('oops wrong', 4.0), ...run('mango redo', 5.0), ...run('point two clean', 5.9)], 7.5, {});
+  assert.equal(kept(redo), 'point one is this point two is that point two clean');
+  // A fast talker with no pauses: the transcript's periods mark the sentence.
+  const said = 'So ask about their family. Then ask about the price. Then wrong thing here';
+  const fast = ae.plan([...run(said.replace(/\./g, ''), 0, 0.32), ...run('mango back right thing', 6.8, 0.32)], 9, { text: `${said}. Mango back. Right thing.` });
+  assert.equal(kept(fast), 'So ask about their family Then ask about the price right thing');
+  // No sentence start anywhere: it stops at the limit and says so.
+  const blind = ae.plan([...run(Array(80).fill('word').join(' '), 0, 0.3), ...run('mango back x', 24.1)], 26, {});
+  assert.ok(blind.wordsKept.length > 20, 'never cuts more than the reach');
+  assert.match(blind.warnings[0], /stopped 15 seconds back/);
+  // A late "start" is pointed out.
+  assert.match(ae.plan([...run('real teaching', 0), ...run('mango start rest', 125)], 127, {}).warnings[0], /cut the first 2:05/);
+});
+
+test('stress-test fixes: misheard commands still work', () => {
+  for (const said of ['man go back', 'mangos back', 'mangoes back', 'mango um back']) {
+    assert.equal(kept(ae.plan([...run('wrong sentence', 0), ...run(said, 1.5), ...run('right', 3)], 4, {})), 'right', said);
+  }
+  assert.equal(kept(ae.plan(run('a man go to the store', 0), 3, {})), 'a man go to the store', 'no command word: nothing happens');
+});
+
+test('stress-test fixes: a very slow talker never goes over the join limit', () => {
+  const slow = [];
+  for (let i = 0; i < 600; i++) slow.push({ word: 'w', start: i * (1.2 + (i % 5) * 0.4), end: i * (1.2 + (i % 5) * 0.4) + 0.3 });
+  slow.sort((a, b) => a.start - b.start);
+  const p = ae.plan(slow, slow.at(-1).end + 1, {});
+  assert.ok(p.keep.length <= ae.MAX_PARTS, `${p.keep.length} parts`);
+  assert.ok(p.pauses > 0, 'the longest pauses are still shortened');
+});
+
 test('timings that don’t cover what was said: nothing is cut', () => {
   const p = ae.plan(say(['When', 0]), 6, { text: 'When they say they need to think about it, ask what part.' });
   assert.equal(p.changed, false);

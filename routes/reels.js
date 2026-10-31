@@ -93,7 +93,7 @@ const isLeader = (me, wsId) => roleHere(me, wsId) !== 'teammate';
 function leaderLessons(wsId) {
   const team = reels.teammates(wsId);
   const rows = Object.fromEntries(team.map(({ account }) => [account.id, reels.getDoc(wsId, account.id).activities || []]));
-  return lessons.leaderView(wsId, { tried: lessons.triedBy(rows), teamSize: team.length });
+  return lessons.leaderView(wsId, { tried: lessons.triedBy(rows), struggled: lessons.struggledBy(rows), teamSize: team.length });
 }
 const lessonsFor = (me, wsId) => (isLeader(me, wsId) ? { role: 'leader', lessons: leaderLessons(wsId) } : { role: 'agent', lessons: lessons.agentView(wsId) });
 

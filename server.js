@@ -687,6 +687,7 @@ const STATIC = {
   '/agent-system/src/timeframes.js': ['agent-system/src/timeframes.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/metrics.js': ['agent-system/src/metrics.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/today.js': ['agent-system/src/today.js', 'text/javascript; charset=utf-8'],
+  '/agent-system/src/course.js': ['agent-system/src/course.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/pay.js': ['agent-system/src/pay.js', 'text/javascript; charset=utf-8'],
   '/agent-system/src/parked/commissions.js': ['agent-system/src/parked/commissions.js', 'text/javascript; charset=utf-8'],
   '/agent-system/seed/sample.js': ['agent-system/seed/sample.js', 'text/javascript; charset=utf-8'],
