@@ -17,7 +17,7 @@ const STEPS = [
   ['voice', 'Voice and rules', 'How you sound, your own words and stories, and what a video must always or never say.', () => can('settings')],
   ['look', 'Look', 'How a video looks and is built: captions, colors, footage, length and formats.', () => can('settings')],
   ['autopilot', 'Autopilot', 'What runs by itself: Instagram and its keyword replies, Facebook, and the posting plan.', () => can('settings') || can('connect')],
-  ['team', 'Reviewer', 'A compliance reviewer who signs off each video before it posts, if your carrier asks for one.', () => can('people')],
+  ['team', 'People', 'Your assistant, who makes the content, and a compliance reviewer, if your carrier asks for one.', () => can('people')],
 ];
 const STEP_OF = Object.fromEntries(STEPS.map((x, i) => [x[0], i]));
 const stepsFor = () => STEPS.filter(x => x[3]());

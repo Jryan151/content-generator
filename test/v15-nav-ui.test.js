@@ -100,7 +100,7 @@ test('Setup’s six steps: each shows its panels, in order, with the way on; a c
     await goto(page, `#/${step}`, '.steps');
     const h = await headings(page);
     for (const x of want) assert.ok(h.includes(x), `${step}: ${x} in ${JSON.stringify(h)}`);
-    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Topics', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'Reviewer' }[step]);
+    assert.equal(await page.$eval('.steps [aria-current="step"]', a => a.textContent.replace(/^\d+\s*/, '')), { profile: 'Profile', library: 'Topics', voice: 'Voice and rules', look: 'Look', autopilot: 'Autopilot', team: 'People' }[step]);
   }
   // Topics leaves "Your voice" to Voice and rules.
   await goto(page, '#/library', '.steps');

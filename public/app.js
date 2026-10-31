@@ -300,7 +300,7 @@ async function render() {
 
 // What this person can do here (from the server, lib/roles.js), and which pages that opens.
 const can = cap => (S.me?.caps || []).includes(cap);
-const PAGE_CAPS = { review: ['view'], create: ['make'], studio: ['make'], grow: ['view'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], team: ['people'], signoff: ['signoff'],
+const PAGE_CAPS = { review: ['view'], create: ['make'], studio: ['make'], grow: ['results', 'coach', 'replies', 'mindset'], content: ['settings'], communicate: ['coach', 'replies'], mindset: ['mindset'], brand: ['settings', 'connect'], settings: ['settings'], team: ['people'], signoff: ['signoff'],
   profile: ['settings'], library: ['settings'], voice: ['settings'], look: ['settings'], autopilot: ['settings', 'connect'] };
 const canSee = view => !PAGE_CAPS[view] || PAGE_CAPS[view].some(can);
 // Where someone lands: the agent on Review, a reviewer on Sign-off.
@@ -1870,6 +1870,12 @@ document.addEventListener('submit', async e => {
     if (kind.startsWith('mind-')) { await mindForm(kind, f, data); return; }
     if (kind === 'so-back') { await soBackForm(f, data); return; }
     if (kind.startsWith('reply-') && await repliesForm(kind, f, data)) return;
+    if (kind === 'assistant-invite') {
+      const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, role: 'assistant' } });
+      S.people = { ...S.people, ...r }; drawTeam();
+      showLink(document.getElementById('assistantOut'), r.link, `Send this invite link to ${data.email} (valid 7 days, single use):`);
+      return;
+    }
     if (kind === 'reviewer-invite') {
       const r = await api('/api/people/invite', { method: 'POST', body: { email: data.email, role: 'reviewer' } });
       S.people = { ...S.people, ...r }; drawTeam();

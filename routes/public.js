@@ -94,7 +94,7 @@ route('POST', '/api/link/check', 'public', ({ body }) => {
   if (!t || orphanInvite(t)) bad(410, linkError);
   if (kind === 'reset') return { kind, email: store.getAccount(t.accountId)?.email || '' };
   // A reviewer invite for someone who already has a login is accepted after logging in (/api/link/join).
-  return { kind, email: t.email, role: ['reviewer', 'teammate'].includes(t.wsRole) ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: ['reviewer', 'teammate'].includes(t.wsRole) && !!store.findAccountByEmail(t.email) };
+  return { kind, email: t.email, role: roles.JOINABLE.includes(t.wsRole) ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: roles.JOINABLE.includes(t.wsRole) && !!store.findAccountByEmail(t.email) };
 });
 
 route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
@@ -105,18 +105,18 @@ route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
   if (!t || orphanInvite(t)) bad(410, linkError);
   let acc;
   if (kind === 'invite') {
-    if (store.findAccountByEmail(t.email)) bad(409, ['reviewer', 'teammate'].includes(t.wsRole) ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
+    if (store.findAccountByEmail(t.email)) bad(409, roles.JOINABLE.includes(t.wsRole) ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
     if (t.wsRole === 'reviewer' && signoff.reviewersOf(t.workspaceId).length >= signoff.MAX_REVIEWERS) bad(409, 'This workspace has all the reviewers it can have. Ask the agent.');
     const askTerms = t.role !== 'admin' && terms().on;
     if (askTerms && body.acceptTerms !== true) bad(400, TERMS_TEXT);
     const hash = await auth.hashPassword(body.password);
     if (!auth.useLink(body.token, kind)) bad(410, linkError);
-    if (t.role !== 'admin' && !['reviewer', 'teammate'].includes(t.wsRole) && t.workspaceId && body.timezone) {
+    if (t.role !== 'admin' && !roles.JOINABLE.includes(t.wsRole) && t.workspaceId && body.timezone) {
       const cfg = store.loadConfig(t.workspaceId);
       if (!cfg.look.name && !store.getWorkspace(t.workspaceId).onboarded) { cfg.profile.timezone = validTz(body.timezone); store.saveConfig(t.workspaceId, cfg); }
     }
     acc = store.createAccount({ email: t.email, name: clip(body.name, 80), role: t.role === 'admin' ? 'admin' : 'agent', workspaceId: t.role === 'admin' ? null : t.workspaceId, hash });
-    if (t.wsRole === 'reviewer') acc = store.setMembership(acc.id, t.workspaceId, { role: 'reviewer', since: nowIso() });
+    if (t.wsRole === 'reviewer' || t.wsRole === 'assistant') acc = store.setMembership(acc.id, t.workspaceId, { role: t.wsRole, since: nowIso() });
     // An agent or recruit joining a leader's team in Agent Reels: that, and nothing else in the workspace.
     if (t.wsRole === 'teammate') { acc = store.setMembership(acc.id, t.workspaceId, { role: 'teammate', since: nowIso() }); reels.restoreArchived(t.workspaceId, acc); }
     if (askTerms) acc = store.updateAccount(acc.id, termsStamp());

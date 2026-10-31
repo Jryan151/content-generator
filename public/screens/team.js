@@ -1,5 +1,6 @@
-// public/screens/team.js — Setup → Reviewer: the compliance reviewer, if the agent's carrier or marketing
-// organization asks for one, and whether approved videos wait for their sign-off.
+// public/screens/team.js — Setup → People: the assistant who makes the content (v16.1), and the compliance
+// reviewer, if the agent's carrier or marketing organization asks for one, and whether approved videos
+// wait for their sign-off.
 import { S, ago, api, can, esc, main } from '../app.js';
 import { stepHead } from './steps.js';
 
@@ -13,8 +14,18 @@ function drawTeam() {
 async function loadPeople() { try { S.people = await api('/api/people'); S.people.failed = false; } catch { S.people = { failed: true, people: [], reviewers: null }; } }
 function peopleHTML() {
   const P = S.people || { people: [], reviewers: null };
-  if (P.failed) return '<section class="panel"><h2>Compliance reviewer</h2><p class="small muted">Couldn’t load the people in this workspace. <button class="btn sm ghost" data-act="page-retry">Try again</button></p></section>';
-  return reviewerHTML(P);
+  if (P.failed) return '<section class="panel"><h2>People</h2><p class="small muted">Couldn’t load the people in this workspace. <button class="btn sm ghost" data-act="page-retry">Try again</button></p></section>';
+  return assistantHTML(P) + reviewerHTML(P);
+}
+// The assistant (v16.1): makes the videos, sets topics, voice and look, and posts. Every video still
+// waits for the agent's approval; the assistant can't approve, delete, or see the agent's own pages.
+function assistantHTML(P) {
+  const list = P.people.filter(p => p.role === 'assistant'), invites = P.assistants?.invites || [];
+  return `<section class="panel" id="assistantPanel"><div class="head"><h2>Assistant</h2><p>The person who makes your content. They build the videos and post them, and every one still waits for your approval.</p></div>
+    ${list.length ? `<div class="stack" style="gap:8px">${list.map(p => `<div class="row between box" style="gap:8px"><span class="small" style="flex:1 1 200px"><b>${esc(p.name || p.email)}</b> <span class="muted">${esc(p.email)}${p.lastLoginAt ? ` · active ${esc(ago(p.lastLoginAt))}` : ' · hasn’t logged in yet'}</span></span><button class="btn sm ghost danger" data-act="person-del" data-id="${esc(p.id)}">Remove</button></div>`).join('')}</div>` : ''}
+    ${invites.map(i => `<div class="row between small"><span class="muted">Invited ${esc(i.email)} ${esc(ago(i.at))} (not accepted yet)</span><button class="btn sm ghost" data-act="invite-del" data-email="${esc(i.email)}">Take back</button></div>`).join('')}
+    <form class="row" data-form="assistant-invite"><input class="ctl sm" name="email" type="email" required placeholder="Your assistant’s email" style="flex:1 1 220px" aria-label="Your assistant’s email"><button class="btn sm">Invite an assistant</button></form><div id="assistantOut" data-out></div>
+  </section>`;
 }
 // The compliance reviewer (v15): someone (often at your carrier or marketing organization) who signs off
 // each approved video before it posts. Free; they see only the Sign-off page.
