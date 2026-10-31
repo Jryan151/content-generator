@@ -89,10 +89,14 @@ route('POST', '/api/logout', 'public', ({ res, me }) => {
 });
 
 const linkKind = k => (k === 'reset' || k === 'signin' ? k : 'invite');
-route('POST', '/api/link/check', 'public', ({ body }) => {
+// Links are 256-bit and can't be guessed, but a run of wrong ones from one address is still cut off.
+const linkGuard = req => { const ip = clientIp(req); if (ipLimit.blocked(ip)) bad(429, 'Too many tries. Wait a few minutes and try again.'); return ip; };
+const linkMiss = ip => { ipLimit.fail(ip); bad(410, linkError); };
+route('POST', '/api/link/check', 'public', ({ req, body }) => {
+  const ip = linkGuard(req);
   const kind = linkKind(body.kind);
   const t = auth.peekLink(body.token, kind);
-  if (!t || orphanInvite(t)) bad(410, linkError);
+  if (!t || orphanInvite(t)) linkMiss(ip);
   if (kind === 'reset' || kind === 'signin') return { kind, email: store.getAccount(t.accountId)?.email || '' };
   // A reviewer invite for someone who already has a login is accepted after logging in (/api/link/join).
   return { kind, email: t.email, role: roles.JOINABLE.includes(t.wsRole) ? t.wsRole : t.role, workspace: t.workspaceId ? store.getWorkspace(t.workspaceId)?.name || '' : '', existing: roles.JOINABLE.includes(t.wsRole) && !!store.findAccountByEmail(t.email) };
@@ -101,9 +105,10 @@ route('POST', '/api/link/check', 'public', ({ body }) => {
 // A sign-in link: one tap, no password. Single use, so a forwarded copy is dead once it's used.
 // Two-factor, if on, is still asked. Never for admins (an admin made it, but it would open everything).
 route('POST', '/api/link/signin', 'public', ({ req, res, body }) => {
+  const ip = linkGuard(req);
   const t = auth.peekLink(body.token, 'signin');
   const acc = t && store.getAccount(t.accountId);
-  if (!acc || acc.disabled || acc.role === 'admin') bad(410, linkError);
+  if (!acc || acc.disabled || acc.role === 'admin') linkMiss(ip);
   if (!auth.useLink(body.token, 'signin')) bad(410, linkError);
   if (twofa.isOn(acc)) return { ok: true, twofa: true, ticket: newTicket(acc.id) };
   startSession(req, res, acc, 'sign-in link');
@@ -111,11 +116,12 @@ route('POST', '/api/link/signin', 'public', ({ req, res, body }) => {
 });
 
 route('POST', '/api/link/accept', 'public', async ({ req, res, body }) => {
+  const ip = linkGuard(req);
   const kind = body.kind === 'reset' ? 'reset' : 'invite';
   const problem = auth.passwordProblem(body.password);
   if (problem) bad(400, problem);
   const t = auth.peekLink(body.token, kind);
-  if (!t || orphanInvite(t)) bad(410, linkError);
+  if (!t || orphanInvite(t)) linkMiss(ip);
   let acc;
   if (kind === 'invite') {
     if (store.findAccountByEmail(t.email)) bad(409, roles.JOINABLE.includes(t.wsRole) ? 'You already have a login. Log in, then open this link again to accept.' : 'An account with this email already exists. Log in, or ask your admin for a reset link.');
