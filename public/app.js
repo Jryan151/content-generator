@@ -1,5 +1,5 @@
 // app.js — the portal. One page with hash routes:
-//   #/login  #/invite/<token>  #/reset/<token>  #/setup
+//   #/login  #/invite/<token>  #/reset/<token>  #/signin/<token>  #/setup
 //   #/review  #/create  #/content  #/communicate  #/brand  #/settings  #/guide  #/admin  #/account
 // It imports the same engine as the server (mixer-core.js), so previews and checks match exactly.
 // The prompt text itself is built only on the server (lib/prompts.js); admins can preview it in Setup → Look.
@@ -11,7 +11,7 @@ import {
 import { STYLES, STYLE_KEYS, normStyle, styleLabel, PRINCIPLES, SALES, DRILL, WORKSHOP_KINDS, RUBRIC } from './comms-core.js';
 import { BOOKS, SKILLS, PERSUASION, AUTO_HABITS } from './mindset-core.js';
 // The screens (public/screens/*.js).
-import { drawSessions, drawTwofa, loadSessions, viewAccount, viewLink, viewLogin, viewTerms, viewTwofaLogin, viewTwofaRequired } from './screens/account.js';
+import { drawSessions, drawTwofa, loadSessions, viewAccount, viewLink, viewLogin, viewSigninLink, viewTerms, viewTwofaLogin, viewTwofaRequired } from './screens/account.js';
 import { drawSetup, viewSetup } from './screens/setup.js';
 import { drawReview, focusKey, haptic2, loadIg, loadVideos, loadWeekly, player, sub, viewReview } from './screens/review.js';
 import { drawCreate, footageHTML, loadOverview, testHTML, viewCreate } from './screens/create.js';
@@ -219,7 +219,7 @@ async function apiOnce(path, { method = 'GET', body, key = '', keepalive = false
     if (S.me?.account) S.prevAccount = S.me.account.id;
     S.me = { ...(S.me || {}), account: null };
     clearOffline();   // nothing personal stays on the device once the session is gone
-    if (!/^#\/(invite|reset)/.test(location.hash)) go('login');
+    if (!/^#\/(invite|reset|signin)/.test(location.hash)) go('login');
     throw new Error(data.error || 'Please log in.');
   }
   if (res.status === 403 && data.terms && S.me?.account && !S.me.termsRequired) { S.me.termsRequired = true; setTimeout(render, 0); }
@@ -276,6 +276,7 @@ async function render() {
   stopTimers();
   const { view, arg, q } = parse();
   if (view === 'invite' || view === 'reset') return viewLink(view, arg);
+  if (view === 'signin') return viewSigninLink(arg);
   if (!S.me?.account) return S.ticket ? viewTwofaLogin() : viewLogin();
   // Two-factor login required (admins by default) and not set up yet: nothing else until it is.
   if (S.me.twofaSetupRequired) return page('twofa', viewTwofaRequired);
@@ -1482,6 +1483,20 @@ const actions = {
     const v = prompt(`Monthly AI cost cap for this workspace, in dollars.\nBlank = the default ($${(S.admin.system.aiCap || 0).toFixed(2)}), 0 = no cap. At 80% you get an alert; at 100% new videos, test scripts and the coach pause until next month.`, el.dataset.v || '');
     if (v === null) return;
     try { await api(`/api/admin/workspaces/${el.dataset.id}`, { method: 'POST', body: { aiCostUsd: v.trim() } }); await viewAdmin(); } catch (e) { toast(e.message); }
+  },
+  async 'signin-link'(el) {
+    try { const r = await api('/api/admin/signin-link', { method: 'POST', body: { accountId: el.dataset.id } }); showLink(el.closest('.panel').querySelector('[data-out]') || el.closest('.panel'), r.link, `Sign-in link for ${r.email} (no password; works once, valid ${r.days} days). Send it to them directly:`); }
+    catch (e) { toast(e.message); }
+  },
+  async 'signin-go'(el) {
+    el.disabled = true;
+    const st = el.closest('.panel').querySelector('[data-st]');
+    try {
+      const r = await api('/api/link/signin', { method: 'POST', body: { token: el.dataset.token } });
+      if (r.twofa) { S.ticket = r.ticket; S.ticketMsg = 'Now enter the code from your authenticator app.'; history.replaceState(null, '', '#/login'); return viewTwofaLogin(); }
+      history.replaceState(null, '', '#/');
+      await refreshMe(); registerSw(); if (freshAfterLogin()) return; afterLoginGo();
+    } catch (e) { el.disabled = false; status(st, e.message, 'err'); }
   },
   async 'reset-link'(el) {
     try { const r = await api('/api/admin/reset', { method: 'POST', body: { accountId: el.dataset.id } }); showLink(el.closest('.panel').querySelector('[data-out]') || el.closest('.panel'), r.link, `Reset link (valid 7 days, single use). Send it to them directly:`); }

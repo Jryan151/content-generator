@@ -150,6 +150,15 @@ route('POST', '/api/admin/reset', 'admin', async ({ req, body, me }) => {
   const link = `${baseUrl(req)}/#/reset/${auth.createLink('reset', { accountId: acc.id }, me.account.id)}`;
   return { link, days: 7, email: acc.email };
 });
+// A one-tap sign-in link (no password) for an agent: single use, valid SIGNIN_LINK_DAYS.
+route('POST', '/api/admin/signin-link', 'admin', ({ req, body, me }) => {
+  const acc = store.getAccount(body.accountId);
+  if (!acc) bad(404, 'Account not found.');
+  if (acc.role === 'admin') bad(400, 'Admins sign in with their password (and two-factor).');
+  if (acc.disabled) bad(400, 'That account is disabled. Enable it first.');
+  const link = `${baseUrl(req)}/#/signin/${auth.createLink('signin', { accountId: acc.id }, me.account.id, { days: auth.SIGNIN_LINK_DAYS })}`;
+  return { link, days: auth.SIGNIN_LINK_DAYS, email: acc.email };
+});
 route('POST', '/api/admin/accounts/:id', 'admin', ({ params, body, me }) => {
   const acc = store.getAccount(params.id);
   if (!acc) bad(404, 'Account not found.');
