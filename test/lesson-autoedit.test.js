@@ -104,6 +104,35 @@ test('the leader gets one plain line about what was done', () => {
   assert.match(ae.summary(p), /^Edited for you: shortened 1 long pause and followed your Mango command \(“start”\)\. \d+ seconds shorter\.$/);
 });
 
+test('a gap in the words is only cut where the audio is quiet (a word the transcriber missed stays)', () => {
+  // "behaviors" spoken at 1.5–2.6 s but missing from the words: a 2.6 s "gap" that is really speech.
+  const words = [...run('the key is', 0), ...run('that matter', 3.3)];
+  const text = 'the key is that matter';
+  const trusting = ae.plan(words, 4.5, { text });
+  assert.ok(trusting.cut > 1.5, 'without the audio, the gap looks like a pause');
+  const heard = ae.plan(words, 4.5, { text, quiet: [[2.7, 3.2]] });   // voice in the gap
+  assert.equal(heard.cut, 0, 'her voice in the gap keeps it whole');
+  assert.equal(heard.keep.length, 1);
+  const silent = ae.plan(words, 4.5, { text, quiet: [[0.95, 3.3]] }); // really quiet
+  assert.ok(silent.cut > 1.5, 'a real pause is still shortened');
+});
+
+test('speech before the first word or after the last heard word is not trimmed', () => {
+  const words = run('so here is the thing', 2.5);   // a missed opening line from 0 to 2.4 s
+  const p = ae.plan(words, 5, { text: 'so here is the thing', quiet: [] });
+  assert.equal(p.keep[0][0], 0);
+  assert.equal(p.keep.at(-1)[1], 5);
+  const q = ae.plan(words, 5, { text: 'so here is the thing', quiet: [[0, 2.4], [4.3, Infinity]] });
+  assert.ok(q.keep[0][0] > 2, 'a quiet start is still trimmed');
+});
+
+test('Mango commands still cut with the audio check on', () => {
+  const words = [...run('wrong opening', 0), ...run('mango start', 1), ...run('the real point', 2)];
+  const p = ae.plan(words, 3.2, { text: 'wrong opening mango start the real point', quiet: [] });
+  assert.equal(kept(p), 'the real point');
+  assert.ok(p.keep[0][0] > 1.5);
+});
+
 // With real video from here on.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autoedit-'));
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -113,6 +142,12 @@ const seconds = (f) => Number(spawnSync('ffprobe', ['-v', 'error', '-show_entrie
 const clip = path.join(dir, 'pause.mp4');
 ff('-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=10', '-f', 'lavfi', '-i', "aevalsrc='if(between(t,3,7),0.0005*random(0),0.3*sin(2*PI*300*t))':d=10:s=48000",
   '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', clip);
+
+test('quietSpans finds the quiet stretch in a real recording', async () => {
+  const q = await ae.quietSpans(clip);
+  assert.ok(q.some(([x, y]) => x < 3.3 && y > 6.7), `a quiet stretch around 3–7 s, got ${JSON.stringify(q)}`);
+  assert.ok(!q.some(([x, y]) => x < 1 && y > 2), 'the tone is not quiet');
+});
 
 test('render cuts the video to the kept stretches', async () => {
   const out = path.join(dir, 'cut.mp4');
