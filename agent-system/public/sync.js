@@ -275,9 +275,9 @@ function putPiece(id, offset, blob, onSent) {
     x.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
     x.onerror = () => reject(Object.assign(new Error('The signal dropped. Trying again…'), { status: 0 }));
     x.onload = () => {
-      let d = {}; try { d = JSON.parse(x.responseText); } catch { /* not JSON: something in front of the app answered */ }
+      let d = {}, proxy = false; try { d = JSON.parse(x.responseText); } catch { proxy = true; /* not JSON: nginx or Cloudflare answered, not the app */ }
       if (x.status >= 200 && x.status < 300) return resolve(d);
-      reject(Object.assign(new Error(d.error || 'A piece of the video didn’t go through.'), { status: x.status, received: d.received }));
+      reject(Object.assign(new Error(d.error || `A piece of the video didn’t go through (error ${x.status}).`), { status: x.status, received: d.received, proxy }));
     };
     x.send(blob);
   });
@@ -286,14 +286,17 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Send a video; onProgress(0..1) while it uploads. Resolves with the new lesson (still being prepared). */
 export async function uploadLesson(file, { step = '', onProgress = () => {} } = {}) {
   const start = await upCall('POST', UP, { size: file.size, type: file.type && file.type.startsWith('video/') ? file.type : 'video/mp4' });
-  const id = start.uploadId, piece = start.pieceMB * 1024 * 1024;
-  let at = start.received, misses = 0;
+  const id = start.uploadId, MIN_PIECE = 1024 * 1024;
+  let piece = start.pieceMB * 1024 * 1024, at = start.received, misses = 0;
   while (at < file.size) {
     const end = Math.min(file.size, at + piece);
     try {
       at = (await putPiece(id, at, file.slice(at, end), (sent) => onProgress((at + sent) / file.size))).received;
       misses = 0;
     } catch (e) {
+      // Too big for something in front of the app (413), or too slow to arrive before it gave up (408, 504,
+      // Cloudflare's 524): send smaller pieces from here on. The server takes any piece up to its size.
+      if ([408, 413, 504, 524].includes(e.status) && piece > MIN_PIECE) { piece = Math.max(MIN_PIECE, Math.floor(piece / 2)); continue; }
       // Refusals that sending again won't fix go straight to her; anything else waits and carries on.
       if ([400, 404, 413, 415, 507].includes(e.status) || ++misses > 8) throw e;
       if (e.received !== undefined) { at = e.received; continue; }
