@@ -30,7 +30,9 @@ export const ACTIVITY_TYPES = Object.freeze([
   'checkin',             // a leader checked in with someone on their team; meta.person_id
   'day_off',             // a planned or sick day off: own-production checks skip it
   'self_rating',         // a leader's monthly answer, producer (1) to builder (10); value = 1..10
-  'lesson_tried',        // an agent tried what a team lesson taught; meta.lesson_id
+  'lesson_tried',        // an agent tried what a team lesson taught; meta.lesson_id, meta.how = 'good' | 'okay' | 'not_great'
+  'lesson_watched',      // an agent opened a team lesson (enough to move on in the course); meta.lesson_id
+  'lesson_known',        // an agent skipped a lesson they already know; meta.lesson_id
 ]);
 
 /** Every recruiting action a builder takes. Counts toward the daily recruiting step. */
