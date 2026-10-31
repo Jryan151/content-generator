@@ -33,6 +33,7 @@ import { runProc, tail } from '../lib/proc.js';
 import { readingSeconds, END_CARD_SECONDS, accentHex } from '../mixer-core.js';
 import { ensureFont } from './fonts.js';
 import { clipLook, lookOver, matchPlan, matchFilter, shadowLevel, musicBeats, beatTimes, snapCuts, levelPlan, levelFilter, checkSafeZones, openingOffset } from './craft.js';
+import { IMAGE_IN } from '../lib/ffsafe.js';
 
 const W = 1080, H = 1920;
 const SIZE = 126;            // caption size (Poppins renders small; 126 ≈ 100px of most fonts)
@@ -499,7 +500,7 @@ export async function renderVideo({ scenes, clips, cfg, outFile, workDir, voice 
 
 // An uploaded logo, re-encoded as a clean PNG no bigger than 800×800 (drops metadata and anything odd).
 export async function normalizeImage(input, output) {
-  await run(['-y', '-i', input, '-vf', "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", '-frames:v', '1', '-f', 'image2', '-c:v', 'png', output]);
+  await run(['-y', ...IMAGE_IN, '-i', input, '-vf', "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", '-frames:v', '1', '-f', 'image2', '-c:v', 'png', output]);
   return output;
 }
 
