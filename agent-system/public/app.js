@@ -322,7 +322,7 @@ function renderToday() {
   const notice = lateCard(c) || backupNudge(c);
   // The team slot is for a leader's one team thing, or her own calls being low. An agent's
   // "focus" lives on Progress: repeating it here every morning was noise.
-  const lesson = !isLeaderView(c) && isWorkday(c.dayKey) ? nextLesson(c) : null;
+  const lesson = !isLeaderView(c) ? nextLesson(c) : null;
   const team = own.down ? ownDownCard(c, own)
     : urgent ? needsYouCard(c, urgent)
     : lesson ? lessonCard(c, lesson) : null;
@@ -663,8 +663,11 @@ function renderStudyDay(c, L, top) {
   const scoreOpen = ui.open === 'score', passOpen = ui.open === 'pass', examOpen = ui.open === 'exam';
   const examOn = c.activities.filter((a) => a.agent_id === c.me && a.type === 'exam_booked' && a.meta?.exam_on).at(-1)?.meta.exam_on ?? null;
   const scoreId = 'score-in';
+  const studyLesson = nextLesson(c), lessonCount = lessonsFor(c).length;
   fill($('screen-today'), top,
     backupNudge(c),
+    studyLesson ? lessonCard(c, studyLesson) : null,
+    lessonCount ? h('button', { type: 'button', class: 'card quick', onclick: () => openLessonList(c) }, h('b', {}, `All lessons (${lessonCount})`), h('span', { class: 'muted' }, 'Watch or read any of them again')) : null,
     h('section', { class: 'card call' },
       h('div', { class: 'kicker' }, 'STUDY TODAY'),
       h('div', { class: 'who-big' }, today.studySessions ? 'Nice. Another session?' : 'One study session'),
@@ -959,13 +962,15 @@ function personCard(c, p, real) {
 
 function inviteCard(t) {
   const input = h('input', { id: 'invite-email', class: 'text-in', type: 'email', placeholder: 'Their email', 'aria-label': 'Their email', autocomplete: 'off' });
+  let sending = false;
   const go = () => {
-    const email = input.value.trim(); if (!email) return;
-    sync.invite(email).then((d) => {
+    const email = input.value.trim(); if (!email || sending) return;
+    sending = true;
+    sync.invite(email).finally(() => { sending = false; }).then((d) => {
       ui.invite = { email, link: d.link };
       const r = ui.inviteFor && mine.recruits.find((x) => x.id === ui.inviteFor.id);
       ui.inviteFor = null;
-      if (r) act(ctx(), `${r.name} invited. They’re on Team once they join.`, () => { const m = moveRecruit(r, 'licensing', { builderId: ME, at: new Date().toISOString() }); Object.assign(r, m.recruit); return m.rows; });
+      if (r) act(ctx(), `${r.name} invited. They’re on My people once they join.`, () => { const m = moveRecruit(r, 'licensing', { builderId: ME, at: new Date().toISOString() }); Object.assign(r, m.recruit); return m.rows; });
       else renderTeam();
     }, (e) => toast(e.message, null, true));
   };
@@ -974,7 +979,7 @@ function inviteCard(t) {
   const text = out && `Join my team on Agent Reels. Open this link and make your login with ${out.email}: ${out.link}`;
   return h('div', { class: 'card' },
     h('b', {}, ui.inviteFor ? `Invite ${ui.inviteFor.name}` : 'Invite someone to your team'),
-    h('p', { class: 'muted' }, 'Type their email and get a link. Text it to them. They make a login with that email and land on your team. The link works once.'),
+    h('p', { class: 'muted' }, 'Type their email and get a link. Text it to them. They make a login with that email and land on your team. The link works once, and getting a new link for the same email cancels the old one.'),
     h('div', { class: 'inline' }, input, h('button', { type: 'button', class: 'mini', onclick: go }, 'Get link')),
     out ? h('div', { class: 'stepper' },
       h('label', {}, `Link for ${out.email}`),
@@ -986,7 +991,7 @@ function inviteCard(t) {
         h('a', { class: 'mini', href: `sms:?&body=${encodeURIComponent(text)}` }, 'Open Messages'))) : null,
     t?.invites?.length ? h('div', {},
       h('div', { class: 'muted' }, 'Haven’t joined yet'),
-      t.invites.map((i) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, i.email), h('span', { class: 'muted' }, `Sent ${dayShort(i.at.slice(0, 10))}`)),
+      t.invites.map((i) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, i.email), h('span', { class: 'muted' }, `Sent ${dayShort(bucketKey(i.at, '1D', ctx().tz))}`)),
         h('button', { type: 'button', class: 'link', onclick: () => sync.revokeInvite(i.email).then(() => { if (ui.invite?.email === i.email) ui.invite = null; toast('Invite taken back. That link no longer works.'); renderTeam(); }, (e) => toast(e.message, null, true)) }, 'Take back')))) : null);
 }
 
@@ -1000,7 +1005,7 @@ function drawTeam(c, screen, top, t, L, { real = false } = {}) {
     lessonsSection(c),
     real && t.archived?.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Off the team'), h('span', { class: 'muted' }, ` ${t.archived.length}`)),
       h('p', { class: 'muted' }, 'Their sales stay in your history. Invite them again and their log comes back.'),
-      t.archived.map((a) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, a.name), h('span', { class: 'muted' }, `Left ${dayShort(a.at.slice(0, 10))}`))))) : null);
+      t.archived.map((a) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, a.name), h('span', { class: 'muted' }, `Left ${dayShort(bucketKey(a.at, '1D', ctx().tz))}`))))) : null);
 }
 
 function renderTeam() {
@@ -1040,12 +1045,23 @@ function renderTeam() {
 const STEP_LABEL = { basics: 'The basics', open: 'Opening the call', need: 'Finding the need', qualify: 'Health and budget', options: 'Showing options', close: 'Closing' };
 const isLeaderView = (c) => (c.demo ? c.demoAs === 'leader' : sync.account.role === 'leader');
 const minutes = (s) => (s ? `${Math.max(1, Math.round(s / 60))} min` : '');
-let lessonPoll = null;
+let lessonPoll = null, lessonLoad = null, lessonError = null, lessonsSeenAt = Date.now();
+// Coming back to the app (after texting, or the next morning): check for new lessons and tries.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && sync.account.on) { lessonsSeenAt = 0; renderAll(); } });
+const retryLessons = () => { lessonError = null; renderAll(); };
 function lessonData(c) {
   if (c.demo) return { role: c.demoAs === 'leader' ? 'leader' : 'agent', lessons: DEMO_LESSONS.map((l) => ({ ...l, status: 'ready', published: true, tried: DEMO_LESSON_TRIED[l.id] ?? 0, teamSize: 3 })) };
   if (!sync.account.on) return { role: null, lessons: [] };
   const d = sync.lessonsNow();
-  if (!d) { sync.loadLessons().then(() => renderAll(), () => {}); return null; }
+  if (!d) {
+    if (!lessonLoad) lessonLoad = sync.loadLessons().then(() => { lessonError = null; }, (e) => { lessonError = e.message || 'Couldn’t load your lessons.'; }).finally(() => { lessonLoad = null; renderAll(); });
+    return null;
+  }
+  // Fresh every minute or so (who tried what, newly published lessons), without a reload.
+  if (!lessonLoad && Date.now() - lessonsSeenAt > 60_000) {
+    lessonsSeenAt = Date.now();
+    lessonLoad = sync.loadLessons({ force: true }).then(() => { if (!sheet) renderAll(); }, () => {}).finally(() => { lessonLoad = null; });
+  }
   if (d.lessons.some((l) => l.status === 'processing') && !lessonPoll) {
     lessonPoll = setTimeout(() => { lessonPoll = null; sync.loadLessons({ force: true }).then(() => { if (!sheet) renderAll(); }, () => {}); }, 5000);
   }
@@ -1081,9 +1097,13 @@ function skipLesson(c, l) {
 
 // A lesson opens over the screen, and closes back to where you were.
 let sheet = null;
-function closeSheet() { sheet?.remove(); sheet = null; document.body.classList.remove('sheet-open'); }
+function closeSheet(redraw = true) {
+  const was = redraw && sheet;
+  sheet?.remove(); sheet = null; document.body.classList.remove('sheet-open');
+  if (was && !isLeaderView(ctx())) renderAll(); // "Watch it" becomes what's next
+}
 function openSheet(label, ...kids) {
-  closeSheet();
+  closeSheet(false);
   sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, onclick: (e) => { if (e.target === sheet) closeSheet(); } },
     h('div', { class: 'sheet-in' }, h('div', { class: 'row' }, h('span'), h('button', { type: 'button', class: 'link', onclick: closeSheet }, 'Close')), ...kids));
   document.body.append(sheet);
@@ -1130,12 +1150,14 @@ function openLessonList(c) {
 function lessonsSection(c) {
   if (!isLeaderView(c)) return null;
   const d = lessonData(c);
-  if (!d) return h('p', { class: 'muted' }, 'Loading your lessons…');
+  if (!d) return lessonError
+    ? h('div', { class: 'card' }, h('b', {}, 'Your lessons didn’t load'), h('p', { class: 'muted' }, lessonError), h('button', { type: 'button', class: 'mini', onclick: retryLessons }, 'Try again'))
+    : h('p', { class: 'muted' }, 'Loading your lessons…');
   return h('section', { class: 'card' },
     h('div', { class: 'kicker' }, 'LESSONS FOR YOUR TEAM'),
     h('b', {}, 'Teach it once on video. Your team learns it any time.'),
     h('p', { class: 'muted' }, c.demo ? 'On your own team, you add a lesson here from a video on your phone.'
-      : 'Record 2 to 5 minutes on your phone and just teach: long pauses are trimmed and the sound is cleaned up for you. Say “Mango start”, “Mango back”, “Mango redo” or “Mango end” to cut while you record. You check it, then publish.'),
+      : 'Record 2 to 5 minutes on your phone (1080p, not 4K) and just teach: long pauses are trimmed and the sound is cleaned up for you. Say “Mango start”, “Mango back”, “Mango redo” or “Mango end” to cut while you record. You check it, then publish.'),
     c.demo ? null : uploadControl(),
     d.lessons.length ? d.lessons.map((l, i) => lessonRow(c, l, i, d.lessons.length)) : h('p', { class: 'muted' }, 'No lessons yet.'));
 }
@@ -1231,7 +1253,7 @@ function renderDataCard() {
     fill(card,
       h('div', { class: 'kicker' }, 'YOUR ACCOUNT'),
       h('b', {}, a.me?.name || a.me?.email || 'Signed in'),
-      h('p', { class: 'muted' }, a.role === 'leader' ? `You lead ${a.team?.name}. Invite your people on Team.` : `On ${a.team?.leaderName}’s team. ${a.team?.leaderName} sees your calls, meetings and sales, never your clients’ names.`),
+      h('p', { class: 'muted' }, a.role === 'leader' ? `You lead ${a.team?.name}. Invite your people on My people.` : `On ${a.team?.leaderName}’s team. ${a.team?.leaderName} sees your calls, meetings and sales, never your clients’ names.`),
       h('p', { class: a.status === 'error' ? 'err' : 'muted' }, `${mine.activities.length} log entries · ${mine.leads.length} people. ${saving}`),
       licenseRow, dayRow,
       h('button', { type: 'button', class: 'mini quiet', onclick: () => sync.logout() }, 'Log out'));
