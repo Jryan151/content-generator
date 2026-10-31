@@ -817,9 +817,10 @@ function recruitsSection(c, L) {
         } }, dropping ? 'Tap again to confirm' : 'Not moving forward')));
   };
   return [
-    h('h3', { class: 'section-h' }, 'Recruits'),
-    first ? card(first) : h('p', { class: 'muted' }, 'No recruits right now.'),
-    h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Add a recruit'), rest.length ? h('span', { class: 'muted' }, ` · ${rest.length} more waiting`) : null),
+    h('h3', { class: 'section-h' }, 'People you’re recruiting'),
+    first ? card(first) : h('p', { class: 'muted' }, 'No one yet. Add someone you’re talking to about joining.'),
+    h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Track someone you’re recruiting'), rest.length ? h('span', { class: 'muted' }, ` · ${rest.length} more waiting`) : null),
+      h('p', { class: 'muted' }, 'Just their name, to keep track while you talk. When they’re ready to join, invite them to your team.'),
       addForm('add-recruit', 'Their name', 'Add', (name) => act(c, `${name} added to your recruits.`, () => { const r = addRecruit({ id: uid(), name }, { builderId: c.me, at: c.at() }); c.recruits.unshift(r.recruit); return r.rows; })),
       rest.map((rec) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, rec.name), h('span', { class: 'muted' }, stepOf(rec)?.label ?? '')))),
       c.names.length ? h('div', { class: 'muted' }, `Names you saved before: ${c.names.map((n) => n.name).join(', ')}`) : null,
@@ -972,7 +973,7 @@ function inviteCard(t) {
   const out = ui.invite;
   const text = out && `Join my team on Agent Reels. Open this link and make your login with ${out.email}: ${out.link}`;
   return h('div', { class: 'card' },
-    h('b', {}, ui.inviteFor ? `Invite ${ui.inviteFor.name}` : 'Add an agent or recruit'),
+    h('b', {}, ui.inviteFor ? `Invite ${ui.inviteFor.name}` : 'Invite someone to your team'),
     h('p', { class: 'muted' }, 'Type their email and get a link. Text it to them. They make a login with that email and land on your team. The link works once.'),
     h('div', { class: 'inline' }, input, h('button', { type: 'button', class: 'mini', onclick: go }, 'Get link')),
     out ? h('div', { class: 'stepper' },
@@ -995,8 +996,8 @@ function drawTeam(c, screen, top, t, L, { real = false } = {}) {
     h('p', { class: 'lead' }, need === 0 ? 'Everyone is fine today.' : `${need} ${need === 1 ? 'person could' : 'people could'} use you. Everyone else is fine.`),
     t.people.map((p) => personCard(c, p, real)),
     recruitsSection(c, L),
-    lessonsSection(c),
     real ? inviteCard(t) : null,
+    lessonsSection(c),
     real && t.archived?.length ? h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Off the team'), h('span', { class: 'muted' }, ` ${t.archived.length}`)),
       h('p', { class: 'muted' }, 'Their sales stay in your history. Invite them again and their log comes back.'),
       t.archived.map((a) => h('div', { class: 'item' }, h('div', { class: 'who' }, h('b', {}, a.name), h('span', { class: 'muted' }, `Left ${dayShort(a.at.slice(0, 10))}`))))) : null);
