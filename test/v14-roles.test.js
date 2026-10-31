@@ -40,7 +40,9 @@ test('capabilities by role', () => {
   assert.ok(s.includes('settings') && s.includes('approve') && s.includes('connect') && !s.includes('signoff'));
   const r = { id: 'u2', role: 'agent', memberships: [{ ws: solo.id, role: 'reviewer' }] };
   assert.deepEqual(roles.capsFor(r, solo), ['signoff'], 'a reviewer only signs off');
-  assert.deepEqual(roles.membershipsOf({ id: 'u3', role: 'agent', memberships: [{ ws: solo.id, role: 'assistant' }] }), [], 'an old assistant seat no longer counts');
+  const asst = { id: 'u3', role: 'agent', memberships: [{ ws: solo.id, role: 'assistant' }] };
+  assert.deepEqual(roles.membershipsOf(asst), [{ ws: solo.id, role: 'assistant' }], 'the assistant seat is back (v16.1)');
+  assert.ok(roles.capsFor(asst, solo).includes('make') && !roles.capsFor(asst, solo).includes('approve'), 'an assistant makes, never approves');
   assert.ok(roles.capsFor(owner, { ...solo, onboarded: false }).includes('setup'), 'setup comes first');
   assert.deepEqual(roles.capsFor({ role: 'admin' }, solo).sort(), Object.keys(roles.CAPS).filter(c => !['setup', 'signoff'].includes(c)).sort(), 'admins: everything (setup happens once, signing off is the reviewer’s alone)');
   assert.deepEqual(roles.capsFor({ id: 'x', role: 'agent', workspaceId: 'w000000000000' }, solo), [], 'not a member, nothing');

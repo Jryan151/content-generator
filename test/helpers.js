@@ -12,7 +12,8 @@ export function tempEnv() {
   for (const [k, v] of Object.entries(dirs)) { process.env[k] = path.join(root, v); fs.mkdirSync(process.env[k], { recursive: true }); }
   process.env.NODE_ENV = 'test';
   process.env.PUBLIC_URL = '';
-  process.env.TWO_FACTOR = 'off';   // tests that cover two-factor login turn it back on themselves
+  process.env.TWO_FACTOR = 'off';
+  process.env.PARKED = '';         // parked features are kept, so their tests still run; test/parked.test.js covers the default   // tests that cover two-factor login turn it back on themselves
   delete process.env.STRIPE_SECRET_KEY;
   // Gone when the test file finishes, so test runs (each update runs them all) don't fill /tmp.
   process.on('exit', () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } });
