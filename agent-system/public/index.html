@@ -175,6 +175,8 @@ body.sheet-open { overflow: hidden; }
 .row > :first-child { min-width: 0; }
 .muted { color: var(--muted); font-size: 13.5px; }
 .focus .muted { color: inherit; opacity: .78; }
+/* Buttons and links on the dark focus card use the card's own text color, so they stay readable in light and dark mode. */
+.focus .mini, .focus .link, .focus a:not(.go) { color: inherit; border-color: currentColor; }
 .pill { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .pill.green { background: var(--accent-soft); color: var(--accent-ink); }
 .pill.red { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
@@ -239,6 +241,36 @@ details.more > *:not(summary) { margin-bottom: 10px; }
 .lead { font-size: 16px; margin: 0; }
 .scale { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; }
 .scale .mini { padding: 0; min-height: 44px; }
+
+/* Desktop (960px and wider). The phone layout above is untouched; this only adds to it.
+   - The tabs move from the bottom bar to a sidebar on the left.
+   - Screens that list people (My people) or clients (Clients) show their cards two across.
+   - Screens that are one chain of steps (Today, Progress, Setup) stay one readable column,
+     because their order is the point: the first card is always the next thing to do.
+   - Lessons open as a centered window instead of a sheet from the bottom. */
+@media (min-width: 960px) {
+  main { padding: 32px 48px 48px calc(220px + 48px); }
+  body::before { display: none; }
+  .wrap { max-width: 1040px; margin: 0; }
+  .tabs { top: 0; right: auto; bottom: 0; width: 220px; display: flex; flex-direction: column; gap: 4px;
+    padding: 92px 14px 24px; border-top: 0; border-right: 1px solid var(--line); }
+  .tabs a { justify-content: flex-start; padding: 0 14px; font-size: 15px; min-height: 44px; }
+  .tabs a[hidden] { display: none; }
+
+  #screen-today, #screen-ladder, #screen-setup { max-width: 720px; }
+
+  #screen-team, #screen-pipeline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px 20px; }
+  #screen-team > *, #screen-pipeline > * { grid-column: 1 / -1; }
+  #screen-team > .card.person, #screen-pipeline > .card:not(.locked) { grid-column: auto; }
+
+  .toast { left: calc(220px + 24px); right: 24px; bottom: 24px; }
+  .sheet { align-items: center; padding: 24px; }
+  .sheet-in { max-width: 760px; max-height: 88vh; border-radius: 18px; padding: 20px 28px 28px; }
+  .lesson-video { max-height: 60vh; }
+}
+@media (min-width: 960px) and (hover: hover) {
+  .tabs a:not([aria-current=page]):hover, .reply:not(.r-booked):not(.r-applied):hover, .log button:hover, .mini:hover, .card.quick:hover { background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg)); }
+}
 </style>
 </head>
 <body>
