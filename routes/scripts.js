@@ -21,11 +21,11 @@ route('POST', '/api/script', 'ws', async ({ wsId, ws, body, me }) => {
   if (!a.allowed) bad(402, a.reason);
   spendGate(ws);
   if (usage.scriptsToday(wsId) >= TESTS_PER_DAY) bad(429, `That’s ${TESTS_PER_DAY} test scripts today. More tomorrow.`);
+  usage.count(wsId, 'scripts');   // counted before any wait, so requests sent all at once can't slip past the limit
   const saved = store.loadConfig(wsId);
   const cfg = body.config ? stampFacts(saved, migrate(body.config), me.account.id) : saved;
   const { generateScript } = await import('../stages/script.js');
   const lines = [];
-  usage.count(wsId, 'scripts');
   try {
     const vids = store.readVideos(wsId);
     const force = { painId: clip(body.painId, 40), insightId: clip(body.insightId, 40), format: FORMATS[body.format] ? body.format : '', perf: { ...boostsFrom(vids), taste: tasteFrom(vids) } };

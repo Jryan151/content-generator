@@ -329,14 +329,14 @@ const RECORD_CSS = '<style>body{font:15px/1.5 system-ui,sans-serif;max-width:820
 route('GET', '/api/videos/:id/receipt.html', 'ws', ({ res, wsId, ws, params }) => {
   const v = getV(wsId, params.id);
   if (!v.approval) bad(404, 'This video hasn’t been approved, so there’s no receipt yet.');
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...BASE_HEADERS });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", ...BASE_HEADERS });
   res.end(`<!doctype html><meta charset="utf-8"><title>Compliance receipt · ${recE(ws.name)}</title>${RECORD_CSS}
 <h1>Compliance receipt</h1><p>${recE(ws.name)} · video ${recE(v.id)} · printed ${recE(recD(nowIso()))}. The agent approved this video and remains responsible for it and for any carrier or state review.</p>${recordSection(v, { full: true })}`);
 });
 route('GET', '/api/records.html', 'ws', ({ res, wsId, ws }) => {
   const e = recE, d = recD;
   const items = recordRows(wsId).map(v => recordSection(v)).join('');
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="${slug(ws.name)}-approval-records.html"`, 'Cache-Control': 'no-store', ...BASE_HEADERS });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="${slug(ws.name)}-approval-records.html"`, 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", ...BASE_HEADERS });
   res.end(`<!doctype html><meta charset="utf-8"><title>Approval records · ${e(ws.name)}</title>
 ${RECORD_CSS}
 <h1>Approval records · ${e(ws.name)}</h1><p>Exported ${e(d(nowIso()))}. ${recordRows(wsId).length} approved video(s). Each record shows who approved the video, what they checked, the fact it used and a fingerprint (SHA-256) of the exact file approved. Scripts were compliance-checked automatically; the agent approved each video and remains responsible for it and for any carrier or state review.</p>${items || '<p>No approved videos yet.</p>'}`);
